@@ -16,6 +16,7 @@ import {
   isPairingToken,
   lanAddresses,
   pairingUrl,
+  type PhoneConnection,
   type PhoneHost,
   type PhoneHostEvent
 } from '@neurosquad/remote'
@@ -34,6 +35,8 @@ export interface PhoneStatus {
   port?: number
   address?: string
   connections: number
+  /** Who is connected (address, device, since). Always shown by the dashboard. */
+  phones: PhoneConnection[]
 }
 
 function tokenFile(): string {
@@ -62,11 +65,14 @@ export function forgetPhoneToken(): void {
 export class PhoneAccess {
   private server: PhoneServer | null = null
   private lan = false
+  private sweep: ReturnType<typeof setInterval> | null = null
   private readonly listeners = new Set<(event: PhoneHostEvent) => void>()
 
   constructor(
     private readonly host: Omit<PhoneHost, 'subscribe'>,
-    private readonly log: (line: string) => void
+    private readonly log: (line: string) => void,
+    /** Called when the phone access or who is connected may have changed. */
+    private readonly changed: () => void = () => {}
   ) {}
 
   /** Host events (status, attention, the agent list changed), for whoever listens. */
@@ -99,11 +105,16 @@ export class PhoneAccess {
       token,
       bindAddress: settings.lan ? '0.0.0.0' : '127.0.0.1',
       port: settings.port ?? DEFAULT_PHONE_PORT,
-      log: (line) => this.log(line)
+      log: (line) => this.log(line),
+      onConnectionsChange: () => this.changed()
     })
     await server.start()
     this.server = server
     this.lan = settings.lan === true
+    // A phone that only goes quiet drops out after a minute; nothing else reports that.
+    this.sweep = setInterval(() => this.changed(), 15_000)
+    this.sweep.unref()
+    this.changed()
     return this.status()
   }
 
@@ -111,7 +122,10 @@ export class PhoneAccess {
     const server = this.server
     this.server = null
     this.listeners.clear()
+    if (this.sweep) clearInterval(this.sweep)
+    this.sweep = null
     await server?.stop()
+    if (server) this.changed()
   }
 
   rotate(): void {
@@ -121,14 +135,15 @@ export class PhoneAccess {
   }
 
   status(): PhoneStatus {
-    if (!this.server) return { running: false, lan: false, connections: 0 }
+    if (!this.server) return { running: false, lan: false, connections: 0, phones: [] }
     const { address, port } = this.server.address()
     return {
       running: true,
       lan: this.lan,
       address,
       port,
-      connections: this.server.connectionCount()
+      connections: this.server.connectionCount(),
+      phones: this.server.connections()
     }
   }
 

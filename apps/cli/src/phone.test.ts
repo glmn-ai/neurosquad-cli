@@ -98,6 +98,11 @@ describe.skipIf(!built)('phone access', () => {
     })
     expect(answer.status).toBeGreaterThanOrEqual(400)
 
+    // Who is connected: this test's fetch, by address and device.
+    const status = nsq('phone', 'status')
+    expect(status.stdout).toContain('1 connected')
+    expect(status.stdout).toMatch(/node\s+(::ffff:)?127\.0\.0\.1/)
+
     const pair = nsq('phone', 'pair')
     expect(pair.stdout).toContain(`/?t=${token}`)
 

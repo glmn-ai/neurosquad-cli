@@ -57,6 +57,7 @@ import {
   PROTOCOL_VERSION,
   encode,
   type AgentView,
+  type PhoneView,
   type DaemonEvent,
   type Request,
   type RequestWithId,
@@ -156,7 +157,11 @@ export class Daemon {
   private readonly phone: PhoneAccess
 
   constructor() {
-    this.phone = new PhoneAccess(this.phoneHost(), (line) => this.log(line))
+    this.phone = new PhoneAccess(
+      this.phoneHost(),
+      (line) => this.log(line),
+      () => this.phonesChanged()
+    )
     this.notifier = createNotifier(this.config.notifications !== false)
   }
 
@@ -788,6 +793,35 @@ export class Daemon {
     }
   }
 
+  private lastPhones = ''
+
+  private phoneView(): PhoneView {
+    const status = this.phone.status()
+    return {
+      running: status.running,
+      lan: status.lan,
+      ...(status.port !== undefined ? { port: status.port } : {}),
+      phones: status.phones
+    }
+  }
+
+  /** Every client learns who is connected; only real changes go out. */
+  private phonesChanged(): void {
+    const view = this.phoneView()
+    const signature = JSON.stringify({
+      ...view,
+      phones: view.phones.map((p) => [p.address, p.device, p.firstSeen, p.open > 0])
+    })
+    if (signature === this.lastPhones) return
+    this.lastPhones = signature
+    if (view.phones.length || view.running) {
+      this.log(
+        `phone: ${view.running ? 'on' : 'off'}, ${view.phones.length} connected${view.phones.length ? ` (${view.phones.map((p) => `${p.device} ${p.address}`).join(', ')})` : ''}`
+      )
+    }
+    this.broadcast({ t: 'phones', phone: view })
+  }
+
   private async phoneRequest(message: Request & { t: 'phone' }): Promise<unknown> {
     const saved = (change: {
       enabled: boolean
@@ -905,6 +939,7 @@ export class Daemon {
         const ids =
           message.agents === '*' ? this.store.all().map((record) => record.id) : message.agents
         this.send(client, { t: 'agents', agents: this.views() })
+        this.send(client, { t: 'phones', phone: this.phoneView() })
         for (const id of ids) void this.joinScreen(client, id)
         return undefined
       }

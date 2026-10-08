@@ -106,6 +106,8 @@ export type DaemonEvent =
   | { t: 'data'; id: string; generation: number; data: string }
   | { t: 'resized'; id: string; cols: number; rows: number }
   | { t: 'exit'; id: string; generation: number }
+  /** Phone access changed (turned on/off, a phone connected or left). Sent on subscribe too. */
+  | { t: 'phones'; phone: PhoneView }
   /** A status change that should notify (the TUI rings the terminal bell / OSC 9). */
   | {
       t: 'notify'
@@ -116,6 +118,14 @@ export type DaemonEvent =
       /** No desktop notification could be shown: the client signals in its terminal. */
       ring: boolean
     }
+
+/** Phone access as the dashboard shows it: on/off and who is connected. */
+export interface PhoneView {
+  running: boolean
+  lan: boolean
+  port?: number
+  phones: { address: string; device: string; firstSeen: number; lastSeen: number; open: number }[]
+}
 
 /** Splits a stream into lines and parses each as JSON; a bad line is skipped. */
 export class LineDecoder<T> {

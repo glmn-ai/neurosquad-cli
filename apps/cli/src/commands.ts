@@ -530,7 +530,14 @@ export async function cmdRawInput(args: ParsedArgs): Promise<void> {
 }
 
 interface PhoneReply {
-  status: { running: boolean; lan: boolean; port?: number; address?: string; connections: number }
+  status: {
+    running: boolean
+    lan: boolean
+    port?: number
+    address?: string
+    connections: number
+    phones: { address: string; device: string; firstSeen: number; open: number }[]
+  }
   links?: string[]
 }
 
@@ -539,7 +546,7 @@ function describePhone(status: PhoneReply['status']): string {
   const where = status.lan
     ? `the local network, port ${status.port}`
     : `this machine only, port ${status.port}`
-  return `phone access: on — ${where}; ${status.connections} connected`
+  return `phone access: on — ${where}; ${status.phones.length} connected`
 }
 
 export async function cmdPhone(args: ParsedArgs): Promise<void> {
@@ -558,6 +565,11 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
       ...(port !== undefined ? { port: Number(port) } : {})
     })) as PhoneReply
     out(describePhone(reply.status))
+    for (const phone of reply.status.phones) {
+      out(
+        `  ${phone.device}  ${phone.address}  since ${new Date(phone.firstSeen).toLocaleTimeString()}${phone.open ? '  (live)' : ''}`
+      )
+    }
     if (verb === 'rotate')
       out('new pairing token: every paired phone is signed out (nsq phone pair)')
     if (verb === 'on' && !reply.status.lan) {
