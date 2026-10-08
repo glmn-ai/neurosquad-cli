@@ -38,7 +38,7 @@
     "@xterm/headless": "^6.0.0"
   },
   "peerDependencies": {
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0 || >=1.2.0-0"
   },
   "peerDependenciesMeta": {
     "node-pty": {
@@ -50,6 +50,6 @@
     "provenance": true
   },
   "devDependencies": {
-    "node-pty": "^1.1.0"
+    "node-pty": "1.1.0"
   }
 }
