@@ -1,0 +1,202 @@
+name: Release
+
+# Changesets release flow (see RELEASING.md):
+#   - a push to main that carries changesets → the "Version Packages" PR is created/updated, by the
+#     NeuroSquad Dev Bot (an App token, so CI runs on it; GITHUB_TOKEN-made PRs get no CI);
+#   - merging that PR (no changesets left, versions not on npm yet) → pack smoke on every OS/arch,
+#     then the packages are packed once and published to npm with trusted publishing (OIDC, no npm
+#     token anywhere) and provenance, and the git tags + GitHub releases are created.
+# Publishing is off until the repository variable NPM_PUBLISH_ENABLED is "true" (set it only after
+# the trusted publishers exist on npmjs.com — RELEASING.md, "One-time setup").
+#
+# The file name matters: npm's trusted publisher is bound to `release.yml` + environment `npm`.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select-mode:
+    name: select mode
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      mode: ${{ steps.select-mode.outputs.mode }}
+      publish-plan-artifact-id: ${{ steps.select-mode.outputs.publish-plan-artifact-id }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Select Changesets mode
+        id: select-mode
+        uses: changesets/action/select-mode@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+
+      - name: Report
+        env:
+          MODE: ${{ steps.select-mode.outputs.mode }}
+          PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
+        run: |
+          echo "Changesets mode: $MODE"
+          if [ "$MODE" = "publish" ] && [ "$PUBLISH_ENABLED" != "true" ]; then
+            echo "::notice::Unpublished versions found, but publishing is disabled (repository variable NPM_PUBLISH_ENABLED is not \"true\"). See RELEASING.md."
+          fi
+
+  version:
+    name: version PR
+    needs: select-mode
+    if: needs.select-mode.outputs.mode == 'version'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Everything that writes goes through the App token below; GITHUB_TOKEN only reads.
+    permissions:
+      contents: read
+    steps:
+      - name: NeuroSquad Dev Bot token
+        id: bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # The App ID; GitHub accepts the App ID or the Client ID as the JWT issuer.
+          client-id: ${{ secrets.NSQ_BOT_APP_ID }}
+          private-key: ${{ secrets.NSQ_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Full history: the changelog links each entry to the commit/PR that added its changeset.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Create or update the Version Packages PR
+        uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        env:
+          # @changesets/changelog-github reads PR/author links with it.
+          GITHUB_TOKEN: ${{ steps.bot.outputs.token }}
+        with:
+          github-token: ${{ steps.bot.outputs.token }}
+          script: npm run version-packages
+          commit-message: 'chore(release): version packages'
+          pr-title: 'chore(release): version packages'
+
+  smoke:
+    name: pack smoke
+    needs: select-mode
+    if: needs.select-mode.outputs.mode == 'publish' && vars.NPM_PUBLISH_ENABLED == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/pack-smoke.yml
+
+  pack:
+    name: pack
+    needs: [select-mode, smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      pack-dir-artifact-id: ${{ steps.pack.outputs.pack-dir-artifact-id }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack
+        id: pack
+        uses: changesets/action/pack@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          publish-plan-artifact-id: ${{ needs.select-mode.outputs.publish-plan-artifact-id }}
+
+  publish:
+    name: publish to npm
+    needs: pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The npm trusted publishers are bound to this environment; add required reviewers to it in
+    # Settings → Environments to gate every publish by hand.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/org/neurosquad
+    permissions:
+      contents: write # git tags and GitHub releases
+      id-token: write # npm trusted publishing (OIDC) + provenance
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Check the npm CLI supports trusted publishing
+        run: |
+          v="$(npm --version)"
+          echo "npm $v"
+          node -e 'const [a,b,c]=process.argv[1].split(".").map(Number); process.exit(a>11||(a===11&&(b>5||(b===5&&c>=1)))?0:1)' "$v" \
+            || { echo "::error::npm $v cannot do trusted publishing (needs >= 11.5.1)"; exit 1; }
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Publish
+        id: publish
+        uses: changesets/action/publish@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
+        with:
+          pack-dir-artifact-id: ${{ needs.pack.outputs.pack-dir-artifact-id }}
+          create-github-releases: true
+
+      - name: Summary
+        if: always()
+        env:
+          PUBLISHED: ${{ steps.publish.outputs.published }}
+          PACKAGES: ${{ steps.publish.outputs.published-packages }}
+        run: |
+          {
+            echo "### npm publish"
+            echo
+            echo "Published: ${PUBLISHED:-false}"
+            echo
+            echo '```json'
+            echo "${PACKAGES:-[]}"
+            echo '```'
+            echo
+            echo "Next: install channels (Homebrew, Scoop, winget) — RELEASING.md, step 5."
+          } >> "$GITHUB_STEP_SUMMARY"
