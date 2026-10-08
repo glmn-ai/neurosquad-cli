@@ -212,7 +212,7 @@ describe('queryGraphics', () => {
       paused = true
     }
     await queryGraphics(input, {
-      write: () => setTimeout(() => input.emit('data', '[?62c'), 1)
+      write: () => setTimeout(() => input.emit('data', '\x1b[?62c'), 1)
     })
     expect(paused).toBe(false)
   })

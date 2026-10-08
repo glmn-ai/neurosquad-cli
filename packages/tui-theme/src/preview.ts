@@ -20,7 +20,7 @@ import { badge, frame, keyHint, rule, statusLine, type TileState } from './borde
 import { detectGraphicsFromEnv, type GraphicsProtocol } from './capabilities.js'
 import type { ColorLevel } from './color.js'
 import { STATUS_STYLE, glyphSet, type AgentStatus } from './glyphs.js'
-import { logoBadge, logoImage, type HarnessLogoId } from './logos.js'
+import { kittyDelete, logoBadge, logoImage, type HarnessLogoId } from './logos.js'
 import {
   diffFrames,
   fitLine,
@@ -481,18 +481,33 @@ function logoSpots(lines: Line[]): Array<{ row: number; col: number; id: string 
   return spots
 }
 
+/** kitty image ids by spot (`row:col:logo`), kept across live frames. */
+const kittyIds = new Map<string, number>()
+let nextKittyId = 1
+
 function imagesOverlay(lines: Line[], absolute: boolean): string {
   if (graphics === 'none') return ''
   let out = ''
-  // Stable kitty ids per spot, so a redraw replaces an image instead of stacking another one.
-  for (const [i, s] of logoSpots(lines).entries()) {
-    const img = logoImage(s.id, { protocol: graphics, bg: ROLE_SOURCES.tileBg, id: i + 1 })
+  const seen = new Set<string>()
+  for (const s of logoSpots(lines)) {
+    const key = `${s.row}:${s.col}:${s.id}`
+    seen.add(key)
+    // A stable id per spot, so a redraw replaces its image instead of stacking another one.
+    let id = kittyIds.get(key)
+    if (id === undefined) kittyIds.set(key, (id = nextKittyId++))
+    const img = logoImage(s.id, { protocol: graphics, bg: ROLE_SOURCES.tileBg, id })
     if (!img) continue
     if (absolute) out += `\x1b7\x1b[${s.row + 1};${s.col}H${img}\x1b8`
     else {
       const up = lines.length - s.row
       out += `\x1b7\x1b[${up}A\x1b[${s.col}G${img}\x1b8`
     }
+  }
+  // Spots that went away (covered by the expanded tile, say): remove their kitty placements.
+  for (const [key, id] of kittyIds) {
+    if (seen.has(key)) continue
+    if (graphics === 'kitty') out += kittyDelete(id)
+    kittyIds.delete(key)
   }
   return out
 }
