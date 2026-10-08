@@ -49,6 +49,14 @@ export interface AttachOptions {
   onOthers?: (count: number) => void
 }
 
+/** Leaves the agent's terminal modes behind: mouse, bracketed paste, focus reports, kitty
+ * keyboard flags, modifyOtherKeys, alternate screen, cursor, colours, title. */
+const RESET_MODES =
+  '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1004l\x1b[<u\x1b[>4m\x1b[?1049l\x1b[?25h\x1b[0m\x1b]0;\x07'
+
+/** Signals that end the process while attached (Ctrl+C goes to the agent in raw mode). */
+const SIGNALS: NodeJS.Signals[] = ['SIGTERM', 'SIGHUP']
+
 /** Attaches until detached or the agent exits. Resolves `detached` or `exited`. */
 export function attach(
   client: DaemonClient,
@@ -83,16 +91,14 @@ export function attach(
     const finish = (how: 'detached' | 'exited'): void => {
       if (done) return
       done = true
+      process.off('exit', restoreOnExit)
+      for (const signal of SIGNALS) process.off(signal, onSignal)
       off()
       stdin.off('data', onKey)
       stdout.off('resize', resize)
       if (stdin.isTTY) stdin.setRawMode(false)
       stdin.pause()
-      // Leave the agent's terminal modes behind: mouse, bracketed paste, focus reports,
-      // kitty keyboard flags, modifyOtherKeys, alternate screen, cursor, title.
-      stdout.write(
-        '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1004l\x1b[<u\x1b[>4m\x1b[?1049l\x1b[?25h\x1b[0m\x1b]0;\x07'
-      )
+      stdout.write(RESET_MODES)
       resolve(how)
     }
     const onKey = (data: Buffer | string): void => {
@@ -134,6 +140,23 @@ export function attach(
           return
       }
     })
+    // Killed while attached (a signal, an uncaught error): the terminal still comes back.
+    const restoreOnExit = (): void => {
+      if (done) return
+      try {
+        if (stdin.isTTY) stdin.setRawMode(false)
+        stdout.write(RESET_MODES)
+      } catch {
+        // The terminal is gone.
+      }
+    }
+    const onSignal = (signal: NodeJS.Signals): void => {
+      process.exitCode = 128 + (signal === 'SIGINT' ? 2 : signal === 'SIGHUP' ? 1 : 15)
+      finish('exited')
+      client.close()
+    }
+    process.on('exit', restoreOnExit)
+    for (const signal of SIGNALS) process.on(signal, onSignal)
     if (stdin.isTTY) stdin.setRawMode(true)
     stdin.resume()
     stdin.on('data', onKey)

@@ -10,7 +10,7 @@ import { AgentStore } from './daemon/store.js'
 import { answerKeys } from './daemon/answers.js'
 import { claudeProjectSlug } from './daemon/usage.js'
 import { findDetachKey, parseDetachKey } from './attach.js'
-import { readdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -164,5 +164,14 @@ describe('store recovery', () => {
     expect(store.all()).toEqual([])
     const kept = readdirSync(dir).filter((name: string) => name.includes('corrupt'))
     expect(kept.length).toBe(1)
+  })
+
+  it('a store that cannot be read stops the daemon instead of starting empty', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nsq-store-'))
+    dirs.push(dir)
+    const file = join(dir, 'agents.json')
+    // A directory where the file should be: reading fails with EISDIR, not a parse error.
+    mkdirSync(file)
+    expect(() => new AgentStore(file)).toThrow()
   })
 })

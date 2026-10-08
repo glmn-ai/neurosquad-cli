@@ -50,8 +50,12 @@ export class AgentStore {
         if (valid(entry))
           this.records.set(entry.id, { ...entry, wantRunning: entry.wantRunning === true })
       }
-    } catch {
-      // No file yet, or nothing usable: start empty.
+    } catch (error) {
+      // No file yet, or unparseable content already set aside: start empty. Anything else
+      // (no access, a lock that outlasted the retries) stops the daemon instead — an empty
+      // store would overwrite the intact file on the next write.
+      const code = (error as NodeJS.ErrnoException).code
+      if (code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error
     }
   }
 

@@ -491,17 +491,23 @@ export class Daemon {
     if (prompt && promptArgs(record.harness, openCodeV2, prompt).length === 0) {
       rt.pendingPrompt = prompt
     }
-    await this.ptys.spawn(request(resumed, prompt), {
-      onSessionNotFound: () => {
-        this.log(`${record.name}: the session to resume does not exist; starting a fresh one`)
-        const fresh = this.store.update(record.id, {
-          sessionStarted: false,
-          harnessSessionId: undefined
-        })
-        if (fresh) record = fresh
-        return request(false)
-      }
-    })
+    try {
+      await this.ptys.spawn(request(resumed, prompt), {
+        onSessionNotFound: () => {
+          this.log(`${record.name}: the session to resume does not exist; starting a fresh one`)
+          const fresh = this.store.update(record.id, {
+            sessionStarted: false,
+            harnessSessionId: undefined
+          })
+          if (fresh) record = fresh
+          return request(false)
+        }
+      })
+    } catch (error) {
+      // Never typed into a later start that did not ask for it.
+      rt.pendingPrompt = undefined
+      throw error
+    }
     this.store.update(record.id, { sessionStarted: true, wantRunning: true })
     // A resumed agent sits at its prompt until a hook says otherwise.
     if (resumed && !agentStatusSnapshot(record.id)) {
