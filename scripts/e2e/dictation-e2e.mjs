@@ -169,6 +169,7 @@ off()
 check(
   'the agent received the text',
   /(PASTE|KEYS):.*[A-Za-z]/.test(screen),
+  // eslint-disable-next-line no-control-regex -- terminal escapes
   screen.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '').slice(-300)
 )
 check('nothing was submitted (no Enter)', !/SUBMITTED/.test(screen))
