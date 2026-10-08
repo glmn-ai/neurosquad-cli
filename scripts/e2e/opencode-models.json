@@ -1,0 +1,35 @@
+{
+  "openrouter": {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "env": ["OPENROUTER_API_KEY"],
+    "npm": "@openrouter/ai-sdk-provider",
+    "api": "https://openrouter.ai/api/v1",
+    "doc": "https://openrouter.ai/models",
+    "models": {
+      "fake-model": {
+        "id": "fake-model",
+        "name": "Fake model",
+        "release_date": "2026-01-01",
+        "last_updated": "2026-01-01",
+        "attachment": false,
+        "reasoning": false,
+        "temperature": true,
+        "tool_call": true,
+        "open_weights": false,
+        "cost": {
+          "input": 0,
+          "output": 0
+        },
+        "limit": {
+          "context": 100000,
+          "output": 4000
+        },
+        "modalities": {
+          "input": ["text"],
+          "output": ["text"]
+        }
+      }
+    }
+  }
+}
