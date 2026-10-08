@@ -51,7 +51,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const fake = await startFakeModel({ logFile: join(WORK, 'fake-requests.jsonl') })
 log('fake model', fake.base)
 const sandbox = makeSandbox(WORK, fake.base, { binDirs })
-writeFileSync(join(WORK, 'env.json'), JSON.stringify({ ...sandbox.env, PATH: undefined }, null, 2))
+// Only what the sandbox itself sets (never the rest of the outer environment).
+writeFileSync(join(WORK, 'env.json'), JSON.stringify(sandbox.set, null, 2))
 
 function nsq(...args) {
   const result = spawnSync(process.execPath, [BIN, ...args], {
@@ -251,16 +252,19 @@ try {
     }
   }
 } finally {
-  nsq('down')
-  // A daemon that did not stop (a failed run): by its own PID only.
-  try {
-    const state = JSON.parse(readFileSync(join(sandbox.env.NSQ_HOME, 'daemon.json'), 'utf8'))
-    if (process.platform === 'win32')
-      execFileSync('taskkill', ['/PID', String(state.pid), '/T', '/F'], { stdio: 'ignore' })
-    else process.kill(state.pid, 'SIGKILL')
-  } catch {
-    // stopped
-  }
+  const down = nsq('down')
+  // A daemon that did not stop (a failed run): by its own PID only — and only
+  // while its state file is still there (a normal stop removes it).
+  const stateFile = join(sandbox.env.NSQ_HOME, 'daemon.json')
+  if (down.status !== 0 || existsSync(stateFile))
+    try {
+      const state = JSON.parse(readFileSync(stateFile, 'utf8'))
+      if (process.platform === 'win32')
+        execFileSync('taskkill', ['/PID', String(state.pid), '/T', '/F'], { stdio: 'ignore' })
+      else process.kill(state.pid, 'SIGKILL')
+    } catch {
+      // stopped
+    }
   await fake.close()
   const failed = checks.filter((c) => !c.ok)
   writeFileSync(join(WORK, 'checks.json'), JSON.stringify(checks, null, 2))

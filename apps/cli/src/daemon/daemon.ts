@@ -770,6 +770,10 @@ export class Daemon {
         const record = this.need(message.id)
         const keys = answerKeys(record.harness, message.key as AnswerKey)
         if (!keys) throw new Error(`${record.harness} has no permission prompt to answer`)
+        // Only into a prompt that is open: elsewhere the keys would land in its input box.
+        if (agentStatusSnapshot(record.id)?.kind !== 'needs-input') {
+          throw new Error(`${record.name} is not waiting for an answer`)
+        }
         for (const [index, press] of keys.entries()) {
           if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
           this.ptys.write(record.id, press)
@@ -816,7 +820,7 @@ export class Daemon {
       }
       case 'rename': {
         const record = this.need(message.id)
-        const name = this.store.uniqueName(message.name)
+        const name = this.store.uniqueName(message.name, record.id)
         this.store.update(record.id, { name })
         this.pushAgent(record.id)
         return { name }

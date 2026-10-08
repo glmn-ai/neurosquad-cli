@@ -96,8 +96,12 @@ export class AgentStore {
   }
 
   /** A unique name: `base`, `base-2`, `base-3`… */
-  uniqueName(base: string): string {
-    const taken = new Set(this.all().map((record) => record.name.toLowerCase()))
+  uniqueName(base: string, exceptId?: string): string {
+    const taken = new Set(
+      this.all()
+        .filter((record) => record.id !== exceptId)
+        .map((record) => record.name.toLowerCase())
+    )
     const clean =
       base
         .replace(/[^\w.-]+/g, '-')

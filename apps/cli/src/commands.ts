@@ -389,6 +389,9 @@ export async function cmdDown(): Promise<void> {
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline && (await daemonRunning()))
     await new Promise((r) => setTimeout(r, 150))
+  if (await daemonRunning()) {
+    throw new Error(`the nsq daemon did not stop within 15 s (see ${paths.daemonLog()})`)
+  }
   out('stopped the nsq daemon and its agents (they resume with `nsq up`)')
 }
 

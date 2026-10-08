@@ -70,6 +70,59 @@ export function textWidth(text: string): number {
   return width
 }
 
+/** Symbols below U+1F000 that terminals draw as two-cell emoji by default. */
+const EMOJI_PRESENTATION = new Set<number>([
+  0x231a,
+  0x231b,
+  0x23e9,
+  0x23ea,
+  0x23eb,
+  0x23ec,
+  0x23f0,
+  0x23f3,
+  0x25fd,
+  0x25fe,
+  0x2614,
+  0x2615,
+  ...Array.from({ length: 12 }, (_, i) => 0x2648 + i),
+  0x267f,
+  0x2693,
+  0x26a1,
+  0x26aa,
+  0x26ab,
+  0x26bd,
+  0x26be,
+  0x26c4,
+  0x26c5,
+  0x26ce,
+  0x26d4,
+  0x26ea,
+  0x26f2,
+  0x26f3,
+  0x26f5,
+  0x26fa,
+  0x26fd,
+  0x2705,
+  0x270a,
+  0x270b,
+  0x2728,
+  0x274c,
+  0x274e,
+  0x2753,
+  0x2754,
+  0x2755,
+  0x2757,
+  0x2795,
+  0x2796,
+  0x2797,
+  0x27b0,
+  0x27bf,
+  0x2b1b,
+  0x2b1c,
+  0x2b50,
+  0x2b55
+])
+
 export function charWidth(code: number): number {
   if (code === 0) return 0
   if (code < 32 || (code >= 0x7f && code < 0xa0)) return 0
@@ -85,7 +138,12 @@ export function charWidth(code: number): number {
     (code >= 0xff00 && code <= 0xff60) ||
     (code >= 0xffe0 && code <= 0xffe6) ||
     (code >= 0x1f300 && code <= 0x1f64f) ||
+    (code >= 0x1f680 && code <= 0x1f6ff) ||
     (code >= 0x1f900 && code <= 0x1f9ff) ||
+    (code >= 0x1fa70 && code <= 0x1faff) ||
+    (code >= 0x1f004 && code <= 0x1f0cf && (code === 0x1f004 || code === 0x1f0cf)) ||
+    (code >= 0x1f191 && code <= 0x1f19a) ||
+    EMOJI_PRESENTATION.has(code) ||
     (code >= 0x20000 && code <= 0x3fffd)
   ) {
     return 2

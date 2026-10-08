@@ -95,7 +95,7 @@ export function makeSandbox(work, fakeBase, options = {}) {
         !/[\\/]npm$/i.test(dir)
     )
   env[pathKey] = [...(options.binDirs ?? []), ...kept].join(delimiter)
-  Object.assign(env, {
+  const set = {
     HOME: home,
     USERPROFILE: home,
     NSQ_HOME: join(work, 'nsq'),
@@ -117,6 +117,7 @@ export function makeSandbox(work, fakeBase, options = {}) {
     NSQ_OPENROUTER_BASE_URL: `${fakeBase}/api/v1`,
     DISABLE_TELEMETRY: '1',
     DISABLE_ERROR_REPORTING: '1'
-  })
-  return { env, home, project, claudeDir, codexHome }
+  }
+  Object.assign(env, set)
+  return { env, set, home, project, claudeDir, codexHome }
 }

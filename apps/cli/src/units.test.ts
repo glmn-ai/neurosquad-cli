@@ -63,6 +63,8 @@ describe('format', () => {
 
   it('width-aware truncation', () => {
     expect(textWidth('日本')).toBe(4)
+    expect(textWidth('🚀⚡✅❌')).toBe(8)
+    expect(textWidth('✔ ok')).toBe(4)
     expect(truncate('hello world', 6)).toBe('hello…')
     expect(textWidth(truncate('日本語のテキスト', 7))).toBeLessThanOrEqual(7)
   })
