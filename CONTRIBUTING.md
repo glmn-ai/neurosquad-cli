@@ -67,6 +67,8 @@ Examples: `feat(tui): answer permission prompts inline`, `fix(pty): keep Ctrl+C 
 ## Pull request checklist
 
 - [ ] One logical change per PR; small PRs get reviewed faster.
+- [ ] A changeset (`npx changeset`) if a published package changes for its users — see
+      [`.changeset/README.md`](.changeset/README.md) and [RELEASING.md](RELEASING.md).
 - [ ] Tests added or updated for the change; `npm test` passes.
 - [ ] `npm run lint` and `npm run typecheck` pass.
 - [ ] Cross-platform: think about Windows (ConPTY, paths, `.cmd` shims), macOS and Linux. Say in
