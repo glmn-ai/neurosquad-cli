@@ -43,7 +43,9 @@ jobs:
           package-manager-cache: false
 
       - name: Install
-        run: npm ci --no-audit --no-fund
+        # No dependency install scripts in release jobs (nothing here needs a native build, and
+        # the publish job holds an OIDC token).
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Select Changesets mode
         id: select-mode
@@ -69,16 +71,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: NeuroSquad Dev Bot token
-        id: bot
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          # The App ID; GitHub accepts the App ID or the Client ID as the JWT issuer.
-          client-id: ${{ secrets.NSQ_BOT_APP_ID }}
-          private-key: ${{ secrets.NSQ_BOT_PRIVATE_KEY }}
-          permission-contents: write
-          permission-pull-requests: write
-
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -91,7 +83,19 @@ jobs:
           package-manager-cache: false
 
       - name: Install
-        run: npm ci --no-audit --no-fund
+        # No dependency install scripts in release jobs (nothing here needs a native build, and
+        # the publish job holds an OIDC token).
+        run: npm ci --no-audit --no-fund --ignore-scripts
+
+      - name: NeuroSquad Dev Bot token
+        id: bot
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          # The App ID; GitHub accepts the App ID or the Client ID as the JWT issuer.
+          client-id: ${{ secrets.NSQ_BOT_APP_ID }}
+          private-key: ${{ secrets.NSQ_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
 
       - name: Create or update the Version Packages PR
         uses: changesets/action/version@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
@@ -132,7 +136,9 @@ jobs:
           package-manager-cache: false
 
       - name: Install
-        run: npm ci --no-audit --no-fund
+        # No dependency install scripts in release jobs (nothing here needs a native build, and
+        # the publish job holds an OIDC token).
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Build
         run: npm run build
@@ -174,7 +180,9 @@ jobs:
             || { echo "::error::npm $v cannot do trusted publishing (needs >= 11.5.1)"; exit 1; }
 
       - name: Install
-        run: npm ci --no-audit --no-fund
+        # No dependency install scripts in release jobs (nothing here needs a native build, and
+        # the publish job holds an OIDC token).
+        run: npm ci --no-audit --no-fund --ignore-scripts
 
       - name: Publish
         id: publish
