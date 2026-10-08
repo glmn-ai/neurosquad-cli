@@ -30,6 +30,7 @@ jobs:
     outputs:
       mode: ${{ steps.select-mode.outputs.mode }}
       publish-plan-artifact-id: ${{ steps.select-mode.outputs.publish-plan-artifact-id }}
+      publish-enabled: ${{ steps.report.outputs.publish-enabled }}
     permissions:
       contents: read
     steps:
@@ -52,11 +53,15 @@ jobs:
         uses: changesets/action/select-mode@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
 
       - name: Report
+        id: report
         env:
           MODE: ${{ steps.select-mode.outputs.mode }}
           PUBLISH_ENABLED: ${{ vars.NPM_PUBLISH_ENABLED }}
         run: |
           echo "Changesets mode: $MODE"
+          # Exact, case-sensitive match (expression comparisons in Actions ignore case).
+          if [ "$PUBLISH_ENABLED" = "true" ]; then enabled=true; else enabled=false; fi
+          echo "publish-enabled=$enabled" >> "$GITHUB_OUTPUT"
           if [ "$MODE" = "publish" ] && [ "$PUBLISH_ENABLED" != "true" ]; then
             echo "::notice::Unpublished versions found, but publishing is disabled (repository variable NPM_PUBLISH_ENABLED is not \"true\"). See RELEASING.md."
           fi
@@ -111,7 +116,7 @@ jobs:
   smoke:
     name: pack smoke
     needs: select-mode
-    if: needs.select-mode.outputs.mode == 'publish' && vars.NPM_PUBLISH_ENABLED == 'true'
+    if: needs.select-mode.outputs.mode == 'publish' && needs.select-mode.outputs.publish-enabled == 'true'
     permissions:
       contents: read
     uses: ./.github/workflows/pack-smoke.yml
