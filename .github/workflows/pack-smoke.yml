@@ -1,0 +1,124 @@
+name: Pack smoke
+
+# Packs the public packages exactly as they would be published, installs the tarballs into a clean
+# folder on every OS/arch we support and runs them (`nsq --version`, every package import, every
+# native addon from its prebuild — see scripts/release/pack-smoke.mjs). Catches a missing file in
+# a tarball or a broken/missing prebuild before a release. The release workflow calls this too and
+# publishes only if it passes.
+
+on:
+  pull_request:
+    paths:
+      - '**/package.json'
+      - package-lock.json
+      - .changeset/**
+      - packaging/**
+      - scripts/release/**
+      - .github/workflows/pack-smoke.yml
+      - .github/workflows/release.yml
+  push:
+    branches: [main]
+    paths:
+      - '**/package.json'
+      - package-lock.json
+      - scripts/release/**
+      - .github/workflows/pack-smoke.yml
+  schedule:
+    # Weekly: upstream prebuilds (node-pty, keyring, sherpa-onnx…) and new Node releases change
+    # under us without a commit here.
+    - cron: '17 5 * * 1'
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# github.workflow is the caller's name when this runs as a reusable workflow, so the release
+# workflow's call never shares (or cancels) the group of a standalone run.
+concurrency:
+  group: pack-smoke-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.target }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Every OS/arch we ship for, on each supported Node LTS line (engines: >=22.13).
+        os: [ubuntu-24.04, ubuntu-24.04-arm, windows-2025, windows-11-arm, macos-15, macos-15-intel]
+        node: ['22', '24']
+        include:
+          - { os: ubuntu-24.04, target: linux-x64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64 }
+          - { os: windows-2025, target: win32-x64 }
+          - { os: windows-11-arm, target: win32-arm64 }
+          - { os: macos-15, target: darwin-arm64 }
+          - { os: macos-15-intel, target: darwin-x64 }
+          # The next LTS line, Linux only (N-API addons are ABI-stable; this catches engine and
+          # install-behaviour changes early).
+          - { os: ubuntu-24.04, target: linux-x64, node: '26' }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Install
+        run: npm ci --no-audit --no-fund
+
+      - name: Build
+        run: npm run build
+
+      - name: Pack, install the tarballs in a clean folder, run them
+        run: node scripts/release/pack-smoke.mjs --mode both --work "$RUNNER_TEMP/pack-smoke"
+
+  install-scripts:
+    name: install scripts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: shellcheck install.sh
+        run: shellcheck --shell=sh packaging/install/install.sh
+
+      - name: Parse install.ps1
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/packaging/install/install.ps1", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error $_ }; exit 1 }
+
+      - name: Manifests parse
+        run: |
+          node -e 'JSON.parse(require("fs").readFileSync("packaging/scoop/neurosquad-cli.json","utf8"))'
+          ruby -c packaging/homebrew/neurosquad-cli.rb
+
+  # One stable check name for branch protection / the release workflow.
+  pack-smoke-ok:
+    name: pack-smoke-ok
+    if: always()
+    needs: [smoke, install-scripts]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All pack smoke jobs passed
+        env:
+          SMOKE: ${{ needs.smoke.result }}
+          SCRIPTS: ${{ needs.install-scripts.result }}
+        run: |
+          if [ "$SMOKE" != "success" ] || [ "$SCRIPTS" != "success" ]; then
+            echo "Pack smoke failed: smoke=$SMOKE install-scripts=$SCRIPTS"
+            exit 1
+          fi
