@@ -1,0 +1,30 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
+
+PackageIdentifier: NeuroSquad.CLI
+PackageVersion: {{VERSION}}
+PackageLocale: en-US
+Publisher: NeuroSquad
+PublisherUrl: https://neurosquad.ai/
+PublisherSupportUrl: https://github.com/glmn-ai/neurosquad-cli/issues
+Author: NeuroSquad
+PackageName: nsq (NeuroSquad CLI)
+PackageUrl: https://github.com/glmn-ai/neurosquad-cli
+License: MIT
+LicenseUrl: https://github.com/glmn-ai/neurosquad-cli/blob/main/LICENSE
+Copyright: Copyright (c) 2026 Stanislav Gelman and NeuroSquad contributors
+ShortDescription: Run several AI coding agents in your terminal and get called when one needs you.
+Description: |-
+  nsq is an open-source terminal supervisor for AI coding CLIs (Claude Code, Codex, OpenCode or any command).
+  Start several agents, walk away, and get notified with the question when one of them needs you;
+  answer it from the dashboard without switching windows. No account required.
+Moniker: nsq
+Tags:
+- ai
+- ai-agents
+- cli
+- coding-agent
+- developer-tools
+- terminal
+ReleaseNotesUrl: https://github.com/glmn-ai/neurosquad-cli/releases/tag/{{TAG}}
+ManifestType: defaultLocale
+ManifestVersion: 1.12.0
