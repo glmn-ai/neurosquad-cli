@@ -395,9 +395,14 @@ export class CloudSession {
       if (response.status < 500) this.offline = false
       return response
     } catch (error) {
+      // Signed out (or signed in again) while this call was on the wire: whatever went wrong
+      // belongs to the old session, and must not mark the new one offline.
+      // (A SessionExpiredError is this call's own verdict: its wipe moved the epoch.)
+      if (error instanceof SessionExpiredError) throw error
+      if (error instanceof SessionMovedError || epoch !== this.sessionEpoch) {
+        throw new SignedOutError()
+      }
       if (error instanceof CloudNetworkError) this.offline = true
-      // Signed out (or signed in again) while this call was on the wire.
-      if (error instanceof SessionMovedError) throw new SignedOutError()
       throw error
     }
   }

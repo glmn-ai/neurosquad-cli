@@ -230,7 +230,7 @@ describe('tokens', () => {
     expect(await refresh).toBeInstanceOf(SignedOutError)
   })
 
-  for (const when of ['before-send', 'after-answer'] as const) {
+  for (const when of ['before-send', 'after-answer', 'network-error'] as const) {
     it(`never answers or retries a call under the account that replaced its own (${when})`, async () => {
       let release!: () => void
       const gate = new Promise<void>((resolve) => {
@@ -242,7 +242,8 @@ describe('tokens', () => {
         if (!hold || !url.endsWith('/me')) return fetch(url, init)
         hold = false
         held = true
-        if (when === 'before-send') await gate
+        if (when !== 'after-answer') await gate
+        if (when === 'network-error') throw new TypeError('fetch failed')
         const response = await fetch(url, init)
         if (when === 'after-answer') await gate
         return response
@@ -264,7 +265,9 @@ describe('tokens', () => {
       await signIn(session, 'b@example.com')
       release()
       expect(await call).toBeInstanceOf(SignedOutError)
-      expect(await session.status()).toMatchObject({ user: { email: 'b@example.com' } })
+      const status = await session.status()
+      expect(status).toMatchObject({ state: 'signed-in', user: { email: 'b@example.com' } })
+      expect(status).not.toHaveProperty('offline')
     })
   }
 
