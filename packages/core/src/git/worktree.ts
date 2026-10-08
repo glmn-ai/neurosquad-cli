@@ -5,7 +5,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, resolve as resolvePath, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve as resolvePath } from 'node:path'
 
 const execFileAsync = promisify(execFile)
 
@@ -98,44 +98,57 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** The canonical path (symlinks resolved); for a path that does not exist, its nearest existing parent's. */
-function canonical(path: string): string | null {
+/** The real path (symlinks and 8.3 short names resolved); for a path that does not exist, its nearest existing parent's. */
+function realPath(path: string): string | null {
   const full = resolvePath(path)
   try {
     return realpathSync.native(full)
   } catch {
     const parent = dirname(full)
     if (parent === full) return null
-    const base = canonical(parent)
+    const base = realPath(parent)
     return base === null ? null : join(base, basename(full))
   }
 }
 
-const sameCase = (path: string): string =>
-  process.platform === 'win32' ? path.toLowerCase() : path
-
-/** `path` is strictly inside `root`, after resolving symlinks on both. */
-export function isOwnedPath(root: string, path: string): boolean {
-  const base = canonical(root)
-  const full = canonical(path)
-  if (base === null || full === null) return false
-  const b = sameCase(base)
-  const f = sameCase(full)
-  return f !== b && f.startsWith(b.endsWith(sep) ? b : b + sep)
+/**
+ * A path in the form two names of one folder compare equal in: symlinks
+ * resolved (macOS `/var` is `/private/var`, and git lists worktrees by their
+ * real path), Windows 8.3 short names expanded (`RUNNER~1`), `/` separators,
+ * no trailing separator, and lower case on Windows (case-insensitive
+ * filesystem, drive letters in either case). `null` when nothing of it exists.
+ */
+export function canonicalPath(path: string): string | null {
+  const real = realPath(path)
+  if (real === null) return null
+  const slashed = real.replaceAll('\\', '/')
+  // A filesystem root (`/`, `C:/`) keeps its separator.
+  const trimmed = /^(?:[A-Za-z]:)?\/$/.test(slashed) ? slashed : slashed.replace(/\/+$/, '')
+  return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed
 }
 
-const normal = (path: string): string =>
-  sameCase(resolvePath(path).replaceAll('\\', '/')).replace(/\/+$/, '')
+/** Whether `a` and `b` name the same folder or file (see `canonicalPath`). */
+export function samePath(a: string, b: string): boolean {
+  const x = canonicalPath(a)
+  return x !== null && x === canonicalPath(b)
+}
+
+/** `path` is strictly inside `root`, comparing canonical paths (see `canonicalPath`). */
+export function isOwnedPath(root: string, path: string): boolean {
+  const base = canonicalPath(root)
+  const full = canonicalPath(path)
+  if (base === null || full === null) return false
+  return full !== base && full.startsWith(base.endsWith('/') ? base : base + '/')
+}
 
 /** Whether `git worktree list` still names `worktreePath`. */
 async function isListed(repoRoot: string, worktreePath: string): Promise<boolean> {
   try {
     const out = await runGit(repoRoot, ['worktree', 'list', '--porcelain'])
-    const want = normal(worktreePath)
     return out
       .split(/\r?\n/)
       .filter((line) => line.startsWith('worktree '))
-      .some((line) => normal(line.slice('worktree '.length)) === want)
+      .some((line) => samePath(line.slice('worktree '.length), worktreePath))
   } catch {
     return false
   }
@@ -153,11 +166,11 @@ async function adminDirOf(repoRoot: string, worktreePath: string): Promise<strin
     if (!common) return null
     if (!isAbsolute(common)) common = resolvePath(repoRoot, common)
     const worktrees = join(common, 'worktrees')
-    const want = normal(join(worktreePath, '.git'))
+    const want = join(worktreePath, '.git')
     for (const name of readdirSync(worktrees)) {
       try {
         const target = readFileSync(join(worktrees, name, 'gitdir'), 'utf8').trim()
-        if (normal(target) === want) return join(worktrees, name)
+        if (samePath(target, want)) return join(worktrees, name)
       } catch {
         // not an entry
       }

@@ -1,9 +1,16 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { addWorktree, gitEnv, isOwnedPath, removeWorktree } from './worktree.js'
+import {
+  addWorktree,
+  canonicalPath,
+  gitEnv,
+  isOwnedPath,
+  removeWorktree,
+  samePath
+} from './worktree.js'
 
 const git = (cwd: string, ...args: string[]): string =>
   execFileSync('git', args, { cwd, encoding: 'utf-8', windowsHide: true, env: gitEnv() })
@@ -32,11 +39,28 @@ const breakLink = (path: string): void => {
   writeFileSync(join(path, '.git'), 'gitdir: nowhere')
 }
 
+// git lists a worktree by its real path (macOS `/private/var`, Windows long
+// names), not necessarily the name it was added under.
 const listed = (path: string): boolean =>
   git(repo, 'worktree', 'list', '--porcelain')
-    .replaceAll('\\', '/')
-    .toLowerCase()
-    .includes(path.replaceAll('\\', '/').toLowerCase())
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith('worktree '))
+    .some((line) => samePath(line.slice('worktree '.length), path))
+
+// A second name for `target` (a junction on Windows: no privilege needed).
+const alias = (target: string, path: string): string => {
+  symlinkSync(target, path, process.platform === 'win32' ? 'junction' : 'dir')
+  return path
+}
+
+// The Windows 8.3 short name of an existing path; the path itself when the
+// volume has short names turned off.
+const shortName = (path: string): string =>
+  execFileSync('cmd.exe', ['/d', '/c', `for %I in ("${path}") do @echo %~sI`], {
+    encoding: 'utf-8',
+    windowsHide: true,
+    windowsVerbatimArguments: true
+  }).trim()
 
 describe('removeWorktree', () => {
   it('removes a worktree', async () => {
@@ -64,6 +88,39 @@ describe('removeWorktree', () => {
     expect(await removeWorktree(repo, path, { ownedRoot: owned, retryDelaysMs: [] })).toBe(false)
     expect(existsSync(join(path, 'work.txt'))).toBe(true)
     expect(listed(path)).toBe(true)
+  })
+
+  it('a checkout named through a symlinked folder is still found in the list and pruned', async () => {
+    // As on macOS: the caller says /var/..., git records /private/var/...
+    const via = alias(root, join(mkdtempSync(join(tmpdir(), 'ns-alias-')), 'root'))
+    try {
+      const path = join(via, 'agent-worktrees', 'four')
+      expect(await addWorktree(repo, path, 'agent/four')).toBe(path)
+      breakLink(path)
+      expect(await removeWorktree(repo, path, { ownedRoot: owned, retryDelaysMs: [0] })).toBe(true)
+      expect(existsSync(join(owned, 'four'))).toBe(false)
+      expect(listed(join(owned, 'four'))).toBe(false)
+    } finally {
+      rmSync(dirname(via), { recursive: true, force: true })
+    }
+  })
+
+  it('never removes a worktree outside the owned root named through a symlinked folder', async () => {
+    const via = alias(root, join(mkdtempSync(join(tmpdir(), 'ns-alias-')), 'root'))
+    try {
+      const path = join(root, 'outside-too')
+      expect(await addWorktree(repo, path, 'agent/outside-too')).toBe(path)
+      expect(
+        await removeWorktree(repo, join(via, 'outside-too'), {
+          ownedRoot: join(via, 'agent-worktrees'),
+          retryDelaysMs: []
+        })
+      ).toBe(false)
+      expect(existsSync(join(path, 'a.txt'))).toBe(true)
+      expect(listed(path)).toBe(true)
+    } finally {
+      rmSync(dirname(via), { recursive: true, force: true })
+    }
   })
 
   it('never deletes a folder outside the owned root', async () => {
@@ -94,5 +151,56 @@ describe('isOwnedPath', () => {
     expect(isOwnedPath(owned, owned)).toBe(false)
     expect(isOwnedPath(owned, join(owned, '..', 'repo'))).toBe(false)
     expect(isOwnedPath(owned, join(root, 'agent-worktrees-2', 'x'))).toBe(false)
+  })
+})
+
+describe('canonicalPath', () => {
+  it('resolves a symlinked folder to its real path (macOS /var is /private/var)', () => {
+    const real = join(root, 'real')
+    mkdirSync(join(real, 'inside'), { recursive: true })
+    const link = alias(real, join(root, 'link'))
+    expect(canonicalPath(join(link, 'inside'))).toBe(canonicalPath(join(real, 'inside')))
+    expect(samePath(join(link, 'inside'), join(real, 'inside'))).toBe(true)
+    // Not there yet below the link: its nearest existing parent is resolved.
+    expect(samePath(join(link, 'later', 'x'), join(real, 'later', 'x'))).toBe(true)
+    expect(isOwnedPath(link, join(real, 'inside'))).toBe(true)
+    expect(isOwnedPath(real, join(link, 'inside'))).toBe(true)
+    expect(isOwnedPath(link, real)).toBe(false)
+    expect(samePath(join(link, 'inside'), join(root, 'inside'))).toBe(false)
+  })
+
+  it('uses / separators and no trailing separator', () => {
+    const path = canonicalPath(join(repo, 'a.txt'))
+    expect(path).not.toBeNull()
+    expect(path).not.toContain('\\')
+    expect(canonicalPath(repo + '/')).toBe(canonicalPath(repo))
+    expect(samePath(repo.replaceAll('\\', '/'), repo)).toBe(true)
+    expect(samePath(join(root, 'none'), join(root, 'other'))).toBe(false)
+  })
+
+  it.runIf(process.platform === 'win32')(
+    'ignores case, drive-letter case included, on Windows',
+    () => {
+      expect(samePath(repo.toUpperCase(), repo.toLowerCase())).toBe(true)
+      const drive = repo.slice(0, 1)
+      const flipped =
+        (drive === drive.toLowerCase() ? drive.toUpperCase() : drive.toLowerCase()) + repo.slice(1)
+      expect(samePath(flipped, repo)).toBe(true)
+      expect(isOwnedPath(owned.toUpperCase(), join(owned, 'one'))).toBe(true)
+    }
+  )
+
+  it.runIf(process.platform === 'win32')('expands Windows 8.3 short names', (ctx) => {
+    const long = join(root, 'a folder with a long name')
+    mkdirSync(join(long, 'inside'), { recursive: true })
+    const short = shortName(long)
+    // Short names can be turned off per volume; then there is nothing to expand.
+    if (short.toLowerCase() === long.toLowerCase()) ctx.skip()
+    expect(short).toContain('~')
+    expect(samePath(short, long)).toBe(true)
+    expect(samePath(join(short, 'inside'), join(long, 'inside'))).toBe(true)
+    expect(isOwnedPath(short, join(long, 'inside'))).toBe(true)
+    expect(isOwnedPath(long, join(short, 'inside'))).toBe(true)
+    expect(isOwnedPath(join(short, 'inside'), long)).toBe(false)
   })
 })
