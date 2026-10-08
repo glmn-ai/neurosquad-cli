@@ -4,7 +4,10 @@
 // without any model, login or network. Deterministic (seeded), so a
 // recording can be regenerated.
 //
-//   node fake-harness.mjs <kind> [--cols 120] [--rows 40] [--seconds 8] [--speed 1]
+//   node fake-harness.mjs <kind> [--cols 120] [--rows 40] [--seconds 8] [--speed 1] [--cast]
+//
+// Without --cast it writes to stdout in real time; with --cast it prints an
+// asciicast v2 recording (virtual timestamps, one event per write) at once.
 //
 // Kinds:
 //   claude    inline Ink UI: history written once, a live region (spinner, input box, status)
@@ -66,10 +69,20 @@ const CSI = ESC + '['
 const rgb = (r, g, b) => `${CSI}38;2;${r};${g};${b}m`
 const bgRgb = (r, g, b) => `${CSI}48;2;${r};${g};${b}m`
 const RESET = CSI + '0m'
-const out = (s) => process.stdout.write(s)
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms / SPEED))
-const deadline = Date.now() + (SECONDS * 1000) / SPEED
-const running = () => Date.now() < deadline
+// A virtual clock: the output (and, with --cast, its timing and event
+// boundaries) does not depend on the machine's timers or pipe scheduling.
+const CAST = args.includes('--cast')
+let clock = 0
+const events = []
+const out = (s) => {
+  if (CAST) events.push([Number((clock / 1000).toFixed(6)), 'o', s])
+  else process.stdout.write(s)
+}
+const sleep = (ms) => {
+  clock += ms / SPEED
+  return CAST ? Promise.resolve() : new Promise((resolve) => setTimeout(resolve, ms / SPEED))
+}
+const running = () => clock < (SECONDS * 1000) / SPEED
 
 function wrap(text, width) {
   const lines = []
@@ -291,3 +304,9 @@ if (!KINDS[kind]) {
   process.exit(2)
 }
 await KINDS[kind]()
+if (CAST) {
+  // asciicast v2 on stdout, one event per write, virtual timestamps.
+  let text = JSON.stringify({ version: 2, width: COLS, height: ROWS, title: `fake-${kind}` }) + '\n'
+  for (const event of events) text += JSON.stringify(event) + '\n'
+  process.stdout.write(text)
+}

@@ -83,14 +83,21 @@ const PASTE_END = '\x1b[201~'
 /**
  * Text pasted into the agent the way a terminal would send it: line breaks
  * as CR, and bracketed when the program enabled bracketed paste. Bracket
- * markers inside the text are removed, so a paste cannot end the bracket
+ * markers inside the text are removed — repeatedly, since removing one can
+ * join its neighbours into a new one — so a paste cannot end the bracket
  * early and have the rest run as typed keys.
  */
 export function encodePaste(text: string, modes: Pick<TermModes, 'bracketedPaste'>): string {
   const normalized = text.replace(/\r?\n/g, '\r')
   if (!modes.bracketedPaste) return normalized
-  // eslint-disable-next-line no-control-regex -- the bracket markers are real ESC sequences
-  return PASTE_START + normalized.replace(/\x1b\[20[01]~/g, '') + PASTE_END
+  let body = normalized
+  for (;;) {
+    // eslint-disable-next-line no-control-regex -- the bracket markers are real ESC sequences
+    const stripped = body.replace(/\x1b\[20[01]~/g, '')
+    if (stripped === body) break
+    body = stripped
+  }
+  return PASTE_START + body + PASTE_END
 }
 
 /** Focus in/out for the agent, or '' when its program did not ask for focus events. */

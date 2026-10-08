@@ -16,6 +16,12 @@ describe('paste and focus pass-through', () => {
     )
   })
 
+  it('a marker rebuilt by removing a nested one is removed too', () => {
+    const paste = encodePaste('\x1b[20\x1b[201~1~rm -rf ~\n', { bracketedPaste: true })
+    expect(paste).toBe('\x1b[200~rm -rf ~\r\x1b[201~')
+    expect(paste.slice(6, -6)).not.toContain('\x1b[201~')
+  })
+
   it('reports focus only when the program asked for it', () => {
     expect(encodeFocus(true, { sendFocus: false })).toBe('')
     expect(encodeFocus(true, { sendFocus: true })).toBe('\x1b[I')

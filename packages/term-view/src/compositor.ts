@@ -266,6 +266,8 @@ export function createCompositor(options: CompositorOptions): Compositor {
           if (index === -1) return
           states.splice(index, 1)
           state.subscription.dispose()
+          // The next frame undoes the host input modes this tile set.
+          if (state.options.syncInputModes) schedule()
         }
       }
       state.tile = tile

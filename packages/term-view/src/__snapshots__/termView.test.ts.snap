@@ -12,45 +12,45 @@ exports[`sample streams > final screen of the fake build stream 1`] = `
 `;
 
 exports[`sample streams > final screen of the fake build stream 2`] = `
-" ✓ src/ui/Button2653.test.tsx (1 tests) 244ms
- ✓ test/cart.test2654.test.ts (36 tests) 61ms
- ✓ src/lib/cache2655.test.ts (16 tests) 117ms
- ✓ src/ui/Button2656.test.tsx (29 tests) 844ms
- ✓ src/cart2657.test.ts (22 tests) 571ms
- ✓ src/lib/cache2658.test.ts (11 tests) 722ms
- ✓ src/lib/cache2659.test.ts (37 tests) 675ms
- ✓ test/cart.test2660.test.ts (30 tests) 543ms
- ✓ packages/core/src/status2661.test.ts (33 tests) 516ms
- ✓ src/ui/Button2662.test.tsx (13 tests) 666ms
- ✓ test/cart.test2663.test.ts (2 tests) 308ms
- ✓ test/cart.test2664.test.ts (18 tests) 686ms
- ✓ src/ui/Button2665.test.tsx (11 tests) 327ms
- ✓ src/cart2666.test.ts (5 tests) 770ms
- ✓ test/cart.test2667.test.ts (26 tests) 597ms
- ✓ src/ui/Button2668.test.tsx (8 tests) 892ms
- ✓ src/ui/Button2669.test.tsx (18 tests) 401ms
- ✗ src/cart.ts > Agent returns payment diff module.
-   AssertionError: expected 4 to be 18
- ✓ src/cart2671.test.ts (1 tests) 313ms
- ✓ src/lib/cache2672.test.ts (36 tests) 221ms
- ✓ src/cart2673.test.ts (30 tests) 707ms
- ✓ src/ui/Button2674.test.tsx (17 tests) 844ms
- ✓ src/lib/cache2675.test.ts (23 tests) 139ms
- ✓ test/cart.test2676.test.ts (34 tests) 295ms
- ✓ test/cart.test2677.test.ts (10 tests) 503ms
- ✓ test/cart.test2678.test.ts (6 tests) 753ms
- ✓ src/cart2679.test.ts (12 tests) 202ms
- ✓ src/ui/Button2680.test.tsx (32 tests) 178ms
- ✓ src/cart2681.test.ts (33 tests) 584ms
- ✓ test/cart.test2682.test.ts (28 tests) 429ms
- ✓ src/lib/cache2683.test.ts (38 tests) 558ms
- ✓ src/lib/cache2684.test.ts (10 tests) 846ms
- ✗ src/cart.ts > Frame suite agent patch cursor.
-   AssertionError: expected 3 to be 14
- ✓ src/lib/cache2686.test.ts (35 tests) 344ms
- ✓ src/api/checkout2687.test.ts (13 tests) 507ms
- ✓ src/cart2688.test.ts (36 tests) 873ms
- ✓ test/cart.test2689.test.ts (24 tests) 110ms
+" ✓ test/cart.test3051.test.ts (37 tests) 630ms
+ ✓ src/lib/cache3052.test.ts (25 tests) 6ms
+ ✓ test/cart.test3053.test.ts (25 tests) 218ms
+ ✓ src/ui/Button3054.test.tsx (16 tests) 499ms
+ ✓ src/cart3055.test.ts (11 tests) 29ms
+ ✓ test/cart.test3056.test.ts (38 tests) 150ms
+ ✓ src/ui/Button3057.test.tsx (14 tests) 536ms
+ ✓ src/api/checkout3058.test.ts (10 tests) 632ms
+ ✗ test/cart.test.ts > Value cursor buffer buffer suite.
+   AssertionError: expected 5 to be 15
+ ✓ packages/core/src/status3060.test.ts (33 tests) 663ms
+ ✓ test/cart.test3061.test.ts (18 tests) 354ms
+ ✓ src/api/checkout3062.test.ts (28 tests) 684ms
+ ✓ packages/core/src/status3063.test.ts (26 tests) 172ms
+ ✓ packages/core/src/status3064.test.ts (4 tests) 853ms
+ ✗ src/lib/cache.ts > Cart module module config transcript.
+   AssertionError: expected 8 to be 13
+ ✓ test/cart.test3066.test.ts (23 tests) 665ms
+ ✓ src/cart3067.test.ts (5 tests) 817ms
+ ✓ test/cart.test3068.test.ts (28 tests) 566ms
+ ✓ src/lib/cache3069.test.ts (28 tests) 541ms
+ ✓ src/lib/cache3070.test.ts (5 tests) 22ms
+ ✓ src/lib/cache3071.test.ts (32 tests) 876ms
+ ✓ src/ui/Button3072.test.tsx (9 tests) 595ms
+ ✓ src/api/checkout3073.test.ts (2 tests) 203ms
+ ✓ src/ui/Button3074.test.tsx (20 tests) 826ms
+ ✓ src/lib/cache3075.test.ts (5 tests) 119ms
+ ✓ packages/core/src/status3076.test.ts (3 tests) 304ms
+ ✓ src/ui/Button3077.test.tsx (13 tests) 783ms
+ ✓ src/ui/Button3078.test.tsx (26 tests) 384ms
+ ✓ src/ui/Button3079.test.tsx (17 tests) 680ms
+ ✓ src/cart3080.test.ts (7 tests) 417ms
+ ✓ src/cart3081.test.ts (32 tests) 328ms
+ ✓ src/cart3082.test.ts (13 tests) 637ms
+ ✓ src/api/checkout3083.test.ts (21 tests) 250ms
+ ✓ src/lib/cache3084.test.ts (40 tests) 510ms
+ ✓ src/ui/Button3085.test.tsx (39 tests) 443ms
+ ✓ packages/core/src/status3086.test.ts (3 tests) 60ms
+ ✓ packages/core/src/status3087.test.ts (14 tests) 553ms
 "
 `;
 
@@ -66,9 +66,7 @@ exports[`sample streams > final screen of the fake claude stream 1`] = `
 `;
 
 exports[`sample streams > final screen of the fake claude stream 2`] = `
-"⏺ Patch frame transcript session order function test the branch order worktree retry parser terminal.
-⏺ Read(test/cart.test.ts)
-  ⎿  Updated with 3 additions and 1 removal
+"  ⎿  Updated with 3 additions and 1 removal
 ⏺ Commit file commit payment session worktree commit function handler column order returns cart update render cart
   handler returns worktree module payment session frame handler handler file value.
 ⏺ Layout frame file layout value cart parser file config token handler height suite token terminal request.
@@ -99,7 +97,9 @@ exports[`sample streams > final screen of the fake claude stream 2`] = `
   ⎿  Updated with 3 additions and 1 removal
 ⏺ Grep(src/api/checkout.ts)
   ⎿  Read 120 lines
-✳ Reading… (7s · ↑ 6.0k tokens · esc to interrupt)
+⏺ Parser session cursor stream token checkout returns status frame value column suite render returns layout module
+  layout stream user line session refactor error branch height width the token cart.
+✶ Reading… (8s · ↑ 6.2k tokens · esc to interrupt)
 
 ╭────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
 │ >                                                                                                                  │
@@ -120,30 +120,7 @@ exports[`sample streams > final screen of the fake codex stream 1`] = `
 `;
 
 exports[`sample streams > final screen of the fake codex stream 2`] = `
-"
-Order value session commit terminal request config error function payment agent terminal commit handler layout
-payment layout user.
-
-• Edited src/api/checkout.ts (+7 -5)
- 258 -    diff status branch.
- 259 +layout payment height patch.
- 260 +      a payment hook commit.
- 261        retry commit width commit terminal.
- 262 +    parser function error width.
- 263        buffer cart suite patch refactor layout.
- 264      stream returns token request line worktree.
- 265    payment buffer column cursor branch suite payment terminal.
- 266 -    request line frame status returns config.
- 267    height terminal error.
-
-File test frame column checkout retry transcript width diff checkout function checkout buffer height height token
-request retry token commit a hook commit commit file line update line file hook cache refactor width test error order
-commit patch.
-
-Session config test order status terminal worktree handler session height line returns test user stream token layout
-layout patch parser suite status.
-
-Cache render commit status request width width cursor test suite value a width user cache render order the stream
+"Cache render commit status request width width cursor test suite value a width user cache render order the stream
 patch config line layout error checkout returns.
 
 Cache line diff width terminal test test commit function request payment status session user commit value width patch
@@ -158,7 +135,30 @@ Parser refactor width stream suite cart frame stream update hook session termina
 Error a patch request frame commit module hook value buffer commit commit error config retry function user stream
 token suite width render file token cart retry width diff refactor.
 
-• Working (54s • esc to interrupt)
+Value a retry worktree the column patch commit test file config parser payment handler layout suite test value hook
+the.
+
+Payment order refactor checkout layout width checkout cursor diff file terminal width render config transcript layout
+session layout order.
+
+• Edited src/cart.ts (+3 -4)
+ 131      frame handler returns refactor stream.
+ 132 +      patch cursor parser patch buffer terminal error.
+ 133    request layout width.
+ 134        token session diff error payment diff buffer branch.
+ 135  worktree config module token.
+ 136      column cursor terminal layout error.
+ 137 -  width function worktree buffer cache.
+ 138 +      branch frame update token.
+
+• Edited packages/core/src/status.ts (+2 -2)
+ 234 +width render stream order checkout token hook transcript height.
+ 235 -    checkout error cache cache cache checkout refactor.
+ 236 -  module buffer config layout test request transcript frame stream.
+ 237 +  module render checkout cursor order terminal render session.
+ 238    stream cart transcript frame.
+
+• Working (60s • esc to interrupt)
 "
 `;
 
@@ -229,22 +229,6 @@ exports[`sample streams > final screen of the fake unicode stream 1`] = `
 
 exports[`sample streams > final screen of the fake unicode stream 2`] = `
 "中文输入法 日本語のテキスト 한국어 텍스트
-emoji 😀 🚀 ✅ ❤️ 👍🏽 and ZWJ 👨‍👩‍👧 👩‍💻 🏳️‍🌈
-flags 🇺🇸 🇯🇵 🇩🇪 combining: é ä ñ Å
-flags 🇺🇸 🇯🇵 🇩🇪 combining: é ä ñ Å
-box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
-中文输入法 日本語のテキスト 한국어 텍스트
-flags 🇺🇸 🇯🇵 🇩🇪 combining: é ä ñ Å
-中文输入法 日本語のテキスト 한국어 텍스트
-中文输入法 日本語のテキスト 한국어 텍스트
-mixed: ｆｕｌｌｗｉｄｔｈ ＡＢＣ and half ｱｲｳ
-flags 🇺🇸 🇯🇵 🇩🇪 combining: é ä ñ Å
-box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
-中文输入法 日本語のテキスト 한국어 텍스트
-中文输入法 日本語のテキスト 한국어 텍스트
-box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
-box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
-中文输入法 日本語のテキスト 한국어 텍스트
 flags 🇺🇸 🇯🇵 🇩🇪 combining: é ä ñ Å
 mixed: ｆｕｌｌｗｉｄｔｈ ＡＢＣ and half ｱｲｳ
 box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
@@ -267,5 +251,21 @@ mixed: ｆｕｌｌｗｉｄｔｈ ＡＢＣ and half ｱｲｳ
 中文输入法 日本語のテキスト 한국어 텍스트
 emoji 😀 🚀 ✅ ❤️ 👍🏽 and ZWJ 👨‍👩‍👧 👩‍💻 🏳️‍🌈
 中文输入法 日本語のテキスト 한국어 텍스트
+中文输入法 日本語のテキスト 한국어 텍스트
+中文输入法 日本語のテキスト 한국어 텍스트
+emoji 😀 🚀 ✅ ❤️ 👍🏽 and ZWJ 👨‍👩‍👧 👩‍💻 🏳️‍🌈
+mixed: ｆｕｌｌｗｉｄｔｈ ＡＢＣ and half ｱｲｳ
+box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
+box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
+中文输入法 日本語のテキスト 한국어 텍스트
+box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
+emoji 😀 🚀 ✅ ❤️ 👍🏽 and ZWJ 👨‍👩‍👧 👩‍💻 🏳️‍🌈
+emoji 😀 🚀 ✅ ❤️ 👍🏽 and ZWJ 👨‍👩‍👧 👩‍💻 🏳️‍🌈
+中文输入法 日本語のテキスト 한국어 텍스트
+box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
+flags 🇺🇸 🇯🇵 🇩🇪 combining: é ä ñ Å
+box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
+box ┌─┬─┐ │中│文│ └─┴─┘ arrows ← → ↑ ↓ ⏺ ⎿ ⏵
+mixed: ｆｕｌｌｗｉｄｔｈ ＡＢＣ and half ｱｲｳ
 "
 `;

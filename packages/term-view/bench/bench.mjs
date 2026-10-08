@@ -30,6 +30,15 @@ const opt = (name, fallback) => {
 }
 const SPEED = Number(opt('speed', 1))
 const FPS = Number(opt('fps', 30))
+for (const [name, value] of [
+  ['speed', SPEED],
+  ['fps', FPS]
+]) {
+  if (!Number.isFinite(value) || value <= 0) {
+    console.error(`--${name} must be a positive number`)
+    process.exit(2)
+  }
+}
 const onTty = args.includes('--tty') && process.stdout.isTTY
 const HOST_COLS = Number(opt('cols', onTty ? process.stdout.columns : 240))
 const HOST_ROWS = Number(opt('rows', onTty ? process.stdout.rows : 66))
@@ -126,7 +135,7 @@ for (let t = 0; t <= duration; t += frameInterval) {
     let wrote = false
     while (agent.next < agent.events.length && agent.events[agent.next].time * 1000 <= t) {
       const data = agent.events[agent.next++].data
-      inputBytes += data.length
+      inputBytes += Buffer.byteLength(data)
       if (ASYNC) agent.view.write(data)
       else agent.view.terminal._core.writeSync(data)
       wrote = true
