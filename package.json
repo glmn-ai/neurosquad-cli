@@ -18,7 +18,7 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "clean": "tsc -b --clean packages/core packages/dictation packages/notify"
+    "clean": "tsc -b --clean packages/core packages/dictation packages/notify packages/tui-theme"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
