@@ -1,0 +1,47 @@
+{
+  "name": "@neurosquad/term-view",
+  "version": "0.1.0",
+  "description": "Live agent terminals as tiles: a headless xterm screen per agent and a diff renderer that paints it into any rectangle of the host terminal.",
+  "license": "MIT",
+  "author": "NeuroSquad",
+  "homepage": "https://neurosquad.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glmn-ai/neurosquad-cli.git",
+    "directory": "packages/term-view"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --root ../.. packages/term-view",
+    "bench": "node bench/bench.mjs",
+    "record-fixtures": "node fixtures/record.mjs"
+  },
+  "dependencies": {
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/addon-unicode-graphemes": "^0.4.0",
+    "@xterm/addon-unicode11": "^0.9.0",
+    "@xterm/headless": "^6.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
