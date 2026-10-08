@@ -38,6 +38,8 @@ export class GdbusBackend implements ToastBackend {
   readonly replaceable = true
   private readonly ids = new Map<string, number>()
   private probed: Promise<string | null> | undefined
+  /** When the last "no" came back (a "yes" is never asked again). */
+  private probedAt: number | undefined
 
   constructor(
     private readonly sys: System,
@@ -64,11 +66,20 @@ export class GdbusBackend implements ToastBackend {
     )
   }
 
-  /** Is a notification server actually on the bus? Asked once. */
+  /**
+   * Is a notification server actually on the bus? A yes is kept; a no is
+   * asked again after a minute (the desktop session may still be starting).
+   */
   probe(): Promise<string | null> {
-    this.probed ??= this.call('GetServerInformation', []).then((result) =>
-      result.code === 0 ? null : 'no-notification-server'
-    )
+    const now = Date.now()
+    if (!this.probed || (this.probedAt !== undefined && now - this.probedAt > 60_000)) {
+      this.probedAt = undefined
+      this.probed = this.call('GetServerInformation', []).then((result) => {
+        if (result.code === 0) return null
+        this.probedAt = Date.now()
+        return 'no-notification-server'
+      })
+    }
     return this.probed
   }
 

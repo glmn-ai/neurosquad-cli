@@ -128,6 +128,14 @@ describe('WindowsBridge', () => {
     expect(await toast.probe()).toMatch(/exited|stopped/)
   })
 
+  it('a broken pipe is not an unhandled error in the caller', async () => {
+    const { bridge, children } = setup((child) => child.reply(READY))
+    expect(await bridge.start()).toMatchObject({ ok: true })
+    expect(() => children[0].stdin.emit('error', new Error('EPIPE'))).not.toThrow()
+    expect(() => children[0].stdout.emit('error', new Error('EPIPE'))).not.toThrow()
+    await bridge.dispose()
+  })
+
   it('no PowerShell: nothing is spawned', async () => {
     const sys = fakeSystem({ platform: 'win32' })
     const bridge = new WindowsBridge(sys, {

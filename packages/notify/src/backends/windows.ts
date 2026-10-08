@@ -139,6 +139,10 @@ export class WindowsBridge {
         (NodeJS.ReadableStream & { setEncoding?(e: string): void }) | null
       stdout?.setEncoding?.('utf8')
       stdout?.on('data', (chunk: string | Buffer) => this.onData(String(chunk)))
+      // A pipe error (EPIPE after the helper died) must not become an
+      // unhandled 'error' event in the caller's process; 'exit' follows.
+      child.stdin?.on('error', () => {})
+      stdout?.on('error', () => {})
       child.on('error', (error) => this.onExit(child, `helper error: ${error.message}`))
       child.on('exit', (code) => this.onExit(child, `helper exited (code ${code})`))
     })
