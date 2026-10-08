@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest an idea or improvement for nsq.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: How should it work? Commands, keys, what you would see.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - TUI / dashboard
+        - Daemon / agents lifecycle
+        - Notifications
+        - Git worktrees
+        - Cost / usage
+        - Install / packaging
+        - Docs
+        - Other
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to implement this myself (please wait for a maintainer's go-ahead before starting).

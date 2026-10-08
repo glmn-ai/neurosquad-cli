@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Detect package.json
+        id: detect
+        run: |
+          if [ -f package.json ]; then
+            echo "has_pkg=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pkg=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No package.json yet (bootstrap state) - install, lint, typecheck and test are skipped."
+          fi
+
+      - uses: actions/setup-node@v5
+        if: steps.detect.outputs.has_pkg == 'true'
+        with:
+          node-version: lts/*
+          cache: ${{ hashFiles('package-lock.json') != '' && 'npm' || '' }}
+
+      - name: Install
+        if: steps.detect.outputs.has_pkg == 'true'
+        run: |
+          if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi
+
+      - name: Lint
+        if: steps.detect.outputs.has_pkg == 'true'
+        run: npm run lint --if-present
+
+      - name: Typecheck
+        if: steps.detect.outputs.has_pkg == 'true'
+        run: npm run typecheck --if-present
+
+      - name: Test
+        if: steps.detect.outputs.has_pkg == 'true'
+        run: npm test --if-present
+
+  # Single stable check for branch protection: stays the same when the matrix changes.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All CI jobs passed
+        run: |
+          if [ "${{ needs.test.result }}" != "success" ]; then
+            echo "CI failed: test result = ${{ needs.test.result }}"
+            exit 1
+          fi

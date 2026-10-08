@@ -1,0 +1,83 @@
+# CodeRabbit AI review config — https://docs.coderabbit.ai/reference/configuration
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: "Be direct and concise. Lead with real bugs and risks; skip praise and style nits a linter would catch."
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false  # the owner's review is the merge gate, not the bot
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  review_status: true
+  collapse_walkthrough: true
+  sequence_diagrams: false
+  poem: false
+  changed_files_summary: true
+  suggested_labels: true
+  auto_apply_labels: false
+  suggested_reviewers: false
+  abort_on_close: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: ["main"]
+    ignore_title_keywords: ["WIP", "[skip review]"]
+  path_filters:
+    - "!**/package-lock.json"
+    - "!**/pnpm-lock.yaml"
+    - "!**/yarn.lock"
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/coverage/**"
+    - "!**/*.generated.*"
+    - "!**/generated/**"
+    - "!**/*.snap"
+    - "!**/*.min.js"
+  path_instructions:
+    - path: "packages/core/**"
+      instructions: |
+        Core library shared by the daemon and the CLI (Node only, no Electron, no DOM). Review for correctness first:
+        - Agent status state machine: transitions, duplicate/out-of-order hook events, races between hooks, transcript and pty exit.
+        - Cross-platform PTY: Windows ConPTY quirks, resolving commands to absolute paths, .cmd/.bat shims, forward slashes in paths and cwd,
+          pty.kill()/resize throwing on Windows (must be non-fatal), signal handling, waiting for all child processes on shutdown.
+        - Never write the user's own harness config (~/.claude, ~/.codex, opencode.json); our settings go in a per-agent layer (flags/env/own dir).
+        - Secrets and API keys must never reach argv, logs or files; loopback servers must check tokens with timing-safe compare.
+        - Resource leaks: timers, listeners, file handles, child processes. Errors must not crash the daemon.
+        - Usage/cost: integer tokens, exact money arithmetic, unknown model = "no price", never $0.
+    - path: "apps/cli/**"
+      instructions: |
+        The nsq CLI and its Ink TUI. Review for terminal UX:
+        - Works in Windows Terminal, conhost, macOS Terminal/iTerm2, Linux terminals, tmux and over SSH; no assumptions about colors or Unicode width.
+        - Raw mode is always restored on exit, crash or signal; attach mode passes keys through untouched (Ctrl keys, Ctrl+C) except the detach prefix.
+        - Resize handling, no flicker or excessive re-renders, keyboard-only navigation, clear help/footer text.
+        - Commands and flags are consistent, errors are actionable, exit codes are meaningful, `--json` output is stable.
+    - path: "**/*.test.ts"
+      instructions: "Tests must be deterministic and never touch the real ~/.claude, ~/.codex or network; fake harnesses instead of calling models."
+    - path: ".github/workflows/**"
+      instructions: "Least-privilege permissions, pinned major versions, no secrets exposed to pull_request from forks, no script injection via untrusted inputs."
+  tools:
+    eslint:
+      enabled: true
+    biome:
+      enabled: false
+    markdownlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    gitleaks:
+      enabled: true
+    github-checks:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: local

@@ -1,0 +1,50 @@
+name: Harness integration request
+description: Ask nsq to support another AI coding CLI.
+title: "[Harness]: "
+labels: ["harness", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        nsq first supports Claude Code, Codex, OpenCode and a generic mode (`nsq run -- <command>`).
+        Tell us which CLI you want next and what it offers for integration.
+  - type: input
+    id: name
+    attributes:
+      label: Harness name
+      placeholder: "Gemini CLI, Qwen Code, Copilot CLI, Kilo…"
+    validations:
+      required: true
+  - type: input
+    id: url
+    attributes:
+      label: Homepage or repository
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version you use
+  - type: checkboxes
+    id: integration
+    attributes:
+      label: What does the CLI provide?
+      description: Tick what you know exists — it decides how exact the status can be.
+      options:
+        - label: Hooks / lifecycle events (turn finished, permission prompt, …)
+        - label: Plugin or extension API
+        - label: Session id and resume flag
+        - label: Settings via flag or env var (so nsq never edits your config)
+        - label: Transcript / session log on disk
+        - label: MCP support
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Links to docs for hooks/settings, how interrupt works (Esc, Ctrl+C…), anything special.
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I can help test or implement this integration.

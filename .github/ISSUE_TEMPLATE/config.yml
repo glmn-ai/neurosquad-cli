@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and ideas (Discussions)
+    url: https://github.com/glmn-ai/neurosquad-cli/discussions
+    about: Ask questions and discuss ideas before opening an issue.
+  - name: Discord
+    url: https://discord.gg/DyKn8cGTc
+    about: Chat with the NeuroSquad community.
+  - name: Documentation
+    url: https://neurosquad.ai
+    about: NeuroSquad docs and the desktop app.
+  - name: Report a security vulnerability
+    url: https://github.com/glmn-ai/neurosquad-cli/security/advisories/new
+    about: Please report security issues privately, not as public issues.
