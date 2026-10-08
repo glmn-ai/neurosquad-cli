@@ -9,6 +9,9 @@ name: Pack smoke
 on:
   pull_request:
     paths:
+      # Sources too: they become the dist/ files inside the tarballs.
+      - packages/**
+      - apps/**
       - '**/package.json'
       - package-lock.json
       - .changeset/**
@@ -103,7 +106,12 @@ jobs:
 
       - name: Manifests parse
         run: |
-          node -e 'JSON.parse(require("fs").readFileSync("packaging/scoop/neurosquad-cli.json","utf8"))'
+          # Parses, and no installer line holds a control character (a "\n" meant as a path
+          # separator decodes to a newline in JSON).
+          node -e '
+            const m = JSON.parse(require("fs").readFileSync("packaging/scoop/neurosquad-cli.json", "utf8"))
+            const bad = m.installer.script.filter((l) => /[\x00-\x1f]/.test(l))
+            if (bad.length) { console.error("control characters in installer.script:", bad); process.exit(1) }'
           ruby -c packaging/homebrew/neurosquad-cli.rb
 
   # One stable check name for branch protection / the release workflow.

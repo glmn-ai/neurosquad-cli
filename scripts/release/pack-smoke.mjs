@@ -15,7 +15,7 @@
 //                   install scripts by default for `npm i -g` and `npx`.
 //   default         a plain `npm install`, what most users run today.
 //
-//   node scripts/release/pack-smoke.mjs [--mode both|ignore-scripts|default] [--work <dir>] [--root <repo>] [--keep]
+//   node scripts/release/pack-smoke.mjs [--mode both|ignore-scripts|default] [--work <parent dir>] [--root <repo>] [--keep]
 //
 // Run `npm run build` first. Exit code 1 on any failure; a Markdown report goes to stdout and,
 // on GitHub Actions, to the job summary. Uses only the public npm registry for third-party
@@ -44,8 +44,14 @@ const args = { mode: 'both', work: undefined, root: undefined, keep: false }
 for (let i = 2; i < process.argv.length; i++) {
   const a = process.argv[i]
   if (a === '--keep') args.keep = true
-  else if (a === '--mode' || a === '--work' || a === '--root') args[a.slice(2)] = process.argv[++i]
-  else {
+  else if (a === '--mode' || a === '--work' || a === '--root') {
+    const value = process.argv[++i]
+    if (!value || value.startsWith('-')) {
+      console.error(`pack-smoke: ${a} needs a value`)
+      process.exit(2)
+    }
+    args[a.slice(2)] = value
+  } else {
     console.error(`pack-smoke: unknown argument ${a}`)
     process.exit(2)
   }
@@ -105,8 +111,10 @@ function npm(argv, opts = {}) {
   })
 }
 
-const work = args.work ? resolve(args.work) : mkdtempSync(join(tmpdir(), 'nsq-pack-smoke-'))
-mkdirSync(work, { recursive: true })
+// Always a fresh folder of our own (under --work when given): cleanup removes only that folder.
+const parent = args.work ? resolve(args.work) : tmpdir()
+mkdirSync(parent, { recursive: true })
+const work = mkdtempSync(join(parent, 'nsq-pack-smoke-'))
 const tarballDir = join(work, 'tarballs')
 mkdirSync(tarballDir, { recursive: true })
 

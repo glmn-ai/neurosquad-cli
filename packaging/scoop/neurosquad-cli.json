@@ -20,7 +20,7 @@
       "    npm install --omit=dev --ignore-scripts --no-audit --no-fund --no-package-lock",
       "    if ($LASTEXITCODE -ne 0) { throw \"npm install failed with exit code $LASTEXITCODE\" }",
       "} finally { Pop-Location }",
-      "Set-Content -LiteralPath \"$dir\nsq.cmd\" -Value '@node \"%~dp0bin\nsq.js\" %*' -Encoding Ascii"
+      "Set-Content -LiteralPath \"$dir\\nsq.cmd\" -Value '@node \"%~dp0bin\\nsq.js\" %*' -Encoding Ascii"
     ]
   },
   "bin": "nsq.cmd",

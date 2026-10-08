@@ -20,8 +20,8 @@
 // Packages: every workspace without "private": true (override with --packages a,b,c).
 // Needs npm >= 11.15 (`npm trust`) and 2FA on the npm account.
 
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, execSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -38,19 +38,19 @@ const apply = rest.includes('--apply')
 const pkgArg = rest.indexOf('--packages')
 const only = pkgArg >= 0 ? rest[pkgArg + 1]?.split(',').filter(Boolean) : undefined
 
-const npmCli = [
-  join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js'),
-  join(dirname(process.execPath), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js')
-].find((p) => existsSync(p))
+// The npm on PATH — the one `npm -v` reports, also after `npm i -g npm@…` upgraded it elsewhere.
+// On Windows that is npm.cmd, which needs a shell; arguments are quoted for cmd.exe.
+const quote = (a) => (/^[\w@./:=,-]+$/.test(a) ? a : `"${a.replace(/"/g, '""')}"`)
 function npm(argv, { cwd = root, interactive = false } = {}) {
-  const [cmd, pre] = npmCli ? [process.execPath, [npmCli]] : [isWindows ? 'npm.cmd' : 'npm', []]
-  return execFileSync(cmd, [...pre, ...argv], {
+  const opts = {
     cwd,
     encoding: 'utf8',
-    shell: !npmCli && isWindows,
     // Interactive: npm prints the 2FA/web-login URL and waits; let the owner see and answer it.
     stdio: interactive ? 'inherit' : ['ignore', 'pipe', 'pipe']
-  })
+  }
+  return isWindows
+    ? execSync(['npm.cmd', ...argv.map(quote)].join(' '), opts)
+    : execFileSync('npm', argv, opts)
 }
 function exists(name) {
   try {

@@ -7,7 +7,7 @@
 **Run several AI coding agents in your terminal and stop babysitting them.**
 
 `nsq` is a terminal supervisor for AI coding CLIs (Claude Code, Codex, OpenCode, or any command).
-Start several agents, walk away, and get notified *with the question* when one of them needs you —
+Start several agents, walk away, and get notified _with the question_ when one of them needs you —
 answer it from the dashboard without switching windows.
 
 It is the open-source, terminal-only sibling of the [NeuroSquad desktop app](https://neurosquad.ai).
@@ -19,7 +19,7 @@ It is the open-source, terminal-only sibling of the [NeuroSquad desktop app](htt
 
 ## Planned features
 
-MVP *(in development)*:
+MVP _(in development)_:
 
 - **Start agents** — `nsq run claude "fix the flaky test"`, `nsq run codex`, `nsq run -- <any command>`.
   Your own `~/.claude`, `~/.codex` or `opencode.json` are never written: everything `nsq` needs lives
@@ -34,7 +34,7 @@ MVP *(in development)*:
   bell / OSC 9 / OSC 777 so it works over SSH.
 - **Per-agent git worktree** — `nsq run claude --worktree "task"` gives each agent its own branch.
 
-Later *(planned)*:
+Later _(planned)_:
 
 - **Cost per agent** from each harness's own transcript (integer tokens; unknown model shows
   "no price", never $0).
@@ -60,8 +60,10 @@ nsq stop|restart|rm <name>  nsq up / nsq down       nsq doctor
 > **Coming soon — nothing is published yet.** The commands below start working with the first
 > release. Until then, build from source — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Requires [Node.js](https://nodejs.org) 22.13 or newer. Windows (x64, arm64), macOS (Apple silicon,
-Intel) and Linux (x64, arm64); no compiler needed.
+Requires [Node.js](https://nodejs.org) 22.13 or newer. Targets: Windows (x64, arm64), macOS (Apple
+silicon, Intel) and Linux (x64, arm64), each checked in CI from the packed npm tarball. The first
+release ships only once every target installs without a compiler (prebuilt native binaries).
+Voice dictation is not available on Windows arm64.
 
 ```sh
 npm install -g neurosquad        # then: nsq
