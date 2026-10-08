@@ -57,9 +57,39 @@ nsq stop|restart|rm <name>  nsq up / nsq down       nsq doctor
 
 ## Install
 
-Not published yet. Once the first release is out it will be available via npm
-(`npm i -g neurosquad`, binary `nsq`) and package managers. Until then, build from source — see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+> **Coming soon — nothing is published yet.** The commands below start working with the first
+> release. Until then, build from source — see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+Requires [Node.js](https://nodejs.org) 22.13 or newer. Windows (x64, arm64), macOS (Apple silicon,
+Intel) and Linux (x64, arm64); no compiler needed.
+
+```sh
+npm install -g neurosquad        # then: nsq
+npx neurosquad                   # try it without installing
+```
+
+Package managers and one-liners:
+
+```sh
+# macOS / Linux — Homebrew
+brew install glmn-ai/neurosquad/neurosquad-cli
+
+# macOS / Linux — install script (uses your npm, no sudo)
+curl -fsSL https://raw.githubusercontent.com/glmn-ai/neurosquad-cli/main/packaging/install/install.sh | sh
+```
+
+```powershell
+# Windows — Scoop
+scoop bucket add neurosquad https://github.com/glmn-ai/scoop-neurosquad
+scoop install neurosquad-cli
+
+# Windows — install script (uses your npm, no admin rights)
+irm https://raw.githubusercontent.com/glmn-ai/neurosquad-cli/main/packaging/install/install.ps1 | iex
+```
+
+winget comes later (it needs a standalone Windows build). Releases and changelogs:
+[GitHub releases](https://github.com/glmn-ai/neurosquad-cli/releases); how we release:
+[RELEASING.md](RELEASING.md).
 
 ## Privacy
 
