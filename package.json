@@ -18,7 +18,7 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "clean": "tsc -b --clean packages/core packages/dictation"
+    "clean": "tsc -b --clean packages/core packages/dictation packages/notify"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
