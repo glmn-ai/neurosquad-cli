@@ -1,0 +1,47 @@
+{
+  "name": "@neurosquad/remote",
+  "version": "0.1.0",
+  "description": "Optional cloud sign-in (device code, OS keyring) and a token-guarded phone API for nsq.",
+  "license": "MIT",
+  "author": "NeuroSquad",
+  "homepage": "https://neurosquad.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glmn-ai/neurosquad-cli.git",
+    "directory": "packages/remote"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --root ../.. packages/remote"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "^2.1.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

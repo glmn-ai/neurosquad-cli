@@ -18,7 +18,7 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "clean": "tsc -b --clean packages/core packages/dictation packages/notify packages/tui-theme packages/term-view",
+    "clean": "tsc -b --clean packages/core packages/dictation packages/notify packages/tui-theme packages/term-view packages/remote",
     "changeset": "changeset",
     "version-packages": "changeset version && npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
     "release:smoke": "node scripts/release/pack-smoke.mjs"
