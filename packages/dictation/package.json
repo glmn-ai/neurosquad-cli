@@ -1,0 +1,55 @@
+{
+  "name": "@neurosquad/dictation",
+  "version": "0.1.0",
+  "description": "Local, offline voice dictation for terminal apps: global hotkey, microphone capture and sherpa-onnx speech recognition. Audio never leaves the machine.",
+  "license": "MIT",
+  "author": "NeuroSquad",
+  "homepage": "https://neurosquad.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glmn-ai/neurosquad-cli.git",
+    "directory": "packages/dictation"
+  },
+  "keywords": [
+    "dictation",
+    "speech-to-text",
+    "sherpa-onnx",
+    "offline",
+    "terminal"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "tsc -b --clean",
+    "test": "vitest run --root ../.. packages/dictation/"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "^1.13.8"
+  },
+  "optionalDependencies": {
+    "@picovoice/pvrecorder-node": "^1.2.9",
+    "uiohook-napi": "^1.5.5"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
