@@ -130,7 +130,7 @@ try {
       )
       // A beat for the dialog to take keys.
       await sleep(1500)
-      nsq('answer', name, 'yes')
+      nsq('answer', name, arg('answer', 'yes'))
       const done = await waitStatus(name, ['finished'], 120_000)
       check(`${short}: answered inline → finished`, done.agent?.status === 'finished', done.seen)
       check(`${short}: the approved command ran`, existsSync(join(sandbox.project, PERM_DIR)))

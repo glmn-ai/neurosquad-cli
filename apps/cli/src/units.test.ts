@@ -122,8 +122,9 @@ describe('store', () => {
 
 describe('daemon helpers', () => {
   it('answer keys per harness', () => {
-    expect(answerKeys('claude-code', 'yes')).toBe('1')
-    expect(answerKeys('codex-cli', 'no')).toBe('\x1b')
+    expect(answerKeys('claude-code', 'yes')).toEqual(['1'])
+    expect(answerKeys('codex-cli', 'no')).toEqual(['\x1b'])
+    expect(answerKeys('opencode', 'always')).toEqual(['\x1b[C', '\r', '\r'])
     expect(answerKeys('command', 'yes')).toBeNull()
   })
 

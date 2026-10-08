@@ -54,7 +54,7 @@ import { Screens } from './screens.js'
 import { createNotifier, type Notifier } from './notify.js'
 import { openRouterKey, setSecret, OPENROUTER_SECRET } from './secrets.js'
 import { UsageTracker } from './usage.js'
-import { answerKeys, type AnswerKey } from './answers.js'
+import { KEY_GAP_MS, answerKeys, type AnswerKey } from './answers.js'
 import { fetchOpenRouterModels } from './models.js'
 import { VERSION } from '../version.js'
 
@@ -744,8 +744,11 @@ export class Daemon {
         const record = this.need(message.id)
         const keys = answerKeys(record.harness, message.key as AnswerKey)
         if (!keys) throw new Error(`${record.harness} has no permission prompt to answer`)
-        this.ptys.write(record.id, keys)
-        noteUserInput(record.id, keys)
+        for (const [index, press] of keys.entries()) {
+          if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
+          this.ptys.write(record.id, press)
+          noteUserInput(record.id, press)
+        }
         return undefined
       }
       case 'interrupt': {

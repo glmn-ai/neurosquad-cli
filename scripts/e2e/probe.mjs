@@ -31,9 +31,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 try {
   console.log(nsq('run', harness, '--name', 'probe', ...(prompt ? [prompt] : [])).stdout)
   await sleep(Number(arg('wait', '20')) * 1000)
-  if (arg('raw')) {
-    nsq('_input', 'probe', arg('raw'))
-    await sleep(3000)
+  for (const raw of arg('raw') ? arg('raw').split('|') : []) {
+    nsq('_input', 'probe', raw)
+    await sleep(2500)
+    console.log(nsq('peek', 'probe', '-n', '12').stdout)
   }
   if (arg('keys')) {
     nsq('answer', 'probe', arg('keys'))
