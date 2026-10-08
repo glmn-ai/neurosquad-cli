@@ -9,7 +9,8 @@ const KEYS: Partial<Record<HarnessId, Record<AnswerKey, string>>> = {
   // "1. Yes / 2. Yes, and don't ask again … / 3. No, and tell Claude what to do differently (esc)"
   'claude-code': { yes: '1', always: '2', no: '3' },
   // "Yes, proceed (y) / Yes, and don't ask again … (a) / No, and tell Codex what to do differently (esc)"
-  'codex-cli': { yes: 'y', always: 'a', no: '\x1b' },
+  // (0.162: "Yes, and don't ask again for commands that start with … (p)")
+  'codex-cli': { yes: 'y', always: 'p', no: '\x1b' },
   // "Allow once / Allow always / Reject": Enter on the first option, `a`, Escape.
   opencode: { yes: '\r', always: 'a', no: '\x1b' }
 }
