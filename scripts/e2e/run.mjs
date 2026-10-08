@@ -10,6 +10,8 @@
 //              (fake) OpenRouter carries the attribution headers, no
 //              visibility header, the key never in argv
 //   worktree   an agent in its own git worktree
+//   phone      through the phone API: the pending question in the state,
+//              answered from the phone → finished; a prompt from the phone
 //
 //   node scripts/e2e/run.mjs --harness claude|codex|opencode|all
 //        [--work <scratch dir>] [--bin <dir with the CLIs>] [--only hello,perm]
@@ -136,6 +138,52 @@ try {
       check(`${short}: answered inline → finished`, done.agent?.status === 'finished', done.seen)
       check(`${short}: the approved command ran`, existsSync(join(sandbox.project, PERM_DIR)))
       if (done.agent?.status !== 'finished') log(nsq('peek', name, '-n', '40').stdout)
+    }
+
+    if (runs('phone')) {
+      const name = `${short}-phone`
+      rmSync(join(sandbox.project, PERM_DIR), { recursive: true, force: true })
+      const on = nsq('phone', 'on', '--port', '0')
+      const port = /port (\d+)/.exec(on.stdout)?.[1]
+      const token = readFileSync(join(sandbox.env.NSQ_HOME, 'phone-token'), 'utf8').trim()
+      const api = async (path, body) => {
+        const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+          method: body ? 'POST' : 'GET',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          ...(body ? { body: JSON.stringify(body) } : {})
+        })
+        return { status: response.status, json: await response.json().catch(() => null) }
+      }
+      nsq('run', short, '--name', name, '[nsq:perm] make the folder')
+      await waitStatus(name, ['needs-input'], 120_000)
+      const state = await api('/api/state')
+      const agent = state.json?.agents?.find((a) => a.name === name)
+      check(
+        `${short}: phone sees needs-input with the question`,
+        agent?.status === 'needs-input' && Boolean(agent?.detail),
+        agent
+      )
+      await sleep(1500)
+      const answered = await api(`/api/agent/${agent?.id}/answer`, { key: 'yes' })
+      const done = await waitStatus(name, ['finished'], 120_000)
+      check(
+        `${short}: answered from the phone → finished, the command ran`,
+        answered.status === 202 &&
+          done.agent?.status === 'finished' &&
+          existsSync(join(sandbox.project, PERM_DIR)),
+        { answered: answered.status, seen: done.seen }
+      )
+      const sent = await api(`/api/agent/${agent?.id}/prompt`, {
+        text: '[nsq:hello] again from the phone'
+      })
+      await waitStatus(name, ['working'], 30_000)
+      const again = await waitStatus(name, ['finished'], 120_000)
+      check(
+        `${short}: a prompt from the phone runs a turn`,
+        sent.status === 202 && again.agent?.status === 'finished',
+        again.seen
+      )
+      nsq('phone', 'off')
     }
 
     if (runs('resume')) {

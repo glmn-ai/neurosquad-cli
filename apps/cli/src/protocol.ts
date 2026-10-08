@@ -84,6 +84,13 @@ export type Request =
   | { t: 'models'; query?: string }
   | { t: 'openrouter-key'; key: string | null }
   | { t: 'status' }
+  /** Phone access: `on` starts it (and remembers), `pair` returns the links (they carry the token). */
+  | {
+      t: 'phone'
+      action: 'status' | 'on' | 'off' | 'pair' | 'rotate'
+      lan?: boolean
+      port?: number
+    }
   | { t: 'shutdown'; stopAgents?: boolean }
 
 export type RequestWithId = Request & { rid: number }

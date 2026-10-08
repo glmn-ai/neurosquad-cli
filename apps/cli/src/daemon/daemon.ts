@@ -51,13 +51,14 @@ import {
   type SpawnRequest
 } from '@neurosquad/core'
 import { ensureDir, ipcPath, paths } from '../paths.js'
-import { readConfig } from '../config.js'
+import { readConfig, writeConfig } from '../config.js'
 import {
   LineDecoder,
   PROTOCOL_VERSION,
   encode,
   type AgentView,
   type DaemonEvent,
+  type Request,
   type RequestWithId,
   type RunSpec
 } from '../protocol.js'
@@ -69,6 +70,8 @@ import { UsageTracker } from './usage.js'
 import { KEY_GAP_MS, answerKeys, type AnswerKey } from './answers.js'
 import { fetchOpenRouterModels } from './models.js'
 import { VERSION } from '../version.js'
+import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
+import { PhoneAccess } from './phone.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -150,7 +153,10 @@ export class Daemon {
   private locked = false
   private costTimer: ReturnType<typeof setTimeout> | null = null
 
+  private readonly phone: PhoneAccess
+
   constructor() {
+    this.phone = new PhoneAccess(this.phoneHost(), (line) => this.log(line))
     this.notifier = createNotifier(this.config.notifications !== false)
   }
 
@@ -199,6 +205,7 @@ export class Daemon {
         const rt = this.rt(id)
         rt.status = 'exited'
         rt.statusAt = Date.now()
+        this.phone.emit({ type: 'status', agentId: id, status: 'exited', at: rt.statusAt })
         this.notifier.close(id)
         this.broadcast({ t: 'exit', id, generation })
         this.pushAgent(id)
@@ -243,6 +250,11 @@ export class Daemon {
       }
     }
     this.scheduleCost(2000)
+    if (this.config.phone?.enabled) {
+      void this.phone
+        .start(this.config.phone)
+        .catch((error: unknown) => this.log(`phone access did not start: ${String(error)}`))
+    }
     return state
   }
 
@@ -315,7 +327,10 @@ export class Daemon {
 
   private pushAgent(id: string): void {
     const record = this.store.get(id)
-    if (record) this.broadcast({ t: 'agent', agent: this.view(record) })
+    if (!record) return
+    this.broadcast({ t: 'agent', agent: this.view(record) })
+    // Cheap for the phone server: it re-reads the list and compares a signature.
+    this.phone.emit({ type: 'agents-changed' })
   }
 
   private forward(id: string, event: DaemonEvent & { t: 'data' }): void {
@@ -352,10 +367,18 @@ export class Daemon {
     rt.statusAt = event.at
     rt.detail = event.detail
     this.pushAgent(event.agentId)
+    this.phone.emit({ type: 'status', agentId: event.agentId, status: event.kind, at: event.at })
     const decision = decideNotification(event)
     if (decision?.action === 'close') this.notifier.close(event.agentId)
     if (decision?.action === 'show') {
       const text = notificationText(record.name, decision.kind, decision.detail)
+      this.phone.emit({
+        type: 'attention',
+        agentId: event.agentId,
+        kind: decision.kind,
+        ...(decision.detail ? { detail: decision.detail } : {}),
+        at: event.at
+      })
       // The dashboard rings its terminal unless a desktop notification was actually shown.
       void this.notifier
         .show(event.agentId, text.title, text.body, decision.kind, this.config.sound !== false)
@@ -675,6 +698,129 @@ export class Daemon {
       })
     }
     this.broadcast({ t: 'removed', id })
+    this.phone.emit({ type: 'agents-changed' })
+  }
+
+  private sendPrompt(
+    record: AgentRecord,
+    text: string,
+    whenDone: boolean
+  ): { queued: number } | { sent: true } {
+    if (!this.ptys.isRunning(record.id)) throw new Error(`${record.name} is not running`)
+    const rt = this.rt(record.id)
+    const busy = rt.status === 'working' || rt.status === 'needs-input'
+    if (whenDone && busy) {
+      rt.queue.push(text)
+      this.pushAgent(record.id)
+      return { queued: rt.queue.length }
+    }
+    if (rt.status === 'needs-input') {
+      throw new Error(`${record.name} is waiting for an answer; answer it first or use --when-done`)
+    }
+    this.ptys.submit(record.id, text)
+    return { sent: true }
+  }
+
+  private async answerPrompt(record: AgentRecord, key: AnswerKey): Promise<void> {
+    const keys = answerKeys(record.harness, key)
+    if (!keys) throw new Error(`${record.harness} has no permission prompt to answer`)
+    // Only into a prompt that is open: elsewhere the keys would land in its input box.
+    if (agentStatusSnapshot(record.id)?.kind !== 'needs-input') {
+      throw new Error(`${record.name} is not waiting for an answer`)
+    }
+    for (const [index, press] of keys.entries()) {
+      if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
+      this.ptys.write(record.id, press)
+      noteUserInput(record.id, press)
+    }
+  }
+
+  // ---- phone ---------------------------------------------------------------------------
+
+  /** The daemon as the phone server's host: the same paths its own clients take. */
+  private phoneHost(): Omit<PhoneHost, 'subscribe'> {
+    const running = (id: string): AgentRecord => {
+      const record = this.store.get(id)
+      if (!record) throw new PhoneHostError('not-found', 'No such agent')
+      if (!this.ptys.isRunning(id))
+        throw new PhoneHostError('not-running', 'The agent is not running')
+      return record
+    }
+    const refusal = (error: unknown): never => {
+      if (error instanceof PhoneHostError) throw error
+      throw new PhoneHostError('refused', error instanceof Error ? error.message : 'Refused')
+    }
+    return {
+      listAgents: () =>
+        this.views().map((view) => ({
+          id: view.id,
+          name: view.name,
+          harness: view.harness,
+          workspace: view.workspace,
+          running: view.running,
+          ...(view.status ? { status: view.status } : {}),
+          ...(view.detail ? { detail: view.detail } : {}),
+          ...(view.queued ? { queued: view.queued } : {})
+        })),
+      screen: (id, lines) => {
+        if (!this.store.get(id) || !this.screens.has(id)) return null
+        return this.screens.tail(id, lines).join('\n')
+      },
+      // A busy agent gets it when its turn ends, as `nsq send --when-done`.
+      submit: (id, text) => {
+        try {
+          this.sendPrompt(running(id), text, true)
+        } catch (error) {
+          refusal(error)
+        }
+      },
+      answer: async (id, answer: PhoneAnswer) => {
+        try {
+          await this.answerPrompt(running(id), answer)
+        } catch (error) {
+          refusal(error)
+        }
+      },
+      interrupt: (id) => {
+        const record = running(id)
+        this.ptys.interrupt(record.id, interruptKeys(record.harness))
+      }
+    }
+  }
+
+  private async phoneRequest(message: Request & { t: 'phone' }): Promise<unknown> {
+    const saved = (change: {
+      enabled: boolean
+      lan?: boolean
+      port?: number
+    }): NonNullable<ReturnType<typeof readConfig>['phone']> => {
+      const config = readConfig()
+      const phone = { ...config.phone, ...change }
+      writeConfig({ ...config, phone })
+      this.config.phone = phone
+      return phone
+    }
+    switch (message.action) {
+      case 'on': {
+        const settings = saved({
+          enabled: true,
+          ...(message.lan !== undefined ? { lan: message.lan } : {}),
+          ...(message.port !== undefined ? { port: message.port } : {})
+        })
+        return { status: await this.phone.start(settings), links: this.phone.pairingLinks() }
+      }
+      case 'off':
+        saved({ enabled: false })
+        await this.phone.stop()
+        return { status: this.phone.status() }
+      case 'rotate':
+        this.phone.rotate()
+        return { status: this.phone.status() }
+      case 'pair':
+        return { status: this.phone.status(), links: this.phone.pairingLinks() }
+      default:
+        return { status: this.phone.status() }
+    }
   }
 
   private need(ref: string): AgentRecord {
@@ -781,44 +927,18 @@ export class Daemon {
           throw new Error(`${record.name} is not running`)
         return undefined
       }
-      case 'send': {
-        const record = this.need(message.id)
-        if (!this.ptys.isRunning(record.id)) throw new Error(`${record.name} is not running`)
-        const rt = this.rt(record.id)
-        const busy = rt.status === 'working' || rt.status === 'needs-input'
-        if (message.whenDone && busy) {
-          rt.queue.push(message.text)
-          this.pushAgent(record.id)
-          return { queued: rt.queue.length }
-        }
-        if (rt.status === 'needs-input') {
-          throw new Error(
-            `${record.name} is waiting for an answer; answer it first or use --when-done`
-          )
-        }
-        this.ptys.submit(record.id, message.text)
-        return { sent: true }
-      }
-      case 'answer': {
-        const record = this.need(message.id)
-        const keys = answerKeys(record.harness, message.key as AnswerKey)
-        if (!keys) throw new Error(`${record.harness} has no permission prompt to answer`)
-        // Only into a prompt that is open: elsewhere the keys would land in its input box.
-        if (agentStatusSnapshot(record.id)?.kind !== 'needs-input') {
-          throw new Error(`${record.name} is not waiting for an answer`)
-        }
-        for (const [index, press] of keys.entries()) {
-          if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
-          this.ptys.write(record.id, press)
-          noteUserInput(record.id, press)
-        }
+      case 'send':
+        return this.sendPrompt(this.need(message.id), message.text, message.whenDone === true)
+      case 'answer':
+        await this.answerPrompt(this.need(message.id), message.key)
         return undefined
-      }
       case 'interrupt': {
         const record = this.need(message.id)
         this.ptys.interrupt(record.id, interruptKeys(record.harness))
         return undefined
       }
+      case 'phone':
+        return this.phoneRequest(message)
       case 'resize': {
         const record = this.need(message.id)
         const cols = Math.max(20, Math.min(1000, Math.floor(message.cols)))
@@ -915,6 +1035,7 @@ export class Daemon {
       await this.ptys.killAll()
     }
     await this.notifier.dispose()
+    await this.phone.stop().catch(() => {})
     for (const client of this.clients) client.socket.destroy()
     await new Promise<void>((resolve) =>
       this.server ? this.server.close(() => resolve()) : resolve()

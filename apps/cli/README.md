@@ -31,6 +31,8 @@ nsq                             # the dashboard
 | `nsq diff <agent>` · `nsq peek <agent>`                                        | its git diff · the last lines of its screen                                                                                                                            |
 | `nsq cost [--since 7d] [--json]`                                               | what each agent spent, from the harness's own logs                                                                                                                     |
 | `nsq openrouter set-key\|clear-key\|models [query]\|status`                    | OpenRouter                                                                                                                                                             |
+| `nsq phone on [--lan]                                                          | off                                                                                                                                                                    | pair | rotate | status` | phone access (below) |
+| `nsq login` · `logout` · `whoami`                                              | the optional NeuroSquad account                                                                                                                                        |
 | `nsq up` · `nsq down`                                                          | start / stop the daemon (agents resume on `up`)                                                                                                                        |
 | `nsq doctor`                                                                   | check the harnesses, hooks, terminal                                                                                                                                   |
 
@@ -46,9 +48,24 @@ in a per-agent layer — your `~/.claude`, `~/.codex` and `opencode.json` are ne
 ever put in the agent's environment. `nsq run claude --provider openrouter --model anthropic/claude-sonnet-4.5`.
 Requests carry NeuroSquad's OpenRouter app attribution headers.
 
+## Phone
+
+`nsq phone on --lan` lets a phone on the same network see the agents, read their screens, send a
+prompt (a busy agent gets it when its turn ends), answer a permission prompt and interrupt. It is off
+by default, and without `--lan` it listens on this machine only. `nsq phone pair` prints the link
+and a QR code; the link carries the pairing token, so treat it as a password. `nsq phone rotate`
+replaces the token and disconnects every paired phone. The phone cannot start agents, change
+settings or type arbitrary keys. The API is `@neurosquad/remote`'s
+([docs/remote-proposal.md](../../docs/remote-proposal.md)); a phone UI for it is not part of nsq yet.
+
+## Account
+
+`nsq login` signs in to a NeuroSquad account with a code you confirm in the browser; tokens live in
+the OS keyring. Nothing in nsq needs it.
+
 ## Data
 
-Everything lives in `~/.neurosquad-cli` (`NSQ_HOME` to move it). No account, no telemetry.
+Everything lives in `~/.neurosquad-cli` (`NSQ_HOME` to move it). No telemetry; the account is optional.
 
 MIT licensed. Harness names and logos are trademarks of their owners, used only to identify which
 CLI an agent runs.

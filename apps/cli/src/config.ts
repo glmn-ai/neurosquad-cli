@@ -17,6 +17,13 @@ export interface NsqConfig {
   detachKey?: string
   /** Default layout of the dashboard. */
   layout?: 'grid' | 'focus'
+  /** Phone access (`nsq phone on`). */
+  phone?: {
+    enabled?: boolean
+    /** Listen on the local network, not only this machine. */
+    lan?: boolean
+    port?: number
+  }
   dictation?: {
     enabled?: boolean
     /** A global hotkey, e.g. `F9`, `Ctrl+Alt+Space`. */
