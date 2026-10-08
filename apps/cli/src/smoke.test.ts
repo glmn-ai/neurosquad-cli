@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import pty from 'node-pty'
 
 const BIN = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', 'bin', 'nsq.js')
 const built = existsSync(resolve(BIN, '..', '..', 'dist', 'bin.js'))
@@ -79,6 +80,28 @@ describe.skipIf(!built)('daemon smoke', () => {
     expect(second.status).toBe(0)
     expect(second.stdout).toMatch(/already running/)
     expect(list().some((a) => a.name === 'echo')).toBe(true)
+
+    // Attach in a real terminal: keys go to the agent, Ctrl+] detaches.
+    const attached = pty.spawn(process.execPath, [BIN, 'attach', 'echo'], {
+      name: 'xterm-256color',
+      cols: 100,
+      rows: 30,
+      cwd: work,
+      env: { ...process.env, NSQ_HOME: home, NSQ_NO_NOTIFY: '1' } as Record<string, string>
+    })
+    let screen = ''
+    attached.onData((data) => {
+      screen += data
+    })
+    const exited = new Promise<number>((resolveExit) =>
+      attached.onExit(({ exitCode }) => resolveExit(exitCode))
+    )
+    expect(await until(() => screen.includes('ready'), 15_000)).toBe(true)
+    attached.write('typed in attach\r')
+    expect(await until(() => screen.includes('got:typed in attach'), 15_000)).toBe(true)
+    attached.write('\x1d')
+    expect(await exited).toBe(0)
+    expect(screen).toContain('detached from echo')
 
     expect(nsq('send', 'echo', 'hello there').status).toBe(0)
     expect(await until(() => /got:hello there/.test(nsq('peek', 'echo').stdout))).toBe(true)
