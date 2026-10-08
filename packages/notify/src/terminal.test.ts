@@ -89,6 +89,8 @@ describe('text helpers', () => {
   it('cleans and truncates', () => {
     expect(cleanText('a\u0000b\u009bc\nd\te')).toBe('abc\nd\te')
     expect(cleanText('abcdef', 4)).toBe('abc…')
+    // The cut never keeps half of a surrogate pair.
+    expect(cleanText('ab\u{1F600}cdef', 4)).toBe('ab…')
     expect(oneLine('  a \r\n b\tc  ')).toBe('a b c')
   })
 })

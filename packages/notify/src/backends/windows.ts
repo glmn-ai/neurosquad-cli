@@ -42,6 +42,8 @@ export interface WindowsBridgeOptions {
   iconPath?: string
   register: boolean
   script: string
+  /** How long a cold PowerShell start may take (default 20 s). */
+  readyTimeoutMs?: number
 }
 
 interface Pending {
@@ -99,7 +101,7 @@ export class WindowsBridge {
       let settled = false
       const timer = setTimeout(
         () => finish({ ok: false, error: 'helper did not start in time' }),
-        READY_TIMEOUT_MS
+        this.options.readyTimeoutMs ?? READY_TIMEOUT_MS
       )
       const finish = (value: BridgeReady) => {
         if (settled) return
@@ -109,6 +111,11 @@ export class WindowsBridge {
         if (!value.ok) {
           this.lastError = value.error ?? undefined
           this.stopChild()
+          // Let the next start() retry (still bounded by MAX_STARTS). Deferred:
+          // a synchronous failure settles before `this.ready` is assigned.
+          queueMicrotask(() => {
+            if (this.ready === ready) this.ready = undefined
+          })
         }
         this.updateRef()
         resolve(value)

@@ -6,7 +6,7 @@ import { WindowsBridge, WindowsSoundBackend, WindowsToastBackend } from './windo
 
 const PS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 
-function setup(script: (child: FakeChild, index: number) => void) {
+function setup(script: (child: FakeChild, index: number) => void, readyTimeoutMs?: number) {
   const children: FakeChild[] = []
   const sys = fakeSystem({
     platform: 'win32',
@@ -23,7 +23,8 @@ function setup(script: (child: FakeChild, index: number) => void) {
     appId: 'ai.neurosquad.cli',
     appName: 'NeuroSquad CLI',
     register: true,
-    script: 'C:\\pkg\\assets\\windows\\toast-bridge.ps1'
+    script: 'C:\\pkg\\assets\\windows\\toast-bridge.ps1',
+    ...(readyTimeoutMs ? { readyTimeoutMs } : {})
   })
   return { sys, bridge, children }
 }
@@ -126,6 +127,18 @@ describe('WindowsBridge', () => {
     expect(await bridge.start()).toMatchObject({ ok: false })
     const toast = new WindowsToastBackend(bridge)
     expect(await toast.probe()).toMatch(/exited|stopped/)
+  })
+
+  it('a helper that never gets ready is retried on the next start', async () => {
+    const { bridge, children } = setup((child, index) => {
+      if (index > 0) child.reply(READY)
+    }, 20)
+    expect(await bridge.start()).toEqual({ ok: false, error: 'helper did not start in time' })
+    expect(children[0].killed).toBe(true)
+    await Promise.resolve()
+    expect(await bridge.start()).toMatchObject({ ok: true })
+    expect(children).toHaveLength(2)
+    await bridge.dispose()
   })
 
   it('a broken pipe is not an unhandled error in the caller', async () => {

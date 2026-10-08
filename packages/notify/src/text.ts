@@ -23,7 +23,12 @@ export function notificationKey(id: string): string {
 export function cleanText(text: string, max = 1000): string {
   // eslint-disable-next-line no-control-regex
   const cleaned = String(text ?? '').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')
-  return cleaned.length > max ? cleaned.slice(0, max - 1) + '…' : cleaned
+  if (cleaned.length <= max) return cleaned
+  let cut = cleaned.slice(0, max - 1)
+  // Never end on half of a surrogate pair (invalid in toast XML).
+  const last = cut.charCodeAt(cut.length - 1)
+  if (last >= 0xd800 && last <= 0xdbff) cut = cut.slice(0, -1)
+  return cut + '…'
 }
 
 export function oneLine(text: string, max = 240): string {

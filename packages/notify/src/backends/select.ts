@@ -62,7 +62,9 @@ function selectForPlatform(sys: System, options: SelectOptions, blocked: string 
         appId: options.appId,
         appName: options.appName,
         ...(options.iconPath ? { iconPath: options.iconPath } : {}),
-        register: options.registerAppId,
+        // Only when toasts will be used: a sound-only helper has no business
+        // writing the AppUserModelID (and the appId may have failed validation).
+        register: options.registerAppId && !blocked,
         script: windowsBridgeScript()
       })
       if (!bridge.powershellPath()) {

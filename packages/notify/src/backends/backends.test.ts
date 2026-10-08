@@ -32,6 +32,24 @@ describe('selectBackends', () => {
     expect(selection.sound?.name).toBe('SoundPlayer')
   })
 
+  it('windows: the AppUserModelID is registered only when toasts will be used', async () => {
+    const sys = fakeSystem({
+      platform: 'win32',
+      env: { SystemRoot: 'C:\\Windows' },
+      files: ['C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'],
+      spawn: () => {
+        throw new Error('not started')
+      }
+    })
+    const soundOnly = selectBackends(sys, { ...base, native: false })
+    expect(soundOnly.toast).toBeUndefined()
+    await soundOnly.sound?.play('C:\\s.wav').catch(() => {})
+    await selectBackends(sys, base)
+      .sound?.play('C:\\s.wav')
+      .catch(() => {})
+    expect(sys.spawns.map((s) => s.env?.NSQ_NOTIFY_REGISTER)).toEqual(['0', '1'])
+  })
+
   it('windows without PowerShell: nothing native', () => {
     const selection = selectBackends(fakeSystem({ platform: 'win32' }), base)
     expect(selection).toEqual({ reason: 'powershell-not-found' })
