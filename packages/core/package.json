@@ -1,0 +1,55 @@
+{
+  "name": "@neurosquad/core",
+  "version": "0.1.0",
+  "description": "The integration core shared by NeuroSquad and nsq: harness launch layers, hook-based agent status, transcripts, usage, worktrees, PTY helpers.",
+  "license": "MIT",
+  "author": "NeuroSquad",
+  "homepage": "https://neurosquad.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glmn-ai/neurosquad-cli.git",
+    "directory": "packages/core"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --root ../.. packages/core"
+  },
+  "dependencies": {
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0"
+  },
+  "peerDependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "peerDependenciesMeta": {
+    "node-pty": {
+      "optional": true
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "node-pty": "^1.1.0"
+  }
+}
