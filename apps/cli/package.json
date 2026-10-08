@@ -35,7 +35,8 @@
     "@xterm/headless": "^6.0.0",
     "node-pty": "npm:@lydell/node-pty@1.2.0-beta.15",
     "@neurosquad/term-view": "0.1.0",
-    "@neurosquad/tui-theme": "0.1.0"
+    "@neurosquad/tui-theme": "0.1.0",
+    "@neurosquad/notify": "0.1.0"
   },
   "optionalDependencies": {
     "@neurosquad/dictation": "0.1.0"

@@ -19,6 +19,9 @@
     },
     {
       "path": "../../packages/dictation"
+    },
+    {
+      "path": "../../packages/notify"
     }
   ]
 }

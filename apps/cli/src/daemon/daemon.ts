@@ -339,8 +339,24 @@ export class Daemon {
     if (decision?.action === 'close') this.notifier.close(event.agentId)
     if (decision?.action === 'show') {
       const text = notificationText(record.name, decision.kind, decision.detail)
-      this.notifier.show(event.agentId, text.title, text.body, this.config.sound !== false)
-      this.broadcast({ t: 'notify', id: event.agentId, kind: decision.kind, ...text })
+      this.notifier.show(
+        event.agentId,
+        text.title,
+        text.body,
+        decision.kind,
+        this.config.sound !== false
+      )
+      void this.notifier
+        .native()
+        .then((native) =>
+          this.broadcast({
+            t: 'notify',
+            id: event.agentId,
+            kind: decision.kind,
+            ...text,
+            ring: !native
+          })
+        )
     }
     if (event.kind === 'finished') {
       this.scheduleCost(1500)
@@ -885,7 +901,7 @@ export class Daemon {
       // Keep `wantRunning`: `nsq up` (or the next daemon) brings them back.
       await this.ptys.killAll()
     }
-    this.notifier.dispose()
+    await this.notifier.dispose()
     for (const client of this.clients) client.socket.destroy()
     await new Promise<void>((resolve) =>
       this.server ? this.server.close(() => resolve()) : resolve()

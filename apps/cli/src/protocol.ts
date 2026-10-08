@@ -100,7 +100,15 @@ export type DaemonEvent =
   | { t: 'resized'; id: string; cols: number; rows: number }
   | { t: 'exit'; id: string; generation: number }
   /** A status change that should notify (the TUI rings the terminal bell / OSC 9). */
-  | { t: 'notify'; id: string; kind: 'needs-input' | 'finished'; title: string; body: string }
+  | {
+      t: 'notify'
+      id: string
+      kind: 'needs-input' | 'finished'
+      title: string
+      body: string
+      /** No desktop notification could be shown: the client signals in its terminal. */
+      ring: boolean
+    }
 
 /** Splits a stream into lines and parses each as JSON; a bad line is skipped. */
 export class LineDecoder<T> {

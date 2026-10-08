@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { flagBool, flagString, parseArgs, parseSince } from './args.js'
 import { costLabel, elapsed, harnessFromAlias, statusLabel, textWidth, truncate } from './format.js'
 import { LineDecoder, encode } from './protocol.js'
-import { macNotificationScript, toastXml } from './daemon/notify.js'
 import { AgentStore } from './daemon/store.js'
 import { answerKeys } from './daemon/answers.js'
 import { claudeProjectSlug } from './daemon/usage.js'
@@ -78,17 +77,6 @@ describe('protocol', () => {
     decoder.push(text.slice(0, 5))
     decoder.push(text.slice(5))
     expect(got).toEqual([{ t: 'a' }, { t: 'b', s: 'x\ny' }])
-  })
-})
-
-describe('notifications', () => {
-  it('toast XML and AppleScript are escaped', () => {
-    expect(toastXml('a <b>', 'x & "y"', true)).toContain('a &lt;b&gt;')
-    expect(toastXml('t', 'x & "y"', false)).toContain('x &amp; &quot;y&quot;')
-    expect(toastXml('t', 'b', false)).toContain('silent="true"')
-    expect(macNotificationScript('say "hi"', 'back\\slash', true)).toBe(
-      'display notification "back\\\\slash" with title "say \\"hi\\"" sound name "Glass"'
-    )
   })
 })
 

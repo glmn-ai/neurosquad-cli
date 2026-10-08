@@ -329,8 +329,9 @@ export class Dashboard {
         this.screens.get(event.id)?.view.resize(event.cols, event.rows)
         break
       case 'notify':
-        // Over SSH the daemon's desktop notification is on the other machine: ring this terminal.
-        if (isRemoteSession(process.env)) {
+        // No desktop notification (switched off, none here, or over SSH where it would show on
+        // the other machine): ring this terminal instead — bell and OSC 9.
+        if (event.ring || isRemoteSession(process.env)) {
           this.stdout.write(
             // eslint-disable-next-line no-control-regex -- real escape sequences
             `\x07\x1b]9;${event.title}: ${event.body.replace(/[\x00-\x1f]/g, ' ')}\x07`
