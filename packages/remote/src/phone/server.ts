@@ -50,6 +50,9 @@ const MAX_DETAIL_CHARS = 500
 const EVENT_LOG_MAX = 200
 const MAX_STREAM_BACKLOG_BYTES = 4 * 1024 * 1024
 const AGENT_ID = /^[A-Za-z0-9_-]{1,64}$/
+/** C0 controls except tab and newline, DEL and C1 controls. */
+// eslint-disable-next-line no-control-regex
+const CONTROL_CHARS = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/
 const ANSWERS: readonly PhoneAnswer[] = ['yes', 'always', 'no']
 
 export interface PhoneServerLimits {
@@ -427,8 +430,13 @@ export class PhoneServer {
     const body = await this.readBody(req)
     const agent = await this.findAgent(agentId)
     if (action === 'prompt') {
-      const text = typeof body.text === 'string' ? body.text.trim() : ''
+      const text = typeof body.text === 'string' ? body.text.replace(/\r\n?/g, '\n').trim() : ''
       if (!text) throw new HttpError(400, 'Empty prompt')
+      // A prompt is text: no Escape sequences, Ctrl keys or a stray Enter that would act on the
+      // terminal (the answer and interrupt routes are the only ways to send keys).
+      if (CONTROL_CHARS.test(text)) {
+        throw new HttpError(400, 'The prompt contains control characters')
+      }
       if (text.length > MAX_PHONE_PROMPT_CHARS) throw new HttpError(413, 'Prompt too long')
       if (!agent.running) throw new HttpError(409, 'This agent is not running', 'not-running')
       await this.options.host.submit(agent.id, text)
@@ -623,6 +631,8 @@ export class PhoneServer {
     // about to become the reference the state timer compares against.
     if (this.lastSignature) await this.pollState()
     const state = await this.currentState()
+    // The phone may have hung up during the awaits; its `close` has fired already.
+    if (res.destroyed || res.writableEnded) return
     res.writeHead(200, {
       'Content-Type': 'text/event-stream; charset=utf-8',
       Connection: 'keep-alive',

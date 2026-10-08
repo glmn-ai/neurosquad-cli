@@ -40,12 +40,16 @@ export function resolveCloudOrigins(env: NodeJS.ProcessEnv = process.env): Cloud
 }
 
 /**
- * The verify link is shown and opened as the API returns it, with a guard: https, or plain http
- * to this machine (a dev or fake server). Never `file:`, a custom protocol or anything else.
+ * The verify link is shown and opened as the API returns it, but only when it points at the
+ * configured web panel (`webOrigin`): a tampered `/device/start` answer cannot send the user to a
+ * look-alike sign-in page. And only https, or plain http to this machine (a dev or fake server) —
+ * never `file:`, a custom protocol or anything else.
  */
 export function safeVerifyUrl(raw: string, webOrigin: string): string | undefined {
   try {
-    const url = new URL(raw, webOrigin)
+    const base = new URL(webOrigin)
+    const url = new URL(raw, base)
+    if (url.origin !== base.origin) return undefined
     if (url.protocol === 'https:') return url.toString()
     if (url.protocol === 'http:' && LOOPBACK.has(url.hostname)) return url.toString()
     return undefined

@@ -291,8 +291,18 @@ export class CloudSession {
 
   // ---------------------------------------------------------------- tokens
 
-  /** Rotates the refresh token. Single-flight; resolves with the new access token. */
+  /**
+   * Rotates the refresh token. Single-flight; resolves with the new access token. Rejects with
+   * `SignedOutError`, `SessionExpiredError`, `CloudNetworkError` or `KeyringUnavailableError`.
+   */
   refresh(): Promise<string> {
+    return this.sharedRefresh().catch((error: unknown) => {
+      throw error instanceof SessionMovedError ? new SignedOutError() : error
+    })
+  }
+
+  /** The single in-flight rotation, with the internal SessionMovedError (logout needs its token). */
+  private sharedRefresh(): Promise<string> {
     if (!this.refreshing) {
       this.refreshing = this.doRefresh().finally(() => {
         this.refreshing = null
@@ -349,13 +359,14 @@ export class CloudSession {
     if (!tokens) throw new SignedOutError()
     const expiresAt = this.session()?.accessExpiresAt ?? 0
     if (this.now() < expiresAt - ACCESS_SKEW_MS) return tokens.accessToken
-    return this.refresh()
+    return this.sharedRefresh()
   }
 
   /**
    * A Bearer call to the API. Refreshes an expired token first, retries once on 401, forgets the
    * session if the refresh is refused (`SessionExpiredError`). A network failure rethrows
-   * `CloudNetworkError` and marks the session offline.
+   * `CloudNetworkError` and marks the session offline. `SignedOutError` when there is no session,
+   * or it was signed out while the call was on the wire.
    */
   async authorized(request: Omit<CloudRequest, 'token'>): Promise<CloudResponse> {
     if (!this.session() || !(await this.loadTokens())) throw new SignedOutError()
@@ -363,7 +374,7 @@ export class CloudSession {
     try {
       let response = await this.deps.http.request({ ...request, token: await this.accessToken() })
       if (response.status === 401) {
-        const token = await this.refresh()
+        const token = await this.sharedRefresh()
         response = await this.deps.http.request({ ...request, token })
         if (response.status === 401) {
           if (epoch !== this.sessionEpoch) throw new SessionMovedError()
@@ -375,6 +386,8 @@ export class CloudSession {
       return response
     } catch (error) {
       if (error instanceof CloudNetworkError) this.offline = true
+      // Signed out (or signed in again) while this call was on the wire.
+      if (error instanceof SessionMovedError) throw new SignedOutError()
       throw error
     }
   }

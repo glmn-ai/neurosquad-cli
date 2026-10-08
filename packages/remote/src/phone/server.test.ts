@@ -78,6 +78,11 @@ function readEvents(path: string, count: number): Promise<PhoneEvent[]> {
   })
 }
 
+/** Waits until the server has registered a stream or a held poll (no fixed sleeps). */
+async function untilConnected(target: PhoneServer = server): Promise<void> {
+  while (target.connectionCount() === 0) await new Promise((resolve) => setImmediate(resolve))
+}
+
 beforeEach(async () => {
   host = new FakePhoneHost()
   host.agents.push(
@@ -157,7 +162,7 @@ describe('authentication', () => {
 
   it('rotating the token cuts off streams and the old token', async () => {
     const stream = readEvents(`/api/events?t=${token}`, 99)
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await untilConnected()
     const old = token
     token = generatePairingToken()
     server.rotateToken(token)
@@ -252,6 +257,22 @@ describe('writes', () => {
     ])
   })
 
+  it('refuses control characters in a prompt and normalizes line endings', async () => {
+    for (const text of [
+      'hi\u001b[201~rm -rf /',
+      'hi\u0003',
+      'one\u0008two',
+      'x\u007f',
+      'x\u009b2J'
+    ]) {
+      expect((await call(`/api/agent/${B}/prompt`, { body: { text } })).status).toBe(400)
+    }
+    expect(host.calls).toEqual([])
+    const ok = await call(`/api/agent/${B}/prompt`, { body: { text: 'line one\r\nline two\tend' } })
+    expect(ok.status).toBe(202)
+    expect(host.calls).toEqual([{ kind: 'submit', agentId: B, value: 'line one\nline two\tend' }])
+  })
+
   it('validates what it is sent', async () => {
     expect((await call(`/api/agent/${B}/prompt`, { body: { text: '' } })).status).toBe(400)
     expect(
@@ -300,7 +321,7 @@ describe('writes', () => {
 describe('events', () => {
   it('streams state, status and needs-you events over SSE', async () => {
     const stream = readEvents(`/api/events?t=${token}`, 3)
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await untilConnected()
     host.emit({ type: 'status', agentId: B, status: 'finished', at: 1 })
     host.emit({ type: 'attention', agentId: A, kind: 'needs-input', detail: 'Allow Edit?', at: 2 })
     const events = await stream
@@ -320,7 +341,7 @@ describe('events', () => {
 
   it('pushes a new state when the agent list changes', async () => {
     const stream = readEvents(`/api/events?t=${token}`, 2)
-    await new Promise((resolve) => setTimeout(resolve, 100))
+    await untilConnected()
     host.agents.pop()
     host.emit({ type: 'agents-changed' })
     const events = await stream
@@ -334,7 +355,7 @@ describe('events', () => {
     const empty = (await call(`/api/poll?since=${first.seq}`)).body as { events: PhoneEvent[] }
     expect(empty.events).toEqual([])
     const held = call(`/api/poll?since=${first.seq}`)
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await untilConnected()
     host.emit({ type: 'status', agentId: A, status: 'working', at: 5 })
     const delivered = (await held).body as { seq: number; events: PhoneEvent[] }
     expect(delivered.events).toEqual([{ type: 'status', agentId: A, status: 'working', at: 5 }])

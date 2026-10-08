@@ -58,7 +58,10 @@ let defaultFactory: Promise<KeyringEntryFactory> | undefined
 
 async function loadKeyring(): Promise<KeyringEntryFactory> {
   defaultFactory ??= import('@napi-rs/keyring').then(
-    (mod) => (service: string, account: string) => new mod.AsyncEntry(service, account)
+    // On Linux the default silently falls back to the kernel keyring (keyutils), which forgets
+    // everything at logout/reboot; pinned to the Secret Service it fails loudly instead.
+    (mod) => (service: string, account: string) =>
+      new mod.AsyncEntry(service, account, { linux: { store: 'secret-service' } })
   )
   try {
     return await defaultFactory

@@ -39,13 +39,13 @@ await session.authorized({ method: 'GET', path: '/me' }) // Bearer call with ref
 await session.logout()
 ```
 
-| Rule                                     | How                                                                                                                                                                                          |
-| ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Tokens only in the OS keyring            | `KeyringVault`: one entry per API origin (`service = neurosquad-cli`). No file fallback — without a keyring `login` fails with `KeyringUnavailableError` and nothing is left half signed in. |
-| Refresh is single-flight                 | rotating refresh tokens; reuse would revoke the family                                                                                                                                       |
-| Network / 5xx / 429 / proxy 403 ≠ logout | only the cloud's `401` on refresh ends a session; offline grace of 7 days, then `grace-expired` (tokens kept, `verify()` restores)                                                           |
-| Logout clears                            | local record and keyring entry first, then a best-effort server revoke (rotating once if the access token expired)                                                                           |
-| Tokens never printed                     | not in errors, logs or the session file; `CloudHttp` refuses redirects                                                                                                                       |
+| Rule                                     | How                                                                                                                                                                                                                                                                     |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tokens only in the OS keyring            | `KeyringVault`: one entry per API origin (`service = neurosquad-cli`; on Linux the Secret Service only, never the non-persistent kernel keyring). No file fallback — without a keyring `login` fails with `KeyringUnavailableError` and nothing is left half signed in. |
+| Refresh is single-flight                 | rotating refresh tokens; reuse would revoke the family                                                                                                                                                                                                                  |
+| Network / 5xx / 429 / proxy 403 ≠ logout | only the cloud's `401` on refresh ends a session; offline grace of 7 days, then `grace-expired` (tokens kept, `verify()` restores)                                                                                                                                      |
+| Logout clears                            | local record and keyring entry first, then a best-effort server revoke (rotating once if the access token expired)                                                                                                                                                      |
+| Tokens never printed                     | not in errors, logs or the session file; `CloudHttp` refuses redirects                                                                                                                                                                                                  |
 
 ## Phone API
 

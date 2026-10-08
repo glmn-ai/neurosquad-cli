@@ -178,6 +178,15 @@ describe('device sign-in', () => {
     ).toBeUndefined()
     expect(safeVerifyUrl('file:///etc/passwd', 'https://app.neurosquad.ai')).toBeUndefined()
     expect(safeVerifyUrl('javascript:alert(1)', 'https://app.neurosquad.ai')).toBeUndefined()
+    expect(
+      safeVerifyUrl('https://app.neurosquad.ai.evil.example/connect', 'https://app.neurosquad.ai')
+    ).toBeUndefined()
+    expect(
+      safeVerifyUrl('https://evil.example/connect', 'https://app.neurosquad.ai')
+    ).toBeUndefined()
+    expect(safeVerifyUrl('/connect?code=X', 'https://app.neurosquad.ai')).toBe(
+      'https://app.neurosquad.ai/connect?code=X'
+    )
   })
 
   it('does not stay half signed in when the keyring refuses the tokens', async () => {
@@ -208,6 +217,17 @@ describe('tokens', () => {
     expect(answers.map((answer) => answer.status)).toEqual([200, 200, 200])
     expect(cloud.requests.filter((request) => request.path === '/auth/refresh')).toHaveLength(1)
     expect(cloud.liveFamilies()).toHaveLength(1)
+  })
+
+  it('a call that loses its session to a sign-out mid-flight rejects with SignedOutError', async () => {
+    const session = makeSession()
+    await signIn(session)
+    clock += 2 * 3600_000
+    const call = session.authorized({ method: 'GET', path: '/me' }).catch((error: unknown) => error)
+    const refresh = session.refresh().catch((error: unknown) => error)
+    await session.logout()
+    expect(await call).toBeInstanceOf(SignedOutError)
+    expect(await refresh).toBeInstanceOf(SignedOutError)
   })
 
   it('a lost refresh answer is retried with the same token and stays signed in', async () => {
