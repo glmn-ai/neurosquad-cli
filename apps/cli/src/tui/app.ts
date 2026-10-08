@@ -222,10 +222,23 @@ export class Dashboard {
       target: () => this.expanded ?? this.selected,
       paste: (id, text) => this.client.post({ t: 'paste', id, text }),
       changed: () => this.schedule()
-    }).then((binding) => {
-      this.dictation = binding
-      this.schedule()
-    })
+    }).then(
+      (binding) => {
+        // Quit meanwhile: release the hotkey and the microphone at once.
+        if (this.closed) {
+          void binding?.dispose()
+          return
+        }
+        this.dictation = binding
+        this.schedule()
+      },
+      (error: unknown) => {
+        // Optional: a hotkey or native part that fails never takes the dashboard down.
+        this.toastMessage(
+          `dictation unavailable: ${error instanceof Error ? error.message : String(error)}`
+        )
+      }
+    )
     await new Promise<void>((resolve) => {
       this.resolveClosed = resolve
     })

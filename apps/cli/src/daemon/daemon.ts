@@ -346,17 +346,15 @@ export class Daemon {
         decision.kind,
         this.config.sound !== false
       )
-      void this.notifier
-        .native()
-        .then((native) =>
-          this.broadcast({
-            t: 'notify',
-            id: event.agentId,
-            kind: decision.kind,
-            ...text,
-            ring: !native
-          })
-        )
+      void this.notifier.native().then((native) =>
+        this.broadcast({
+          t: 'notify',
+          id: event.agentId,
+          kind: decision.kind,
+          ...text,
+          ring: !native
+        })
+      )
     }
     if (event.kind === 'finished') {
       this.scheduleCost(1500)

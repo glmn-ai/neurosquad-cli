@@ -111,12 +111,22 @@ for (const name of shots) {
     ],
     { stdio: 'inherit', cwd: join(ROOT, 'packages', 'tui-theme') }
   )
-  try {
-    execFileSync('python', [join(THEME, 'render-frames.py'), json, join(out, `${name}.png`)], {
-      stdio: 'inherit'
-    })
-  } catch (error) {
-    console.error('render failed (Pillow?)', String(error))
+  // python3 first (macOS and many Linux distributions have no `python`), then python.
+  let rendered = false
+  for (const python of [arg('python'), 'python3', 'python'].filter(Boolean)) {
+    try {
+      execFileSync(python, [join(THEME, 'render-frames.py'), json, join(out, `${name}.png`)], {
+        stdio: 'inherit'
+      })
+      rendered = true
+      break
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        console.error(`render failed with ${python} (is Pillow installed?)`, String(error))
+        break
+      }
+    }
   }
+  if (!rendered) console.error('no PNG: Python 3 with Pillow is needed (--python <path>)')
 }
 console.log(`shots in ${out}`)
