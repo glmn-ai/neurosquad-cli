@@ -94,6 +94,15 @@ function collect(req: IncomingMessage, max: number): Promise<string | null> {
 export async function startHookServer(options: HookServerOptions): Promise<HookServer> {
   const tokens = createAgentTokens(options.secret ?? randomBytes(32).toString('hex'))
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    try {
+      route(req, res)
+    } catch (error) {
+      console.error('hooks: request failed (non-fatal)', error)
+      if (!res.headersSent) res.writeHead(500)
+      res.end()
+    }
+  })
+  const route = (req: IncomingMessage, res: ServerResponse): void => {
     const match = req.method === 'POST' ? HOOK_PATH.exec(req.url ?? '') : null
     if (!match) {
       res.writeHead(404).end()
@@ -116,9 +125,10 @@ export async function startHookServer(options: HookServerOptions): Promise<HookS
       } catch (error) {
         console.error('hooks: handler failed (non-fatal)', error)
       }
-      res.writeHead(200, { 'Content-Type': 'application/json' }).end(reply)
+      if (!res.headersSent) res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(reply)
     })
-  })
+  }
   server.keepAliveTimeout = 1000
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)

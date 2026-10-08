@@ -37,13 +37,6 @@ import { recordTokens, requestSpan, usageSubagent } from '../types.js'
 import { dollarsToPico } from '../money.js'
 import type { UsageSource } from '../source.js'
 
-/**
- * The provider id the host gives its custom provider in OpenCode's and Kilo's
- * config (OPENCODE_CUSTOM_PROVIDER_ID / KILO_CUSTOM_PROVIDER_ID; not imported —
- * that module pulls in the secret store).
- */
-const APP_CUSTOM_PROVIDER_ID = 'neurosquad-custom'
-
 export interface OpenCodeRow {
   id: string
   session_id: string
@@ -103,11 +96,11 @@ export function parseOpenCodeRow(row: OpenCodeRow, source = 'opencode'): UsageRe
     typeof data.cost === 'number' || typeof data.cost === 'string'
       ? dollarsToPico(data.cost)
       : undefined
-  // The host's own custom provider is written into OpenCode's config without
-  // prices (agentTerminal/providerLaunch.ts), so OpenCode records 0 for it:
-  // that is "no price known", not "free" — never shown as $0 (found by the
-  // macOS e2e). Priced from the list table if it knows the model, else unpriced.
-  const recorded = parsed === 0n && providerID === APP_CUSTOM_PROVIDER_ID ? undefined : parsed
+  // OpenCode records 0 whenever it has no price for a model (a local model,
+  // a custom provider, a model missing from its catalogue): that is "no price
+  // known", not "free" — never shown as $0. Priced from the list table if it
+  // knows the model, else unpriced.
+  const recorded = parsed === 0n ? undefined : parsed
   const at = n(data.time?.completed) || n(data.time?.created) || row.time_created
   // A child session's step (a `task` subagent): still the root session's.
   const subagent =
@@ -275,8 +268,8 @@ export function kiloOwnCosts(
       for (const child of children) propagated += sessionCost.get(child) ?? 0n
       own = BigInt(record.recordedPico) - propagated
     }
-    // Zero left on the host's custom provider: its unpriced zero (parseOpenCodeRow).
-    const unknown = own === 0n && record.provider === APP_CUSTOM_PROVIDER_ID
+    // Zero left: OpenCode's "no price" zero (parseOpenCodeRow).
+    const unknown = own === 0n
     if (own === undefined || own < 0n || unknown) {
       const unpriced = { ...record }
       delete unpriced.recordedPico
@@ -583,10 +576,19 @@ export class OpenCodeSource implements UsageSource {
     if (!saved || typeof saved.stamp !== 'string' || !Array.isArray(saved.records)) return
     // Records cached before subagent sessions were folded into their root.
     if (saved.v !== STATE_VERSION) return
+    // A damaged cache: only well-formed records are kept.
+    const records = saved.records.filter(
+      (record): record is UsageRecord =>
+        Boolean(record) &&
+        typeof record === 'object' &&
+        typeof record.id === 'string' &&
+        typeof record.sessionId === 'string' &&
+        typeof record.at === 'number'
+    )
     this.stamp = saved.stamp
-    this.list = saved.records
+    this.list = records
     this.raw = null
     this.withOwners = null
-    this.sessions = new Set(saved.records.map((record) => record.sessionId)).size
+    this.sessions = new Set(records.map((record) => record.sessionId)).size
   }
 }

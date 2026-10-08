@@ -34,8 +34,13 @@ function backupBeforeInPlace(file: string): void {
   }
 }
 
+/**
+ * After a successful atomic write the backup is stale — also one an earlier
+ * process left behind (its in-memory record is gone), which readJsonFile
+ * would otherwise restore over newer content one day.
+ */
 function dropBackup(file: string): void {
-  if (!backedUp.delete(file)) return
+  backedUp.delete(file)
   rmSync(backupOf(file), { force: true })
 }
 
@@ -64,9 +69,15 @@ export function writeFileAtomic(file: string, text: string): void {
         pause(RETRY_DELAY_MS * (attempt + 1))
         continue
       }
-      // Still locked: save in place rather than lose the change (the old,
-      // non-atomic behaviour) — after keeping a whole copy of the old content
-      // (readJsonFile falls back to it) — and never leave the temp file behind.
+      // Not a lock (a full disk, a folder in the way…): the in-place write
+      // would risk a torn file for nothing. Clean up and report it.
+      if (!code || !TRANSIENT.has(code)) {
+        rmSync(temp, { force: true })
+        throw error
+      }
+      // Still locked: save in place rather than lose the change — after
+      // keeping a whole copy of the old content (readJsonFile falls back to
+      // it) — and never leave the temp file behind.
       backupBeforeInPlace(file)
       try {
         writeFileSync(file, text)
@@ -94,13 +105,18 @@ export async function writeFileAtomicAsync(file: string, text: string): Promise<
   for (let attempt = 0; ; attempt += 1) {
     try {
       await rename(temp, file)
-      if (backedUp.delete(file)) await rm(backupOf(file), { force: true })
+      backedUp.delete(file)
+      await rm(backupOf(file), { force: true })
       return
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
       if (code && TRANSIENT.has(code) && attempt < RETRIES) {
         await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * (attempt + 1)))
         continue
+      }
+      if (!code || !TRANSIENT.has(code)) {
+        await rm(temp, { force: true })
+        throw error
       }
       try {
         await copyFile(file, backupOf(file))

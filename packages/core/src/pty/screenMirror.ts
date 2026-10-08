@@ -185,15 +185,19 @@ export function replayText(mirror: Pick<Mirror, 'ring' | 'trimmed'>): string {
   let head = ring[0].data
   let before = ring[0].before
   if (mirror.trimmed) {
+    let carry = ring[0].carry
     let newline = head.indexOf('\n')
     while (newline === -1 && start + 1 < ring.length) {
       start += 1
       head = ring[start].data
       before = ring[start].before
+      carry = ring[start].carry
       newline = head.indexOf('\n')
     }
     if (newline !== -1) {
-      before = applyModeSequences(before, head.slice(0, newline + 1))
+      // An entry may begin inside a mode sequence that started in the previous
+      // chunk (`carry`): it is part of what the skipped head set.
+      before = applyModeSequences(before, carry + head.slice(0, newline + 1))
       head = head.slice(newline + 1)
     }
   }

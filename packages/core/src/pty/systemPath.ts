@@ -86,7 +86,13 @@ function loginShellPath(): Promise<string> {
   loginShell = new Promise((resolve) => {
     execFile(
       shell,
-      ['-ilc', `printf '%s%s%s' '${LOGIN_MARK}' "$PATH" '${LOGIN_MARK}'`],
+      [
+        '-ilc',
+        // fish keeps PATH as a list (`"$PATH"` joins it with spaces).
+        /(^|\/)fish$/.test(shell)
+          ? `printf '%s%s%s' '${LOGIN_MARK}' (string join : $PATH) '${LOGIN_MARK}'`
+          : `printf '%s%s%s' '${LOGIN_MARK}' "$PATH" '${LOGIN_MARK}'`
+      ],
       {
         timeout: 5000,
         env: { ...process.env, DISABLE_AUTO_UPDATE: 'true', ZSH_DISABLE_COMPFIX: 'true' }

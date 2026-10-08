@@ -221,9 +221,12 @@ export function codexUserConfigFrom(config: Toml | null): CodexUserConfig {
   const openRouterProviderIds = Object.entries(providers)
     .filter(([id, entry]) => {
       const base = str(table(entry)?.base_url)
-      // A provider id with a dot could not be addressed by a `-c` path.
+      // Only a plain id can be addressed by a `-c` path (a quoted TOML key may
+      // hold dots, `=`, spaces or quotes).
       return (
-        !id.includes('.') && base !== undefined && /(^|\/\/|\.)openrouter\.ai(\/|:|$)/i.test(base)
+        /^[A-Za-z0-9_-]+$/.test(id) &&
+        base !== undefined &&
+        /(^|\/\/|\.)openrouter\.ai(\/|:|$)/i.test(base)
       )
     })
     .map(([id]) => id)

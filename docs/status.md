@@ -1,6 +1,6 @@
 # Agent status
 
-An agent is always in one of five states:
+While its process runs, an agent is in one of four states (`AgentStatusKind`):
 
 | State                       | Meaning                                                                                                                |
 | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
@@ -8,7 +8,9 @@ An agent is always in one of five states:
 | `needs-input` ("needs you") | the harness is blocked on the person: a permission prompt, a question, a plan to approve — with the harness's own text |
 | `finished`                  | the turn ended and the answer is on screen                                                                             |
 | `idle`                      | at its prompt with nothing new to say (the person dismissed a question, interrupted, or the process restarted)         |
-| `exited`                    | the process is gone                                                                                                    |
+
+When the process is gone the machine publishes nothing more and `agentStatusSnapshot` returns
+`null`; hosts show that as "exited" (nsq does).
 
 ## Where facts come from
 

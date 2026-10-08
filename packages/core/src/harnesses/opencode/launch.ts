@@ -210,9 +210,12 @@ function writeIfChanged(file: string, content: string): void {
 /** The user's own OPENCODE_CONFIG file merged underneath ours. */
 function withUserConfig(config: Json, env: LaunchContext['env']): Json {
   const own = env?.['OPENCODE_CONFIG']
-  if (own && existsSync(own)) {
+  if (!own || !existsSync(own)) return config
+  try {
     const parsed = parseJsonc(readFileSync(own, 'utf-8'))
     if (parsed) return mergeOpenCodeConfig(parsed, config)
+  } catch {
+    // A folder, or unreadable: only our layer.
   }
   return config
 }

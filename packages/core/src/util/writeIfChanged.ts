@@ -2,15 +2,24 @@
 // rewritten on every start, usually with the very same text. Still
 // synchronous — the spawn reads the file right after — but skipped when this
 // run already wrote exactly that text and the file is still there.
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 const written = new Map<string, string>()
 const madeDirs = new Set<string>()
 
-/** Writes `text` to `file` unless this process already wrote that exact text there. */
+/** The file holds exactly `text` (someone may have edited or truncated it since). */
+function sameOnDisk(file: string, text: string): boolean {
+  try {
+    return readFileSync(file, 'utf8') === text
+  } catch {
+    return false
+  }
+}
+
+/** Writes `text` to `file` unless it already holds exactly that text. */
 export function writeFileIfChanged(file: string, text: string): void {
-  if (written.get(file) === text && existsSync(file)) return
+  if (written.get(file) === text && sameOnDisk(file, text)) return
   const dir = dirname(file)
   if (!madeDirs.has(dir)) {
     mkdirSync(dir, { recursive: true })

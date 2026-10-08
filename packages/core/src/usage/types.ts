@@ -227,8 +227,8 @@ export interface UsageBucket {
 }
 
 /**
- * How a row of "By agent" relates to a agent:
- * - `agent`    — a NeuroSquad agent (by session id, worktree, or the only agent
+ * How a row of "By agent" relates to an agent:
+ * - `card`    — an agent of the host (the value keeps the desktop app's name) (by session id, worktree, or the only agent
  *               of that harness working in that folder at the time)
  * - `folder`  — ran in a workspace's folder but belongs to no agent
  * - `outside` — ran anywhere else; not NeuroSquad usage at all

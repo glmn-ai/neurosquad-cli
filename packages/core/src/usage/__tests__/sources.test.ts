@@ -547,7 +547,7 @@ describe('OpenCode', () => {
       at: 1784565948222,
       startedAt: 1784565943856,
       endedAt: 1784565948222,
-      recordedPico: '0',
+
       cwd: 'E:\\w1'
     })
     // The message row has no tool calls (they are parts, not read).
@@ -556,7 +556,7 @@ describe('OpenCode', () => {
     expect(record!.input + record!.output + record!.cacheRead + record!.cacheWrite).toBe(9695)
   })
 
-  it("the app's custom provider: OpenCode's 0 means no price, not $0", () => {
+  it("OpenCode's 0 means no price, not $0, for every provider", () => {
     const step = (providerID: string, cost: number): ReturnType<typeof parseOpenCodeRow> =>
       parseOpenCodeRow(
         row(`m-${providerID}`, {
@@ -569,7 +569,7 @@ describe('OpenCode', () => {
       )
     expect(step('neurosquad-custom', 0)!.recordedPico).toBeUndefined()
     expect(step('neurosquad-custom', 0.5)!.recordedPico).toBe('500000000000')
-    expect(step('opencode', 0)!.recordedPico).toBe('0')
+    expect(step('opencode', 0)!.recordedPico).toBeUndefined()
   })
 
   it('skips user rows and empty (aborted) steps', () => {

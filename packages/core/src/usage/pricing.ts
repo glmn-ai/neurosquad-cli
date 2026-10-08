@@ -297,7 +297,9 @@ function costAtRates(record: UsageRecord, rates: TokenRates): ListCost {
   let pico = 0n
   for (const [tokens, rate] of parts) {
     if (tokens === 0) continue
-    if (rate === undefined) return { reason: 'unpublished-rate' }
+    if (rate === undefined || !Number.isSafeInteger(rate) || rate < 0) {
+      return { reason: 'unpublished-rate' }
+    }
     pico += BigInt(tokens) * BigInt(rate)
   }
   return { pico }

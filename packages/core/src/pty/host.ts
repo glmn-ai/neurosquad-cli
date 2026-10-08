@@ -169,13 +169,16 @@ export class PtyHost {
               // already gone
             }
             const fresh = handlers.onSessionNotFound?.() ?? null
+            if (this.live.get(request.agentId)?.pty === proc) this.live.delete(request.agentId)
             if (fresh) {
-              this.live.delete(request.agentId)
               const size = { cols: live.cols, rows: live.rows }
               void this.spawn({ ...fresh, ...size }, {}, generation).catch((error) => {
                 console.error('pty: fresh relaunch failed', error)
                 emitPtyExit(request.agentId, generation)
               })
+            } else {
+              // No relaunch: the agent is gone, and everyone watching hears so.
+              emitPtyExit(request.agentId, generation)
             }
             return
           }
