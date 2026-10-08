@@ -123,6 +123,25 @@ describe('removeWorktree', () => {
     }
   })
 
+  it.skipIf(process.platform === 'win32')(
+    'a backslash is part of a name off Windows: it cannot step out of the owned root',
+    async () => {
+      const path = join(root, 'outside')
+      expect(await addWorktree(repo, path, 'agent/outside')).toBe(path)
+      writeFileSync(join(path, 'work.txt'), 'uncommitted')
+      // A child of `owned` literally named `..\outside` — not `owned/../outside`.
+      await removeWorktree(repo, join(owned, '..\\outside'), {
+        ownedRoot: owned,
+        retryDelaysMs: []
+      })
+      expect(existsSync(join(path, 'work.txt'))).toBe(true)
+      expect(listed(path)).toBe(true)
+      // A sibling folder named `agent-worktrees\x` is not inside `agent-worktrees`.
+      mkdirSync(join(root, 'agent-worktrees\\x'))
+      expect(isOwnedPath(owned, join(root, 'agent-worktrees\\x'))).toBe(false)
+    }
+  )
+
   it('never deletes a folder outside the owned root', async () => {
     const path = join(root, 'elsewhere')
     expect(await addWorktree(repo, path, 'agent/three')).toBe(path)

@@ -52,6 +52,15 @@ async function runGit(cwd: string, args: string[]): Promise<string> {
 }
 
 /**
+ * A path as given to git: `/` separators on Windows. Elsewhere `\` is an
+ * ordinary file-name character and is kept, or `owned/..\x` would reach git
+ * as `owned/../x`.
+ */
+function gitPath(path: string): string {
+  return process.platform === 'win32' ? path.replaceAll('\\', '/') : path
+}
+
+/**
  * `git worktree add -b <branch> <worktreePath> HEAD` in `repoRoot`. Returns
  * `worktreePath` on success, `null` on any failure (not a repo, git missing,
  * branch name collision, timeout). Branching from `HEAD` so the isolated copy
@@ -64,14 +73,7 @@ export async function addWorktree(
   branch: string
 ): Promise<string | null> {
   try {
-    await runGit(repoRoot, [
-      'worktree',
-      'add',
-      '-b',
-      branch,
-      worktreePath.replaceAll('\\', '/'),
-      'HEAD'
-    ])
+    await runGit(repoRoot, ['worktree', 'add', '-b', branch, gitPath(worktreePath), 'HEAD'])
     return worktreePath
   } catch (error) {
     console.error('gitWorktree: addWorktree failed', error)
@@ -114,14 +116,15 @@ function realPath(path: string): string | null {
 /**
  * A path in the form two names of one folder compare equal in: symlinks
  * resolved (macOS `/var` is `/private/var`, and git lists worktrees by their
- * real path), Windows 8.3 short names expanded (`RUNNER~1`), `/` separators,
+ * real path), Windows 8.3 short names expanded (`RUNNER~1`), `/` separators on
+ * Windows (a `\` elsewhere is part of a name),
  * no trailing separator, and lower case on Windows (case-insensitive
  * filesystem, drive letters in either case). `null` when nothing of it exists.
  */
 export function canonicalPath(path: string): string | null {
   const real = realPath(path)
   if (real === null) return null
-  const slashed = real.replaceAll('\\', '/')
+  const slashed = process.platform === 'win32' ? real.replaceAll('\\', '/') : real
   // A filesystem root (`/`, `C:/`) keeps its separator.
   const trimmed = /^(?:[A-Za-z]:)?\/$/.test(slashed) ? slashed : slashed.replace(/\/+$/, '')
   return process.platform === 'win32' ? trimmed.toLowerCase() : trimmed
@@ -212,7 +215,7 @@ export async function removeWorktree(
       return String(error)
     }
   }
-  const pathArg = worktreePath.replaceAll('\\', '/')
+  const pathArg = gitPath(worktreePath)
   let failure: string | null = null
   for (let attempt = 0; attempt <= delays.length; attempt++) {
     if (attempt > 0) await sleep(delays[attempt - 1])
