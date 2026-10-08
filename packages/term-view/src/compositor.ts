@@ -317,7 +317,9 @@ export function createCompositor(options: CompositorOptions): Compositor {
 
     resume() {
       paused = false
-      if (states.some((s) => s.dirty)) schedule()
+      // Also when only a host-mode reset is pending (a mode-syncing tile was removed while paused).
+      const modesPending = hostModes !== NO_MODES && !states.some((s) => s.options.syncInputModes)
+      if (modesPending || states.some((s) => s.dirty)) schedule()
     },
 
     renderFrame() {

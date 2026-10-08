@@ -123,6 +123,30 @@ describe('compositor', () => {
     compositor.dispose()
   })
 
+  it('undoes them on resume when the tile was removed while paused', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'performance'] })
+    const frames: string[] = []
+    const compositor = createCompositor({ write: (f) => frames.push(f) })
+    const view = makeView()
+    view.terminal.write('\x1b[?2004h')
+    await vi.advanceTimersByTimeAsync(50)
+    const tile = compositor.addTile(
+      view,
+      { x: 0, y: 0, width: 20, height: 5 },
+      { syncInputModes: true }
+    )
+    await vi.advanceTimersByTimeAsync(50)
+    compositor.pause()
+    tile.remove()
+    frames.length = 0
+    await vi.advanceTimersByTimeAsync(100)
+    expect(frames).toHaveLength(0)
+    compositor.resume()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(frames.join('')).toContain('\x1b[?2004l')
+    compositor.dispose()
+  })
+
   it('follows a tile to a new view and a new rect', async () => {
     const compositor = createCompositor({ write: () => {}, paused: true })
     const a = makeView({ cols: 3, rows: 1 })
