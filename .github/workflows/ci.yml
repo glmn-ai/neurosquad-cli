@@ -26,7 +26,9 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Detect package.json
         id: detect
@@ -38,7 +40,7 @@ jobs:
             echo "::notice::No package.json yet (bootstrap state) - install, lint, typecheck and test are skipped."
           fi
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: steps.detect.outputs.has_pkg == 'true'
         with:
           node-version: lts/*
