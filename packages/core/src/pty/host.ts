@@ -168,7 +168,13 @@ export class PtyHost {
             } catch {
               // already gone
             }
-            const fresh = handlers.onSessionNotFound?.() ?? null
+            let fresh: SpawnRequest | null = null
+            try {
+              fresh = handlers.onSessionNotFound?.() ?? null
+            } catch (error) {
+              // Inside node-pty's data callback: a throw here would reach nobody.
+              console.error('pty: session recovery failed', error)
+            }
             if (this.live.get(request.agentId)?.pty === proc) this.live.delete(request.agentId)
             if (fresh) {
               const size = { cols: live.cols, rows: live.rows }
