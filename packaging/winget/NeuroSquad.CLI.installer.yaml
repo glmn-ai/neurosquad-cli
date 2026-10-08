@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
+
+# winget installs a self-contained Windows build: a zip holding nsq.exe (Node SEA with the native
+# addons) — winget has no npm installer type and portable installs need an .exe. That build does
+# not exist yet (RELEASING.md, "winget"); until it does, this template is not used.
+PackageIdentifier: NeuroSquad.CLI
+PackageVersion: {{VERSION}}
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+- RelativeFilePath: nsq.exe
+  PortableCommandAlias: nsq
+ReleaseDate: {{RELEASE_DATE}}
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/glmn-ai/neurosquad-cli/releases/download/{{TAG}}/nsq-{{VERSION}}-win-x64.zip
+  InstallerSha256: {{SHA256_X64}}
+- Architecture: arm64
+  InstallerUrl: https://github.com/glmn-ai/neurosquad-cli/releases/download/{{TAG}}/nsq-{{VERSION}}-win-arm64.zip
+  InstallerSha256: {{SHA256_ARM64}}
+ManifestType: installer
+ManifestVersion: 1.12.0

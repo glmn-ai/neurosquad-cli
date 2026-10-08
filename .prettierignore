@@ -3,3 +3,5 @@ node_modules
 .cache
 coverage
 package-lock.json
+# Templates with {{PLACEHOLDERS}} (not valid YAML until filled)
+packaging/winget
