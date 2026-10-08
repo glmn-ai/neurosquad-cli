@@ -47,13 +47,13 @@ export function normalizeModelId(model: unknown): string | undefined {
  * Codex CLI's `openrouter` model provider as `-c` flags, without selecting it.
  * Values that do not parse as TOML are taken as literal strings, so no quotes.
  */
-export function codexOpenRouterProviderArgs(): string[] {
+export function codexOpenRouterProviderArgs(apiBase: string = OPENROUTER_API): string[] {
   const p = 'model_providers.openrouter'
   return [
     '-c',
     `${p}.name=OpenRouter`,
     '-c',
-    `${p}.base_url=${OPENROUTER_API}`,
+    `${p}.base_url=${apiBase}`,
     '-c',
     `${p}.env_key=${OPENROUTER_KEY_ENV}`,
     // The wire API Codex supports; OpenRouter serves /responses.
@@ -90,12 +90,44 @@ function parseJsonObject(text: string | undefined): Json {
 }
 
 /** OPENCODE_CONFIG_CONTENT: the user's own (if any) plus the attribution headers on the openrouter provider. */
-export function openCodeConfigWithAttribution(userContent?: string): string {
+export function openCodeConfigWithAttribution(userContent?: string, apiBase?: string): string {
   return JSON.stringify(
     mergeJson(parseJsonObject(userContent), {
-      provider: { openrouter: { options: { headers: { ...OPENROUTER_ATTRIBUTION } } } }
+      provider: {
+        openrouter: {
+          options: {
+            headers: { ...OPENROUTER_ATTRIBUTION },
+            ...(apiBase ? { baseURL: apiBase } : {})
+          }
+        }
+      }
     })
   )
+}
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+
+/**
+ * Another API base, checked: the key travels with every request, so plain
+ * HTTP is accepted only to this machine (a local proxy or a recording server
+ * in tests); anywhere else it must be HTTPS. Throws otherwise.
+ */
+export function checkedApiBase(base: string): string {
+  let url: URL
+  try {
+    url = new URL(base)
+  } catch {
+    throw new Error(`not a URL: ${base}`)
+  }
+  // The base reaches argv (Codex's `-c`): credentials in it would be visible to every process.
+  if (url.username || url.password) {
+    throw new Error('the OpenRouter API base must not contain credentials (user:password@)')
+  }
+  const loopback = LOOPBACK_HOSTS.has(url.hostname)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new Error('the OpenRouter API base must use https (http only on this machine)')
+  }
+  return base.replace(/\/+$/, '')
 }
 
 /**
@@ -107,16 +139,25 @@ export function openRouterLaunch(
   harness: string,
   key: string | undefined,
   model: string | undefined,
-  options: { openCodeConfigContent?: string } = {}
+  options: {
+    openCodeConfigContent?: string
+    /**
+     * Another OpenRouter-compatible base (`…/api/v1`): a proxy, or a local
+     * server recording requests in tests. The public API by default.
+     */
+    apiBase?: string
+  } = {}
 ): ProviderLaunch {
   if (!key) return NONE
   const slug = normalizeModelId(model)
+  const apiBase = options.apiBase ? checkedApiBase(options.apiBase) : undefined
+  const anthropicBase = apiBase ? apiBase.replace(/\/v1$/, '') : OPENROUTER_ANTHROPIC_BASE
   switch (harness) {
     case 'claude-code':
       return {
         args: [],
         env: {
-          ANTHROPIC_BASE_URL: OPENROUTER_ANTHROPIC_BASE,
+          ANTHROPIC_BASE_URL: anthropicBase,
           // Sent as `Authorization: Bearer`.
           ANTHROPIC_AUTH_TOKEN: key,
           // Explicitly empty: a set ANTHROPIC_API_KEY goes out as `x-api-key`.
@@ -142,7 +183,7 @@ export function openRouterLaunch(
         args: [
           '-c',
           'model_provider=openrouter',
-          ...codexOpenRouterProviderArgs(),
+          ...codexOpenRouterProviderArgs(apiBase ?? OPENROUTER_API),
           ...(slug ? ['--model', slug] : [])
         ],
         env: { [OPENROUTER_KEY_ENV]: key }
@@ -152,7 +193,10 @@ export function openRouterLaunch(
         args: slug ? ['--model', `openrouter/${slug}`] : [],
         env: {
           [OPENROUTER_KEY_ENV]: key,
-          OPENCODE_CONFIG_CONTENT: openCodeConfigWithAttribution(options.openCodeConfigContent)
+          OPENCODE_CONFIG_CONTENT: openCodeConfigWithAttribution(
+            options.openCodeConfigContent,
+            apiBase
+          )
         }
       }
     default:
