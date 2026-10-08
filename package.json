@@ -12,13 +12,13 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "build": "tsc -b packages/core",
-    "typecheck": "tsc -b packages/core",
+    "build": "tsc -b packages/core packages/notify",
+    "typecheck": "tsc -b packages/core packages/notify",
     "test": "vitest run",
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "clean": "tsc -b --clean packages/core"
+    "clean": "tsc -b --clean packages/core packages/notify"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

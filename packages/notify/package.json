@@ -1,0 +1,42 @@
+{
+  "name": "@neurosquad/notify",
+  "version": "0.1.0",
+  "description": "Native desktop notifications and sound for nsq without Electron: Windows toasts, macOS, Linux (D-Bus), terminal fallback (BEL / OSC 9 / OSC 777).",
+  "license": "MIT",
+  "author": "NeuroSquad",
+  "homepage": "https://neurosquad.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/glmn-ai/neurosquad-cli.git",
+    "directory": "packages/notify"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "assets",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run --root ../.. packages/notify",
+    "demo": "tsc -b && node scripts/demo.mjs",
+    "sounds": "node scripts/gen-sounds.mjs"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}
