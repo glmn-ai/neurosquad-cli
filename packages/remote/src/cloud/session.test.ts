@@ -230,6 +230,44 @@ describe('tokens', () => {
     expect(await refresh).toBeInstanceOf(SignedOutError)
   })
 
+  for (const when of ['before-send', 'after-answer'] as const) {
+    it(`never answers or retries a call under the account that replaced its own (${when})`, async () => {
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      let hold = false
+      let held = false
+      const http = new CloudHttp(cloud.origin, cloud.origin, async (url, init) => {
+        if (!hold || !url.endsWith('/me')) return fetch(url, init)
+        hold = false
+        held = true
+        if (when === 'before-send') await gate
+        const response = await fetch(url, init)
+        if (when === 'after-answer') await gate
+        return response
+      })
+      const session = new CloudSession({
+        http,
+        vault,
+        store,
+        device,
+        now: () => clock,
+        sleep: instantSleep
+      })
+      await signIn(session, 'a@example.com')
+      hold = true
+      const call = session
+        .authorized({ method: 'GET', path: '/me' })
+        .catch((error: unknown) => error)
+      while (!held) await new Promise((resolve) => setImmediate(resolve))
+      await signIn(session, 'b@example.com')
+      release()
+      expect(await call).toBeInstanceOf(SignedOutError)
+      expect(await session.status()).toMatchObject({ user: { email: 'b@example.com' } })
+    })
+  }
+
   it('a lost refresh answer is retried with the same token and stays signed in', async () => {
     const session = makeSession()
     await signIn(session)

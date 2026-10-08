@@ -369,15 +369,25 @@ export class CloudSession {
    * or it was signed out while the call was on the wire.
    */
   async authorized(request: Omit<CloudRequest, 'token'>): Promise<CloudResponse> {
-    if (!this.session() || !(await this.loadTokens())) throw new SignedOutError()
+    // Every await below is a point where the user may sign out or in as someone else; a call that
+    // started under one session never refreshes, retries or answers under another.
     const epoch = this.sessionEpoch
+    const moved = (): void => {
+      if (epoch !== this.sessionEpoch) throw new SessionMovedError()
+    }
     try {
-      let response = await this.deps.http.request({ ...request, token: await this.accessToken() })
+      if (!this.session() || !(await this.loadTokens())) throw new SignedOutError()
+      moved()
+      const first = await this.accessToken()
+      moved()
+      let response = await this.deps.http.request({ ...request, token: first })
+      moved()
       if (response.status === 401) {
         const token = await this.sharedRefresh()
+        moved()
         response = await this.deps.http.request({ ...request, token })
+        moved()
         if (response.status === 401) {
-          if (epoch !== this.sessionEpoch) throw new SessionMovedError()
           await this.wipe()
           throw new SessionExpiredError()
         }
