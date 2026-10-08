@@ -6,7 +6,7 @@
 // stdin JSON to the agent's loopback endpoint (`/hook/<token>/<agentId>/<event>`).
 // The file is merged by Claude Code over the user's own settings — their
 // hooks keep working, and `~/.claude` is never written.
-import { mkdirSync } from 'node:fs'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { writeFileIfChanged } from '../../util/writeIfChanged.js'
 import type { AgentHookKind } from '../../status/types.js'
@@ -149,32 +149,44 @@ export function claudePermissionReply(dangerousMode: boolean | undefined): strin
 }
 
 /**
- * The hook command line. `curl.exe` on Windows: PowerShell aliases `curl` to
- * Invoke-WebRequest. `--data-binary @-` forwards stdin verbatim; `-m` keeps a
- * busy endpoint from ever holding the agent up.
+ * The hook command line: `curl` posting its stdin to the URL in a per-agent,
+ * per-event curl config file — the token never appears in any process's
+ * argv. `curl.exe` on Windows (PowerShell aliases `curl` to
+ * Invoke-WebRequest). Double quotes read the same in sh, PowerShell and cmd;
+ * `-m` keeps a busy endpoint from ever holding the agent up.
  */
 export function claudeHookCommand(
-  base: string,
-  event: string,
+  curlConfigPath: string,
   platform: NodeJS.Platform = process.platform
 ): string {
   const curl = platform === 'win32' ? 'curl.exe' : 'curl'
-  return `${curl} -s -m ${HOOK_CURL_TIMEOUT_S} -X POST --data-binary @- ${base}/${event}`
+  return `${curl} -s -m ${HOOK_CURL_TIMEOUT_S} -X POST --data-binary "@-" -K "${curlConfigPath.replaceAll('\\', '/')}"`
 }
 
-/** Pure: the `--settings` document for one agent. */
+/** What goes in a hook's curl config file. */
+export function claudeCurlConfig(url: string): string {
+  return `url = "${url.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"\n`
+}
+
+/**
+ * Pure: the `--settings` document for one agent. `curlConfigs` names each
+ * command hook's curl config file (see `writeClaudeSettings`).
+ */
 export function buildClaudeSettings(
   hookBase: string,
+  curlConfigs: Readonly<Record<string, string>>,
   options: { platform?: NodeJS.Platform; statusLine?: Record<string, unknown> } = {}
 ): Record<string, unknown> {
   const hooks: Record<string, unknown[]> = {}
   for (const event of [...CLAUDE_EVENTS, ...CLAUDE_SUBAGENT_EVENTS]) {
+    const config = curlConfigs[event]
+    if (!config) continue
     hooks[event] = [
-      {
-        hooks: [{ type: 'command', command: claudeHookCommand(hookBase, event, options.platform) }]
-      }
+      { hooks: [{ type: 'command', command: claudeHookCommand(config, options.platform) }] }
     ]
   }
+  // `http` hooks: the URL is read from this file by Claude Code itself, not
+  // passed on any command line.
   hooks[CLAUDE_POST_TOOL_EVENT] = [
     {
       matcher: '*',
@@ -191,12 +203,26 @@ export function buildClaudeSettings(
 }
 
 /**
- * Writes the agent's `--settings` file (rewritten on every launch: the port
- * and token change with every daemon run) and returns its path with forward
- * slashes (node-pty on Windows mangles backslashes in arguments).
+ * Writes the agent's `--settings` file and its hooks' curl config files
+ * (owner-only; rewritten on every launch — the port and token change with
+ * every host run) and returns the settings path with forward slashes
+ * (node-pty on Windows mangles backslashes in arguments).
  */
 export function writeClaudeSettings(file: string, hookBase: string): string {
-  mkdirSync(dirname(file), { recursive: true })
-  writeFileIfChanged(file, JSON.stringify(buildClaudeSettings(hookBase), null, 2))
+  const dir = dirname(file)
+  mkdirSync(dir, { recursive: true })
+  const stem = file.replace(/\.json$/i, '')
+  const curlConfigs: Record<string, string> = {}
+  for (const event of [...CLAUDE_EVENTS, ...CLAUDE_SUBAGENT_EVENTS]) {
+    const config = `${stem}.${event}.curlrc`
+    writeFileSync(config, claudeCurlConfig(`${hookBase}/${event}`), { mode: 0o600 })
+    curlConfigs[event] = config
+  }
+  writeFileIfChanged(file, JSON.stringify(buildClaudeSettings(hookBase, curlConfigs), null, 2))
+  try {
+    chmodSync(file, 0o600)
+  } catch {
+    // Windows: per-user profile ACLs apply
+  }
   return file.replaceAll('\\', '/')
 }

@@ -47,7 +47,11 @@ describe('Claude Code launch', () => {
         'PermissionRequest'
       ])
     )
-    expect(JSON.stringify(settings)).toContain(`/hook/abcdef0123456789/${ID}/Stop`)
+    const stop = settings.hooks.Stop[0].hooks[0].command as string
+    // The token is in a curl config file, never on the command line.
+    expect(stop).not.toContain('abcdef0123456789')
+    const curlrc = /-K "([^"]+)"/.exec(stop)?.[1] ?? ''
+    expect(readFileSync(curlrc, 'utf8')).toContain(`/hook/abcdef0123456789/${ID}/Stop`)
     const resumed = prepareLaunch(ctx({ harness: 'claude-code' }, { resumed: true }))
     expect(resumed.args.slice(0, 2)).toEqual(['--resume', ID])
     expect(fresh.trustPrompt?.marker).toBe('Quick safety check')
