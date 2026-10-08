@@ -194,7 +194,8 @@ describe('queryGraphics', () => {
     const p = queryGraphics(input, {
       write: (d: string) => {
         written.push(d)
-        setTimeout(() => input.emit('data', Buffer.from('\x1b[?62;4c')), 1)
+        // Reply synchronously: deterministic, never races the probe's timeout.
+        input.emit('data', Buffer.from('\x1b[?62;4c'))
       }
     })
     const r = await p
@@ -211,9 +212,12 @@ describe('queryGraphics', () => {
     input.pause = () => {
       paused = true
     }
-    await queryGraphics(input, {
-      write: () => setTimeout(() => input.emit('data', '\x1b[?62c'), 1)
+    const r = await queryGraphics(input, {
+      write: () => {
+        input.emit('data', '\x1b[?62c')
+      }
     })
+    expect(r.answered).toBe(true)
     expect(paused).toBe(false)
   })
 
