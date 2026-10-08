@@ -106,11 +106,12 @@ export class GdbusBackend implements ToastBackend {
   async withdraw(key: string): Promise<void> {
     const id = this.ids.get(key)
     if (id === undefined) return
-    this.ids.delete(key)
     const result = await this.call('CloseNotification', [`uint32 ${id}`])
     if (result.code !== 0) {
+      // Keep the id: a later withdraw retries.
       throw new Error(`gdbus CloseNotification failed: ${result.error ?? result.stderr.trim()}`)
     }
+    if (this.ids.get(key) === id) this.ids.delete(key)
   }
 
   async dispose(): Promise<void> {}

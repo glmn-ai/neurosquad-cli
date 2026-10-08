@@ -204,11 +204,16 @@ export function createNotifier(
         const key = notificationKey(String(id))
         bump(key)
         return enqueue(key, async () => {
-          if (!onScreen.delete(key)) return
+          if (!onScreen.has(key)) return
           const toast = backends().toast
-          if (!toast) return
+          if (!toast) {
+            onScreen.delete(key)
+            return
+          }
           try {
             await toast.withdraw(key)
+            // Only once it is gone: a failed withdraw is retried by the next one.
+            onScreen.delete(key)
           } catch (error) {
             log(`${toast.name} withdraw: ${errorText(error)}`)
           }

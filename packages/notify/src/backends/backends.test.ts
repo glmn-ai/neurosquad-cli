@@ -175,6 +175,29 @@ describe('linux gdbus', () => {
     expect(await backend.probe()).toBe('no-notification-server')
     await expect(backend.show(needs)).rejects.toThrow(/no bus/)
   })
+
+  it('a failed CloseNotification keeps the id so the next withdraw retries', async () => {
+    let closeFails = true
+    const sys = fakeSystem({
+      platform: 'linux',
+      respond: ({ args }) =>
+        args.includes('org.freedesktop.Notifications.Notify')
+          ? { stdout: '(uint32 9,)' }
+          : closeFails
+            ? { code: 1, stderr: 'bus hiccup' }
+            : {}
+    })
+    const backend = new GdbusBackend(sys, '/usr/bin/gdbus', 'x')
+    await backend.show(needs)
+    await expect(backend.withdraw('agent-1')).rejects.toThrow(/bus hiccup/)
+    closeFails = false
+    await backend.withdraw('agent-1')
+    await backend.withdraw('agent-1')
+    const closes = sys.calls.filter((c) =>
+      c.args.includes('org.freedesktop.Notifications.CloseNotification')
+    )
+    expect(closes.map((c) => c.args.at(-1))).toEqual(['uint32 9', 'uint32 9'])
+  })
 })
 
 describe('linux notify-send', () => {

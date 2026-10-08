@@ -189,6 +189,11 @@ describe('createNotifier', () => {
       notifier.show({ id: 'a', title: 't', body: 'b', kind: 'finished' })
     ).resolves.toEqual({ via: 'os', sound: true })
     await expect(notifier.withdraw('a')).resolves.toBeUndefined()
+    // Still on screen as far as the notifier knows: the next withdraw retries.
+    toast.failWithdraw = false
+    await notifier.withdraw('a')
+    await notifier.withdraw('a')
+    expect(toast.events.filter((e) => e.startsWith('withdraw'))).toEqual(['withdraw:a'])
   })
 
   it('cleans text: control characters out, empty title becomes the app name, long ids hashed', async () => {
