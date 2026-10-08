@@ -48,8 +48,8 @@ async function main(argv: string[]): Promise<number> {
     case undefined:
     case 'ui':
     case 'dashboard': {
-      // The dashboard arrives with the TUI; until then, the agent list.
-      await cmdLs(args)
+      const { runDashboard } = await import('./tui/app.js')
+      await runDashboard()
       return 0
     }
     case 'daemon': {
