@@ -105,6 +105,27 @@ export function openCodeConfigWithAttribution(userContent?: string, apiBase?: st
   )
 }
 
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]', '::1'])
+
+/**
+ * Another API base, checked: the key travels with every request, so plain
+ * HTTP is accepted only to this machine (a local proxy or a recording server
+ * in tests); anywhere else it must be HTTPS. Throws otherwise.
+ */
+export function checkedApiBase(base: string): string {
+  let url: URL
+  try {
+    url = new URL(base)
+  } catch {
+    throw new Error(`not a URL: ${base}`)
+  }
+  const loopback = LOOPBACK_HOSTS.has(url.hostname)
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new Error('the OpenRouter API base must use https (http only on this machine)')
+  }
+  return base.replace(/\/+$/, '')
+}
+
 /**
  * Pure: the OpenRouter recipe for one harness. No key → nothing at all (for
  * Claude Code, a base URL without a key would send its own login token to
@@ -125,7 +146,7 @@ export function openRouterLaunch(
 ): ProviderLaunch {
   if (!key) return NONE
   const slug = normalizeModelId(model)
-  const apiBase = options.apiBase?.replace(/\/+$/, '')
+  const apiBase = options.apiBase ? checkedApiBase(options.apiBase) : undefined
   const anthropicBase = apiBase ? apiBase.replace(/\/v1$/, '') : OPENROUTER_ANTHROPIC_BASE
   switch (harness) {
     case 'claude-code':

@@ -5,7 +5,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { shimModuleDirs } from '../pty/npmShim.js'
 import { buildCodexConfigArgs, codexExecutable } from './codex/launch.js'
 import { claudeExecutable } from './launch.js'
-import { openRouterLaunch, OPENROUTER_ATTRIBUTION } from '../providers/openrouter.js'
+import {
+  checkedApiBase,
+  openRouterLaunch,
+  OPENROUTER_ATTRIBUTION
+} from '../providers/openrouter.js'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -88,5 +92,20 @@ describe('OpenRouter API base', () => {
     expect(openRouterLaunch('claude-code', 'k', 'x/y').env.ANTHROPIC_BASE_URL).toBe(
       'https://openrouter.ai/api'
     )
+  })
+})
+
+describe('OpenRouter API base check', () => {
+  it('http only to this machine', () => {
+    expect(checkedApiBase('https://proxy.example.com/api/v1/')).toBe(
+      'https://proxy.example.com/api/v1'
+    )
+    expect(checkedApiBase('http://127.0.0.1:9/api/v1')).toBe('http://127.0.0.1:9/api/v1')
+    expect(checkedApiBase('http://localhost:9/api/v1')).toBe('http://localhost:9/api/v1')
+    expect(() => checkedApiBase('http://proxy.example.com/api/v1')).toThrow(/https/)
+    expect(() => checkedApiBase('not a url')).toThrow()
+    expect(() =>
+      openRouterLaunch('codex-cli', 'k', 'x/y', { apiBase: 'http://10.0.0.5/api/v1' })
+    ).toThrow(/https/)
   })
 })
