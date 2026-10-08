@@ -2,7 +2,7 @@
 // so agents keep running when the dashboard closes; it hosts the loopback
 // endpoint the harnesses' hooks post to and the status machines; it talks to
 // clients (the dashboard, `nsq attach`, `nsq ls`…) over a local socket.
-import { createServer, type Server, type Socket } from 'node:net'
+import { connect, createServer, type Server, type Socket } from 'node:net'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { chmodSync, existsSync, rmSync, statSync } from 'node:fs'
 import { execFile } from 'node:child_process'
@@ -188,12 +188,24 @@ export class Daemon {
       }
     })
     const ipc = ipcPath()
+    // Another daemon already serves this home: never take its socket over.
+    if (await isListening(ipc)) {
+      await this.hooks.close()
+      throw new DaemonRunningError()
+    }
     if (process.platform !== 'win32' && existsSync(ipc)) rmSync(ipc, { force: true })
     this.server = createServer((socket) => this.accept(socket))
-    await new Promise<void>((resolve, reject) => {
-      this.server!.once('error', reject)
-      this.server!.listen(ipc, () => resolve())
-    })
+    try {
+      await new Promise<void>((resolve, reject) => {
+        this.server!.once('error', reject)
+        this.server!.listen(ipc, () => resolve())
+      })
+    } catch (error) {
+      await this.hooks.close()
+      throw (error as NodeJS.ErrnoException).code === 'EADDRINUSE'
+        ? new DaemonRunningError()
+        : error
+    }
     if (process.platform !== 'win32') chmodSync(ipc, 0o600)
     const state: DaemonState = {
       pid: process.pid,
@@ -396,7 +408,21 @@ export class Daemon {
     return found
   }
 
-  private async startAgent(
+  /** Starts in flight, per agent: a second request waits for the first instead of spawning twice. */
+  private readonly starting = new Map<string, Promise<string[]>>()
+
+  private startAgent(
+    record: AgentRecord,
+    options: { prompt?: string; fresh?: boolean } = {}
+  ): Promise<string[]> {
+    const inFlight = this.starting.get(record.id)
+    if (inFlight) return inFlight
+    const start = this.startAgentNow(record, options).finally(() => this.starting.delete(record.id))
+    this.starting.set(record.id, start)
+    return start
+  }
+
+  private async startAgentNow(
     record: AgentRecord,
     options: { prompt?: string; fresh?: boolean } = {}
   ): Promise<string[]> {
@@ -865,9 +891,36 @@ export class Daemon {
   }
 }
 
+/** Another daemon already serves this nsq home. */
+export class DaemonRunningError extends Error {
+  constructor() {
+    super('the nsq daemon is already running')
+  }
+}
+
+function isListening(path: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect(path)
+    socket.once('connect', () => {
+      socket.destroy()
+      resolve(true)
+    })
+    socket.once('error', () => resolve(false))
+  })
+}
+
 export async function runDaemon(): Promise<void> {
   const daemon = new Daemon()
-  const state = await daemon.start()
+  let state: DaemonState
+  try {
+    state = await daemon.start()
+  } catch (error) {
+    if (error instanceof DaemonRunningError) {
+      process.stdout.write(`${new Date().toISOString()} ${error.message}; this one exits\n`)
+      process.exit(0)
+    }
+    throw error
+  }
   process.stdout.write(
     `${new Date().toISOString()} nsq daemon ${state.version} pid ${state.pid}, hooks on 127.0.0.1:${state.hookPort}\n`
   )

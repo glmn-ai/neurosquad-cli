@@ -241,7 +241,13 @@ export async function cmdRm(args: ParsedArgs): Promise<void> {
 
 export async function cmdSet(args: ParsedArgs): Promise<void> {
   const ref = requireRef(args)
-  const dangerous = flagString(args, 'dangerous')
+  const dangerousFlag = args.flags.get('dangerous')
+  const dangerous =
+    typeof dangerousFlag === 'string'
+      ? dangerousFlag
+      : dangerousFlag === true
+        ? (args.positional.find((word, i) => i > 0 && /^(on|off|true|false)$/i.test(word)) ?? 'on')
+        : undefined
   const model = flagString(args, 'model')
   const provider = flagString(args, 'provider')
   if (dangerous === undefined && model === undefined && provider === undefined) {

@@ -74,6 +74,12 @@ describe.skipIf(!built)('daemon smoke', () => {
       await until(() => list().some((a) => a.name === 'echo' && a.status === 'finished'))
     ).toBe(true)
 
+    // A second daemon on the same home does not take over.
+    const second = nsq('daemon', '--foreground')
+    expect(second.status).toBe(0)
+    expect(second.stdout).toMatch(/already running/)
+    expect(list().some((a) => a.name === 'echo')).toBe(true)
+
     expect(nsq('send', 'echo', 'hello there').status).toBe(0)
     expect(await until(() => /got:hello there/.test(nsq('peek', 'echo').stdout))).toBe(true)
 

@@ -1,7 +1,6 @@
 // The agents the daemon knows, persisted in `agents.json` (atomic writes).
 // No secret is ever stored here.
-import { readFileSync } from 'node:fs'
-import { writeFileAtomic, isHarnessId, type HarnessId } from '@neurosquad/core'
+import { readJsonFile, writeFileAtomic, isHarnessId, type HarnessId } from '@neurosquad/core'
 import { paths } from '../paths.js'
 
 export interface AgentRecord {
@@ -44,13 +43,15 @@ export class AgentStore {
 
   constructor(private readonly file = paths.agents()) {
     try {
-      const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as { agents?: unknown[] }
+      // Unparseable content is moved aside (agents.json.corrupt-<time>) and a
+      // backup of an interrupted write is used — never silently replaced by an empty list.
+      const parsed = readJsonFile(this.file) as { agents?: unknown[] }
       for (const entry of parsed.agents ?? []) {
         if (valid(entry))
           this.records.set(entry.id, { ...entry, wantRunning: entry.wantRunning === true })
       }
     } catch {
-      // No file yet, or unreadable: start empty (the file is only replaced on the next save).
+      // No file yet, or nothing usable: start empty.
     }
   }
 

@@ -9,7 +9,8 @@ import { macNotificationScript, toastXml } from './daemon/notify.js'
 import { AgentStore } from './daemon/store.js'
 import { answerKeys } from './daemon/answers.js'
 import { claudeProjectSlug } from './daemon/usage.js'
-import { parseDetachKey } from './attach.js'
+import { findDetachKey, parseDetachKey } from './attach.js'
+import { readdirSync, writeFileSync } from 'node:fs'
 
 const dirs: string[] = []
 afterEach(() => {
@@ -137,5 +138,29 @@ describe('daemon helpers', () => {
     expect(parseDetachKey(undefined)).toBe('\x1d')
     expect(parseDetachKey('ctrl+a')).toBe('\x01')
     expect(parseDetachKey('ctrl+]')).toBe('\x1d')
+  })
+})
+
+describe('attach detach key', () => {
+  it('found as a control byte, kitty CSI u or modifyOtherKeys', () => {
+    expect(findDetachKey('abcd', '')).toEqual({ at: 2, length: 1 })
+    expect(findDetachKey('x[93;5u', '')).toEqual({ at: 1, length: 7 })
+    expect(findDetachKey('[93;5:1u[93;5:3u', '')?.at).toBe(0)
+    expect(findDetachKey('[27;5;93~', '')).toEqual({ at: 0, length: 10 })
+    expect(findDetachKey('[97;5u', '')).toEqual({ at: 0, length: 7 })
+    expect(findDetachKey('plain text', '')).toBeNull()
+  })
+})
+
+describe('store recovery', () => {
+  it('a damaged agents.json is set aside, not overwritten with nothing', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'nsq-store-'))
+    dirs.push(dir)
+    const file = join(dir, 'agents.json')
+    writeFileSync(file, '{"agents": [ {"id"')
+    const store = new AgentStore(file)
+    expect(store.all()).toEqual([])
+    const kept = readdirSync(dir).filter((name: string) => name.includes('corrupt'))
+    expect(kept.length).toBe(1)
   })
 })

@@ -8,6 +8,32 @@ import type { AgentView, DaemonEvent } from './protocol.js'
 /** Ctrl+] — the detach key. */
 export const DETACH_KEY = '\x1d'
 
+/**
+ * Where the detach key is in a chunk of input: as its control byte, or — when
+ * the agent switched the terminal to an extended keyboard mode — as kitty's
+ * CSI u (`ESC [ 93 ; 5 u`, with optional event type) or xterm's
+ * modifyOtherKeys (`ESC [ 27 ; 5 ; 93 ~`). Returns its start and length, or null.
+ */
+export function findDetachKey(text: string, key: string): { at: number; length: number } | null {
+  const code = key.charCodeAt(0) + 64
+  const patterns = [
+    new RegExp(`\\x1b\\[(?:${code}|${code + 32});5(?::[12])?u`),
+    new RegExp(`\\x1b\\[27;5;(?:${code}|${code + 32})~`)
+  ]
+  const plain = text.indexOf(key)
+  let best: { at: number; length: number } | null = plain === -1 ? null : { at: plain, length: 1 }
+  for (const pattern of patterns) {
+    const match = pattern.exec(text)
+    if (match && (!best || match.index < best.at))
+      best = { at: match.index, length: match[0].length }
+  }
+  return best
+}
+
+/** A key release report (kitty event type 3) — never forwarded once detached. */
+// eslint-disable-next-line no-control-regex -- a terminal key report
+const RELEASE = /\x1b\[[0-9;]*:3u/g
+
 /** `ctrl+]`, `ctrl+a`… → the byte the terminal sends. */
 export function parseDetachKey(spec: string | undefined): string {
   if (!spec) return DETACH_KEY
@@ -57,17 +83,19 @@ export function attach(
       stdout.off('resize', resize)
       if (stdin.isTTY) stdin.setRawMode(false)
       stdin.pause()
-      // Leave the agent's screen modes behind: mouse, bracketed paste, alternate screen, cursor.
+      // Leave the agent's terminal modes behind: mouse, bracketed paste, focus reports,
+      // kitty keyboard flags, modifyOtherKeys, alternate screen, cursor, title.
       stdout.write(
-        '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1049l\x1b[?25h\x1b[0m\x1b]0;\x07'
+        '\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?2004l\x1b[?1004l\x1b[<u\x1b[>4m\x1b[?1049l\x1b[?25h\x1b[0m\x1b]0;\x07'
       )
       resolve(how)
     }
     const onKey = (data: Buffer | string): void => {
       const text = typeof data === 'string' ? data : data.toString('utf8')
-      const at = text.indexOf(detach)
-      if (at !== -1) {
-        if (at > 0) client.post({ t: 'input', id: agent.id, data: text.slice(0, at) })
+      const found = findDetachKey(text, detach)
+      if (found) {
+        const before = text.slice(0, found.at).replace(RELEASE, '')
+        if (before) client.post({ t: 'input', id: agent.id, data: before })
         finish('detached')
         return
       }
@@ -109,5 +137,7 @@ export function attach(
     void client
       .request({ t: 'subscribe', agents: [agent.id], output: [agent.id] })
       .catch(() => finish('exited'))
+    // The daemon went away (stopped, crashed): never leave the terminal raw on a frozen screen.
+    client.onClose(() => finish('exited'))
   })
 }
