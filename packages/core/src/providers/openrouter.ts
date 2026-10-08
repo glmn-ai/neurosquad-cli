@@ -119,6 +119,10 @@ export function checkedApiBase(base: string): string {
   } catch {
     throw new Error(`not a URL: ${base}`)
   }
+  // The base reaches argv (Codex's `-c`): credentials in it would be visible to every process.
+  if (url.username || url.password) {
+    throw new Error('the OpenRouter API base must not contain credentials (user:password@)')
+  }
   const loopback = LOOPBACK_HOSTS.has(url.hostname)
   if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
     throw new Error('the OpenRouter API base must use https (http only on this machine)')

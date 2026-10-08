@@ -104,6 +104,8 @@ describe('OpenRouter API base check', () => {
     expect(checkedApiBase('http://localhost:9/api/v1')).toBe('http://localhost:9/api/v1')
     expect(() => checkedApiBase('http://proxy.example.com/api/v1')).toThrow(/https/)
     expect(() => checkedApiBase('not a url')).toThrow()
+    expect(() => checkedApiBase('https://user:secret@proxy.example.com/api/v1')).toThrow(/credentials/)
+    expect(() => checkedApiBase('http://token@127.0.0.1:9/api/v1')).toThrow(/credentials/)
     expect(() =>
       openRouterLaunch('codex-cli', 'k', 'x/y', { apiBase: 'http://10.0.0.5/api/v1' })
     ).toThrow(/https/)
