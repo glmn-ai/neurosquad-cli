@@ -484,8 +484,9 @@ function logoSpots(lines: Line[]): Array<{ row: number; col: number; id: string 
 function imagesOverlay(lines: Line[], absolute: boolean): string {
   if (graphics === 'none') return ''
   let out = ''
-  for (const s of logoSpots(lines)) {
-    const img = logoImage(s.id, { protocol: graphics, bg: ROLE_SOURCES.tileBg })
+  // Stable kitty ids per spot, so a redraw replaces an image instead of stacking another one.
+  for (const [i, s] of logoSpots(lines).entries()) {
+    const img = logoImage(s.id, { protocol: graphics, bg: ROLE_SOURCES.tileBg, id: i + 1 })
     if (!img) continue
     if (absolute) out += `\x1b7\x1b[${s.row + 1};${s.col}H${img}\x1b8`
     else {
@@ -524,8 +525,10 @@ function live(): void {
   const start = performance.now()
   const draw = (now: number): void => {
     const next = screen(policy.animate ? now - start : undefined)
-    out.write(paintDiff(prev, next))
-    if (!prev) out.write(imagesOverlay(next, true))
+    const diff = paintDiff(prev, next)
+    out.write(diff)
+    // A repainted row can cover a logo's cells (pulsing borders, fading tiles): draw images again.
+    if (!prev || diff) out.write(imagesOverlay(next, true))
     prev = next
   }
   const quit = (): void => {

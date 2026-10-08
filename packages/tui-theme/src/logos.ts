@@ -304,8 +304,11 @@ export interface LogoImageOptions extends ImageCells {
 export function logoImage(id: string, o: LogoImageOptions): string | undefined {
   if (o.protocol === 'none') return undefined
   const rows = o.rows ?? 1
-  const cellH = o.cellPx?.height ?? 18
-  const png = logoPng(id, o.protocol === 'sixel' ? Math.min(32, rows * cellH) : 32)
+  // Sixel is drawn at its native pixel size, so pick the largest asset that fits the badge's cells
+  // (16 px when the cell size is unknown). kitty and iTerm2 scale to the cell box themselves.
+  const cols = o.cols ?? 2
+  const fit = o.cellPx ? Math.min(rows * o.cellPx.height, cols * o.cellPx.width) : 16
+  const png = logoPng(id, o.protocol === 'sixel' ? (fit >= 32 ? 32 : 16) : 32)
   if (!png) return undefined
   let seq: string
   if (o.protocol === 'kitty') seq = kittyImage(png, o)

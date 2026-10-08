@@ -204,6 +204,19 @@ describe('queryGraphics', () => {
     expect(input.listenerCount('data')).toBe(0)
   })
 
+  it('keeps a stream that was already flowing flowing', async () => {
+    const input = new FakeInput() as FakeInput & { readableFlowing: boolean | null }
+    input.readableFlowing = true
+    let paused = false
+    input.pause = () => {
+      paused = true
+    }
+    await queryGraphics(input, {
+      write: () => setTimeout(() => input.emit('data', '[?62c'), 1)
+    })
+    expect(paused).toBe(false)
+  })
+
   it('gives up after the timeout without throwing', async () => {
     vi.useFakeTimers()
     try {

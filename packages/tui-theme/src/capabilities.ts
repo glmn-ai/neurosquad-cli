@@ -54,8 +54,9 @@ function forcedLevel(env: Env): ColorLevel | undefined {
  * 3. Not a TTY, or `TERM=dumb` → none.
  * 4. `COLORTERM=truecolor|24bit`, known truecolor terminals and Windows Terminal / modern conhost → 24-bit.
  * 5. `*-256color` → 256; any other known colour `TERM` (or Windows) → 16.
- * The result is then capped by `FORCE_COLOR` only when it was given; `NSQ_COLOR=16|256|truecolor|none`
- * is our own explicit override and beats everything.
+ * `FORCE_COLOR` 1..3 is a *minimum* (like chalk / supports-color): a truecolor terminal with
+ * `FORCE_COLOR=1` still gets 24-bit. `NSQ_COLOR=16|256|truecolor|none` is our own exact override
+ * and beats everything.
  */
 export function detectColorLevel(facts: TerminalFacts): ColorLevel {
   const { env, platform } = facts
@@ -228,6 +229,8 @@ export interface ProbeInput {
   off(event: 'data', listener: (chunk: Buffer | string) => void): unknown
   isTTY?: boolean
   isRaw?: boolean
+  /** Node's `Readable#readableFlowing`: restored after the probe. */
+  readableFlowing?: boolean | null
   setRawMode?(mode: boolean): unknown
   resume?(): unknown
   pause?(): unknown
@@ -308,6 +311,7 @@ export function queryGraphics(
     let buffer = ''
     let settled = false
     const wasRaw = input.isRaw === true
+    const wasFlowing = input.readableFlowing === true
     const finish = (): void => {
       if (settled) return
       settled = true
@@ -315,7 +319,7 @@ export function queryGraphics(
       try {
         input.off('data', onData)
         if (!wasRaw) input.setRawMode?.(false)
-        input.pause?.()
+        if (!wasFlowing) input.pause?.()
       } catch {
         // A closed TTY is not our problem to report here.
       }

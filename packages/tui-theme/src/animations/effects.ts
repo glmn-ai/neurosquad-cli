@@ -310,9 +310,10 @@ export function progressBar(theme: Theme, now: number | undefined, o: ProgressOp
   if (!theme.unicode) {
     const inner = width - 2
     if (o.ratio === undefined) {
-      const pos = now === undefined ? 0 : Math.floor(pingPong(now, 1600) * (inner - 3))
+      const span = Math.min(3, inner)
+      const pos = now === undefined ? 0 : Math.floor(pingPong(now, 1600) * (inner - span))
       return [
-        seg('[' + ' '.repeat(pos) + '===' + ' '.repeat(Math.max(0, inner - pos - 3)) + ']', {
+        seg('[' + ' '.repeat(pos) + '='.repeat(span) + ' '.repeat(inner - pos - span) + ']', {
           fg: 'accentText',
           bg
         })

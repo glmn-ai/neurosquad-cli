@@ -120,3 +120,16 @@ describe('image protocols', () => {
     expect(placeAt(3, 5, 'X')).toBe('\x1b7\x1b[3;5HX\x1b8')
   })
 })
+
+describe('sixel asset size', () => {
+  it('uses 16 px unless the cells are known to fit 32 px', () => {
+    const size = (seq: string | undefined): string | undefined => /"1;1;(\d+);/.exec(seq ?? '')?.[1]
+    expect(size(logoImage('codex', { protocol: 'sixel' }))).toBe('16')
+    expect(size(logoImage('codex', { protocol: 'sixel', cellPx: { width: 9, height: 18 } }))).toBe(
+      '16'
+    )
+    expect(size(logoImage('codex', { protocol: 'sixel', cellPx: { width: 16, height: 32 } }))).toBe(
+      '32'
+    )
+  })
+})

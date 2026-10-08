@@ -209,6 +209,16 @@ describe('effects', () => {
     expect(sparkle(theme, 2000, 0).seg.text).toBe('✔')
   })
 
+  it('narrow ASCII indeterminate bars do not throw and keep their width', () => {
+    for (const width of [0, 1, 3, 4, 5, 6]) {
+      for (const t of [undefined, 0, 400, 800, 1200]) {
+        expect(lineWidth(progressBar(ascii, t, { width, ratio: undefined }))).toBe(
+          Math.max(3, width)
+        )
+      }
+    }
+  })
+
   it('progress bars keep their width', () => {
     for (const ratio of [0, 0.33, 0.5, 0.99, 1, undefined]) {
       for (const t of [undefined, 0, 900]) {
