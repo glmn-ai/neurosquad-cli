@@ -114,6 +114,12 @@ const DEFAULT_ROWS = 32
 /** A prompt is submitted after the harness has been quiet this long after start. */
 const READY_QUIET_MS = 1500
 const READY_MAX_MS = 30_000
+/** After the ready marker shows, a beat for the input to take keys. */
+const READY_SETTLE_MS = 1500
+/** What a harness's screen shows once its prompt takes input. */
+const READY_MARKERS: Partial<Record<AgentRecord['harness'], RegExp>> = {
+  opencode: /ctrl\+p commands|Ask anything/
+}
 
 export class Daemon {
   private readonly store = new AgentStore()
@@ -485,6 +491,8 @@ export class Daemon {
     const started = Date.now()
     let lastOutput = Date.now()
     let sawOutput = false
+    let readyAt: number | undefined
+    const marker = READY_MARKERS[this.store.get(id)?.harness ?? 'command']
     const stop = observePtys({
       onSpawn: () => {},
       onData: (agentId) => {
@@ -497,14 +505,26 @@ export class Daemon {
       }
     })
     const timer = setInterval(() => {
-      const quiet = Date.now() - lastOutput >= READY_QUIET_MS
-      if ((sawOutput && quiet) || Date.now() - started > READY_MAX_MS) {
-        const rt = this.rt(id)
-        const prompt = rt.pendingPrompt
-        rt.pendingPrompt = undefined
-        if (prompt) this.ptys.submit(id, prompt)
-        finish()
+      const now = Date.now()
+      // A harness with a known prompt: its input box is on screen, plus a beat
+      // for it to take keys. Others: the output went quiet.
+      if (marker && readyAt === undefined && marker.test(this.screens.tail(id, 60).join('\n'))) {
+        readyAt = now
       }
+      const ready = marker
+        ? readyAt !== undefined && now - readyAt >= READY_SETTLE_MS
+        : sawOutput && now - lastOutput >= READY_QUIET_MS
+      if (!ready && now - started <= READY_MAX_MS) return
+      const rt = this.rt(id)
+      const prompt = rt.pendingPrompt
+      rt.pendingPrompt = undefined
+      if (prompt) {
+        this.log(
+          `${this.store.get(id)?.name ?? id}: first prompt submitted${ready ? '' : ' (no ready signal in time)'}`
+        )
+        this.ptys.submit(id, prompt)
+      }
+      finish()
     }, 200)
     const finish = (): void => {
       clearInterval(timer)

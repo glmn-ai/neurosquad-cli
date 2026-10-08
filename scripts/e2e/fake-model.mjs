@@ -62,6 +62,13 @@ function shellCall(ctx) {
       }
     }
   }
+  // OpenCode 2: `shell` beside its own `write`/`edit` tools, a string command.
+  if (pick(/^shell$/) && pick(/^write$/)) {
+    return {
+      name: 'shell',
+      input: { command: `mkdir ${PERM_DIR}`, description: 'Create a folder' }
+    }
+  }
   const shell = pick(/^(shell|shell_command|local_shell)$/)
   if (shell) {
     return {
