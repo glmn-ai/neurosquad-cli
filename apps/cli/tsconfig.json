@@ -16,6 +16,9 @@
     },
     {
       "path": "../../packages/tui-theme"
+    },
+    {
+      "path": "../../packages/dictation"
     }
   ]
 }

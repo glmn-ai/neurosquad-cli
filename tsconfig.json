@@ -1,10 +1,23 @@
 {
   "files": [],
   "references": [
-    { "path": "packages/core" },
-    { "path": "packages/term-view" },
-    { "path": "packages/tui-theme" },
-    { "path": "packages/notify" },
-    { "path": "apps/cli" }
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/term-view"
+    },
+    {
+      "path": "packages/tui-theme"
+    },
+    {
+      "path": "packages/notify"
+    },
+    {
+      "path": "apps/cli"
+    },
+    {
+      "path": "packages/dictation"
+    }
   ]
 }

@@ -65,6 +65,7 @@ import {
   type Rect
 } from './layout.js'
 import { PickList, TextField, fitText } from './widgets.js'
+import { bindDictation, type DictationBinding } from '../dictation.js'
 
 const FRAME_MS = 33
 const DOUBLE_CLICK_MS = 400
@@ -161,6 +162,7 @@ export class Dashboard {
   private resolveClosed: () => void = () => {}
   private logoSlots: { row: number; col: number; harness: string }[] = []
   private readonly launchCwd = process.cwd()
+  private dictation: DictationBinding | null = null
 
   constructor(
     private readonly client: DaemonClient,
@@ -215,10 +217,20 @@ export class Dashboard {
     }
     await this.client.request({ t: 'subscribe', agents: '*', output: '*' })
     this.schedule()
+    // Dictation (optional): the text goes into the open agent, else the selected one — pasted, never sent.
+    void bindDictation({
+      target: () => this.expanded ?? this.selected,
+      paste: (id, text) => this.client.post({ t: 'paste', id, text }),
+      changed: () => this.schedule()
+    }).then((binding) => {
+      this.dictation = binding
+      this.schedule()
+    })
     await new Promise<void>((resolve) => {
       this.resolveClosed = resolve
     })
     off()
+    await this.dictation?.dispose()
   }
 
   private readonly onSignal = (): void => this.quit()
@@ -527,11 +539,56 @@ export class Dashboard {
         fg: 'mutedText',
         bg: 'headerBg'
       }),
+      ...this.dictationBadge(),
       seg('? help ', { fg: 'faintText', bg: 'headerBg' })
     ]
     const rightWidth = right.reduce((w, s) => w + [...s.text].length, 0)
     canvas.put(0, 0, left, width - rightWidth - 1)
     canvas.put(width - rightWidth, 0, right)
+  }
+
+  private dictationBadge(): Seg[] {
+    const d = this.dictation
+    if (!d) return []
+    switch (d.state) {
+      case 'recording':
+        return [
+          seg(' ● REC ', { fg: 'accentFg', bg: 'danger', bold: true }),
+          seg('  ', { bg: 'headerBg' })
+        ]
+      case 'transcribing':
+        return [seg('transcribing…  ', { fg: 'accentText', bg: 'headerBg' })]
+      case 'downloading':
+        return [
+          seg(`model ${Math.floor((d.progress ?? 0) * 100)}%  `, {
+            fg: 'accentText',
+            bg: 'headerBg'
+          })
+        ]
+      default:
+        return []
+    }
+  }
+
+  private toggleDictation(): void {
+    const d = this.dictation
+    if (!d) {
+      this.toastMessage(
+        'dictation is not available (the @neurosquad/dictation package is not installed)'
+      )
+      return
+    }
+    if (d.state === 'downloading') return
+    if (!d.installed()) {
+      this.modal = {
+        kind: 'confirm',
+        title: 'Dictation model',
+        body: `Download ${d.modelName} (${Math.round(d.modelBytes / 1e6)} MB, checked by SHA-256)? Speech stays on this machine.`,
+        yes: () => this.request(d.ensureModel(), `${d.modelName} is ready — press v to dictate`)
+      }
+      return
+    }
+    d.toggle()
   }
 
   private drawSidebar(canvas: Canvas, rect: Rect, now: number | undefined): void {
@@ -770,6 +827,17 @@ export class Dashboard {
   private drawFooter(canvas: Canvas): void {
     const { y, width } = this.layout.footer
     canvas.fill(0, y, width, 1, { bg: 'headerBg' })
+    if (this.dictation?.state === 'downloading') {
+      const label = ` dictation model ${Math.floor((this.dictation.progress ?? 0) * 100)}% `
+      canvas.put(0, y, [
+        seg(label, { fg: 'mutedText', bg: 'headerBg' }),
+        ...animations.progressBar(this.theme, this.motion.animate ? Date.now() : undefined, {
+          width: Math.min(40, width - label.length - 2),
+          ratio: this.dictation.progress
+        })
+      ])
+      return
+    }
     if (this.toast) {
       canvas.put(0, y, [
         seg(fitText(` ${this.toast.text}`, width), { fg: 'warning', bg: 'headerBg' })
@@ -849,6 +917,7 @@ export class Dashboard {
           ['R', 'rename'],
           ['[ ]', 'previous / next page of tiles'],
           ['b', 'sidebar on/off'],
+          ['v', 'dictate into the agent (also the global hotkey) — pasted, never sent'],
           ['q', 'quit — agents keep running (nsq down stops them)']
         ]
         const r = this.box(canvas, 90, rows.length + 4, 'Keys')
@@ -1193,6 +1262,9 @@ export class Dashboard {
       case 'c':
       case '+':
         this.openNewAgent()
+        return
+      case 'v':
+        this.toggleDictation()
         return
       case 'b':
         this.sidebarMode = this.layout.sidebar ? 'hidden' : 'shown'
