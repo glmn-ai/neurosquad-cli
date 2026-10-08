@@ -210,6 +210,11 @@ export class PtyHost {
     if (submitsInput(data)) emitPtySubmit(agentId)
   }
 
+  /** The terminal's answer to a query the program sent (no input event, no submit). */
+  reply(agentId: string, data: string): void {
+    this.live.get(agentId)?.pty.write(data)
+  }
+
   /**
    * A programmatic prompt: the text, then Enter `SUBMIT_KEY_DELAY_MS` later
    * (Enter inside a burst of text reads as a line break, not a submit).

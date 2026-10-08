@@ -35,12 +35,24 @@ export interface ScreenJoin {
 export class Screens {
   private readonly screens = new Map<string, Screen>()
 
+  /**
+   * `reply` receives the terminal's answers to the agent's queries (device
+   * attributes, cursor position, colours): the daemon's screen is the one
+   * that answers, so an agent gets them whether or not a client is attached.
+   * Clients' own views stay silent.
+   */
+  constructor(private readonly reply: (agentId: string, data: string) => void = () => {}) {}
+
   spawn(agentId: string, generation: number, cols: number, rows: number): void {
     this.dispose(agentId)
     const term = new Terminal({ cols, rows, scrollback: SCROLLBACK, allowProposedApi: true })
     const serializer = new SerializeAddon()
     term.loadAddon(serializer)
-    this.screens.set(agentId, { generation, term, serializer })
+    const screen: Screen = { generation, term, serializer }
+    term.onData((data) => {
+      if (this.screens.get(agentId) === screen) this.reply(agentId, data)
+    })
+    this.screens.set(agentId, screen)
   }
 
   write(agentId: string, generation: number, chunk: string): void {

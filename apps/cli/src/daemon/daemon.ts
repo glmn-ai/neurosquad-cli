@@ -124,7 +124,8 @@ const READY_MARKERS: Partial<Record<AgentRecord['harness'], RegExp>> = {
 export class Daemon {
   private readonly store = new AgentStore()
   private readonly ptys = new PtyHost()
-  private readonly screens = new Screens()
+  // Terminal replies go straight to the pty: not the person typing, not a submit.
+  private readonly screens = new Screens((id, data) => this.ptys.reply(id, data))
   private readonly runtime = new Map<string, Runtime>()
   private readonly clients = new Set<Client>()
   private readonly usage = new UsageTracker()
