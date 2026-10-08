@@ -1,6 +1,8 @@
 // One entry point for every harness launch: the harness's own layer, then the
 // model provider (OpenRouter or a native model id) on top.
-import { join } from 'node:path'
+import { existsSync } from 'node:fs'
+import { basename, join } from 'node:path'
+import { shimModuleDirs } from '../pty/npmShim.js'
 import { writeClaudeSettings } from './claude/hooks.js'
 import { prepareCodexLaunch } from './codex/launch.js'
 import {
@@ -17,10 +19,25 @@ export const CLAUDE_TRUST_PROMPT = { marker: 'Quick safety check', keys: '\x1b[B
 /** What `claude --resume <id>` prints for a session it never saved. */
 export const CLAUDE_SESSION_NOT_FOUND = 'No conversation found with session ID'
 
+/**
+ * npm's `claude.cmd` shim only starts the native `claude.exe` the package
+ * ships; that exe is spawned directly (no cmd.exe in between).
+ */
+export function claudeExecutable(
+  command: string,
+  platform: NodeJS.Platform = process.platform
+): string {
+  if (platform !== 'win32' || basename(command).toLowerCase() !== 'claude.cmd') return command
+  const found = shimModuleDirs(command)
+    .map((modules) => join(modules, '@anthropic-ai', 'claude-code', 'bin', 'claude.exe'))
+    .find((path) => existsSync(path))
+  return found ? found.replaceAll('\\', '/') : command
+}
+
 export function prepareClaudeLaunch(ctx: LaunchContext): LaunchPlan {
   const settings = writeClaudeSettings(join(ctx.layerDir, `${ctx.agent.id}.json`), ctx.hookBase)
   return {
-    command: ctx.executable,
+    command: claudeExecutable(ctx.executable, ctx.platform),
     args: [
       ...(ctx.resumed ? ['--resume', ctx.agent.id] : ['--session-id', ctx.agent.id]),
       '--settings',
@@ -73,7 +90,8 @@ export function prepareLaunch(ctx: LaunchContext, options: PrepareOptions = {}):
   const provider =
     agent.provider === 'openrouter' && ctx.openRouterKey
       ? openRouterLaunch(agent.harness, ctx.openRouterKey, agent.model, {
-          openCodeConfigContent: ctx.env?.['OPENCODE_CONFIG_CONTENT']
+          openCodeConfigContent: ctx.env?.['OPENCODE_CONFIG_CONTENT'],
+          ...(ctx.openRouterApiBase ? { apiBase: ctx.openRouterApiBase } : {})
         })
       : agent.provider === 'openrouter'
         ? { args: [], env: {} }

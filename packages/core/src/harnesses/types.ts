@@ -47,6 +47,8 @@ export interface LaunchContext {
   resumed: boolean
   /** The OpenRouter API key, when the agent is on OpenRouter and a key exists. Env only. */
   openRouterKey?: string
+  /** Another OpenRouter-compatible API base (`…/api/v1`); the public API by default. */
+  openRouterApiBase?: string
   /** The environment the harness would inherit (for merging a user's own config variables). */
   env?: Readonly<Record<string, string | undefined>>
   platform?: NodeJS.Platform

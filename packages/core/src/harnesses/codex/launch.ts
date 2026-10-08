@@ -19,8 +19,11 @@
 // On Windows the npm install's `codex.cmd` only runs a node script that spawns
 // the real `codex.exe` — that exe is spawned directly (stopping the agent
 // stops Codex, and the `-c` values need no cmd-safe spelling).
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join, resolve } from 'node:path'
+import { gitEnv } from '../../git/worktree.js'
+import { basename, join, resolve } from 'node:path'
+import { shimModuleDirs } from '../../pty/npmShim.js'
 import { codexOpenRouterProviderArgs, OPENROUTER_ATTRIBUTION } from '../../providers/openrouter.js'
 import { codexHome, readCodexUserConfig } from './config.js'
 import {
@@ -37,8 +40,12 @@ import type { LaunchContext, LaunchPlan } from '../types.js'
 export interface CodexConfigOptions {
   /** The hook command (codexHookCommand); none = no hooks (the cmd-shim fallback). */
   hookCommand?: string
-  /** Codex's key for the agent's folder in `projects` (see `codexProjectKey`). */
-  projectKey?: string
+  /**
+   * Codex's keys for the agent's folder in `projects` (see `codexProjectKey`):
+   * the folder and, inside a git repository, the repository root — Codex
+   * applies trust at the repository root.
+   */
+  projectKeys?: readonly string[]
   /** Values with quotes, brackets and spaces can be passed (Codex spawned directly, or not Windows). */
   richArgs: boolean
   /** The user's own model providers that point at OpenRouter. */
@@ -63,8 +70,11 @@ export function buildCodexConfigArgs(options: CodexConfigOptions): string[] {
   if (options.hookCommand) {
     args.push(...flag(`hooks=${toToml(codexHooksTable(options.hookCommand, options.platform))}`))
   }
-  if (options.projectKey) {
-    args.push(...flag(`projects=${toToml({ [options.projectKey]: { trust_level: 'trusted' } })}`))
+  if (options.projectKeys?.length) {
+    const projects = Object.fromEntries(
+      options.projectKeys.map((key) => [key, { trust_level: 'trusted' }])
+    )
+    args.push(...flag(`projects=${toToml(projects)}`))
   }
   args.push(...flag('tui.terminal_title=["app-name","thread-title"]'))
   return args
@@ -101,6 +111,23 @@ export function codexProjectKey(cwd: string, platform = process.platform): strin
   return platform === 'win32' ? path.replaceAll('/', '\\').toLowerCase() : path
 }
 
+/** The git repository root of `cwd`, or undefined outside a repository. */
+function gitRootOf(cwd: string): string | undefined {
+  try {
+    const root = execFileSync('git', ['rev-parse', '--show-toplevel'], {
+      cwd,
+      encoding: 'utf8',
+      timeout: 5000,
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: gitEnv()
+    }).trim()
+    return root || undefined
+  } catch {
+    return undefined
+  }
+}
+
 const WINDOWS_TARGETS: Record<string, string> = {
   x64: 'x86_64-pc-windows-msvc',
   arm64: 'aarch64-pc-windows-msvc'
@@ -129,16 +156,23 @@ export function codexExecutable(
     return { command, direct: !/\.(cmd|bat)$/i.test(command) }
   }
   const target = WINDOWS_TARGETS[arch]
-  const packageRoot = join(dirname(command), 'node_modules', '@openai', 'codex')
   if (target) {
     const vendor = ['vendor', target, 'bin', 'codex.exe']
-    const candidates = [
-      join(packageRoot, 'node_modules', '@openai', `codex-win32-${arch}`, ...vendor),
-      join(dirname(command), 'node_modules', '@openai', `codex-win32-${arch}`, ...vendor),
-      join(packageRoot, ...vendor)
-    ]
-    const found = candidates.find((candidate) => existsSync(candidate))
-    if (found) {
+    const candidates = shimModuleDirs(command).flatMap((modules) => {
+      const packageRoot = join(modules, '@openai', 'codex')
+      return [
+        {
+          packageRoot,
+          exe: join(packageRoot, 'node_modules', '@openai', `codex-win32-${arch}`, ...vendor)
+        },
+        { packageRoot, exe: join(modules, '@openai', `codex-win32-${arch}`, ...vendor) },
+        { packageRoot, exe: join(packageRoot, ...vendor) }
+      ]
+    })
+    const hit = candidates.find((candidate) => existsSync(candidate.exe))
+    if (hit) {
+      const found = hit.exe
+      const packageRoot = hit.packageRoot
       let root = packageRoot
       try {
         root = realpathSync.native(packageRoot)
@@ -173,7 +207,13 @@ export function prepareCodexLaunch(ctx: LaunchContext): LaunchPlan {
     ...codexLaunchArgs(ctx.agent, ctx.resumed),
     ...buildCodexConfigArgs({
       hookCommand,
-      projectKey: codexProjectKey(ctx.cwd, platform),
+      projectKeys: [
+        ...new Set(
+          [ctx.cwd, gitRootOf(ctx.cwd)]
+            .filter((path): path is string => Boolean(path))
+            .map((path) => codexProjectKey(path, platform))
+        )
+      ],
       richArgs: executable.direct,
       openRouterProviderIds: userConfig.openRouterProviderIds,
       defineOpenRouter: !userConfig.providerIds.includes('openrouter'),

@@ -13,7 +13,8 @@
 // session ids chosen by the caller. The version is asked from the binary
 // (./version.ts).
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, join } from 'node:path'
+import { shimModuleDirs } from '../../pty/npmShim.js'
 import { pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 import { OPENROUTER_ATTRIBUTION } from '../../providers/openrouter.js'
@@ -177,24 +178,30 @@ export function openCodeExecutable(
   if (platform !== 'win32' || basename(command).toLowerCase() !== 'opencode.cmd') {
     return command
   }
-  const modules = join(dirname(command), 'node_modules')
-  const direct = join(modules, 'opencode-ai', 'bin', 'opencode.exe')
-  if (existsSync(direct)) return direct.replaceAll('\\', '/')
-  const v2 = join(modules, '@opencode', 'cli')
+  const dirs = shimModuleDirs(command)
+  for (const modules of dirs) {
+    const direct = join(modules, 'opencode-ai', 'bin', 'opencode.exe')
+    if (existsSync(direct)) return direct.replaceAll('\\', '/')
+  }
   const platforms = [`cli-windows-${arch}`, `cli-windows-${arch}-baseline`]
-  const real = [
-    join(v2, 'bin', 'opencode.exe'),
-    ...platforms.flatMap((name) => [
-      join(v2, 'node_modules', '@opencode', name, 'bin', 'opencode.exe'),
-      join(modules, '@opencode', name, 'bin', 'opencode.exe')
-    ])
-  ].find((path) => {
-    try {
-      return statSync(path).size > 1_000_000
-    } catch {
-      return false
-    }
-  })
+  const real = dirs
+    .flatMap((modules) => {
+      const v2 = join(modules, '@opencode', 'cli')
+      return [
+        join(v2, 'bin', 'opencode.exe'),
+        ...platforms.flatMap((name) => [
+          join(v2, 'node_modules', '@opencode', name, 'bin', 'opencode.exe'),
+          join(modules, '@opencode', name, 'bin', 'opencode.exe')
+        ])
+      ]
+    })
+    .find((path) => {
+      try {
+        return statSync(path).size > 1_000_000
+      } catch {
+        return false
+      }
+    })
   return real ? real.replaceAll('\\', '/') : command
 }
 
