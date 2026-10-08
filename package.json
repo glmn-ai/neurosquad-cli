@@ -18,9 +18,14 @@
     "lint": "eslint .",
     "format:check": "prettier --check .",
     "format": "prettier --write .",
-    "clean": "tsc -b --clean packages/core"
+    "clean": "tsc -b --clean packages/core",
+    "changeset": "changeset",
+    "version-packages": "changeset version && npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
+    "release:smoke": "node scripts/release/pack-smoke.mjs"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "^1.0.1",
+    "@changesets/cli": "^3.0.3",
     "@eslint/js": "^9.39.0",
     "@types/node": "^22.19.0",
     "eslint": "^9.39.0",
