@@ -3,7 +3,7 @@
 // The read and prompt shapes (`state`, `workspace`, `screen`, `prompt`, the SSE / long-poll
 // events) match the NeuroSquad desktop's lightweight phone API field for field, so one phone
 // client can speak to either. The `answer` and `interrupt` routes and `capabilities` are nsq's
-// additions. See docs/remote-proposal.md for why there is no phone UI in this package.
+// additions. The page in web/ is a client for exactly these routes.
 
 export type PhoneAgentStatus = 'working' | 'needs-input' | 'finished' | 'idle' | 'exited'
 

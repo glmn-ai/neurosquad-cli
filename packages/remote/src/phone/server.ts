@@ -1,4 +1,4 @@
-// The phone API: a small token-guarded HTTP server that lets a paired phone watch nsq's agents and
+// The phone API (and, at `/`, the phone page that uses it — page.ts): a small token-guarded HTTP server that lets a paired phone watch nsq's agents and
 // answer them — status, the terminal mirror as text, needs-you events, a prompt, the three
 // permission answers and the interrupt. Nothing else (capabilities.ts).
 //
@@ -27,6 +27,7 @@ import type { AddressInfo } from 'node:net'
 import { basename } from 'node:path'
 import { PHONE_BLOCKED, PHONE_CAPABILITIES } from './capabilities.js'
 import { tokenMatches } from './token.js'
+import { PHONE_API_CSP, PHONE_PAGE_CSP, phonePageFile } from './page.js'
 import {
   PhoneHostError,
   type PhoneAgentSummary,
@@ -85,6 +86,8 @@ export interface PhoneServerOptions {
    * quiet drops out of `connections()` after a minute without a call; re-read on a timer for that.
    */
   onConnectionsChange?: () => void
+  /** Serve the phone page (web/) at `/`. Default true; the page holds no data without the token. */
+  page?: boolean
   now?: () => number
 }
 
@@ -452,10 +455,29 @@ export class PhoneServer {
     const path = url.pathname
     const method = req.method ?? 'GET'
     if (!path.startsWith('/api/')) {
-      // No UI is served here (docs/remote-proposal.md) and nothing outside /api exists.
-      this.json(res, 404, { error: 'Not found' })
+      // The phone page: static files, no token needed to load them (they hold no data).
+      const file = this.options.page === false ? null : phonePageFile(path)
+      if (!file) {
+        this.json(res, 404, { error: 'Not found' })
+        return
+      }
+      if (method !== 'GET' && method !== 'HEAD') {
+        res.setHeader('Allow', 'GET, HEAD')
+        this.json(res, 405, { error: 'Method not allowed' })
+        return
+      }
+      res.writeHead(200, {
+        'Content-Type': file.type,
+        'Content-Length': file.body.length,
+        'Content-Security-Policy': PHONE_PAGE_CSP,
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Resource-Policy': 'same-origin',
+        'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=()'
+      })
+      res.end(method === 'HEAD' ? undefined : file.body)
       return
     }
+    res.setHeader('Content-Security-Policy', PHONE_API_CSP)
     const bucket = this.bucketFor(req)
     if (bucket.failures >= this.limits.failures) {
       this.json(res, 429, { error: 'Too many attempts' })

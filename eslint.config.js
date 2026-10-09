@@ -33,5 +33,20 @@ export default tseslint.config(
         setImmediate: 'readonly'
       }
     }
+  },
+  {
+    // The phone page runs in the browser.
+    files: ['packages/remote/src/phone/web/**/*.js'],
+    languageOptions: {
+      sourceType: 'module',
+      globals: {
+        document: 'readonly',
+        window: 'readonly',
+        location: 'readonly',
+        history: 'readonly',
+        localStorage: 'readonly',
+        navigator: 'readonly'
+      }
+    }
   }
 )

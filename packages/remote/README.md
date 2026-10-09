@@ -67,10 +67,23 @@ server.rotateToken(generatePairingToken()) // revoke
 
 The routes and shapes (`/api/state`, `/api/workspace/:id`, `/api/agent/:id/screen|prompt`,
 `/api/events` SSE, `/api/poll` long-poll) match the NeuroSquad desktop's lightweight phone API;
-`answer`, `interrupt` and `capabilities` are additions. No phone UI is served — see
-[docs/remote-proposal.md](../../docs/remote-proposal.md) for why, and for push notifications.
+`answer`, `interrupt` and `capabilities` are additions. `connections()` lists who is connected
+(address, a short device label, since) for the host to show.
 
-Security: 24-byte token on every request (constant-time compare, also on the event stream),
+### The phone page
+
+The server also serves a small client for these routes at `/` (`src/phone/web/`, plain HTML, CSS
+and JavaScript, MIT, no build step, no third-party code; `page: false` leaves it out): the agents
+with their status, the pending question with Yes / Always / No, one agent's screen (text, refreshed
+while it is open and the page is visible), a prompt box and a two-tap interrupt. It opens from the
+pairing link (`/?t=<token>`), keeps the token in the page's `localStorage` and takes it out of the
+address bar and history. It loads only from its own origin under a strict Content-Security-Policy
+(no inline script or style, no eval, no frames), and puts every value from the server into the page
+as text. The page holds no data until the token is presented. Installable to the home screen
+(web app manifest); it uses the long-poll route, which works through proxies that buffer event
+streams.
+
+Security: 24-byte token on every API request (constant-time compare, also on the event stream),
 throttled wrong tokens and writes per address, 64 KiB bodies, 4000-char prompts, loopback bind by
 default, no CORS, `no-referrer` / `no-store`, host errors answered generically, an allowlist of
 routes (`PHONE_CAPABILITIES`) and a documented `PHONE_BLOCKED` list.

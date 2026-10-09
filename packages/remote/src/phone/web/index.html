@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="color-scheme" content="dark" />
+    <meta name="theme-color" content="#0b0b0e" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NeuroSquad" />
+    <title>NeuroSquad</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="app.css" />
+    <script type="module" src="app.js"></script>
+  </head>
+  <body>
+    <header class="bar">
+      <button class="back" id="back" type="button" hidden aria-label="Back to agents">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5" /></svg>
+      </button>
+      <div class="mark" aria-hidden="true"><span>&gt;</span>S</div>
+      <div class="title">
+        <strong id="title">NeuroSquad</strong>
+        <span id="subtitle" class="muted">connecting…</span>
+      </div>
+      <span id="link" class="link" data-state="connecting" title="Connection"></span>
+    </header>
+
+    <main id="pair" class="pair" hidden>
+      <div class="pair-card">
+        <div class="mark big" aria-hidden="true"><span>&gt;</span>S</div>
+        <h1>Pair this phone</h1>
+        <p>
+          On your computer run <code>nsq phone pair</code> and scan the QR code, or open the link it
+          prints.
+        </p>
+        <p id="pair-reason" class="muted"></p>
+      </div>
+    </main>
+
+    <main id="list" class="list" hidden></main>
+
+    <main id="agent" class="agent" hidden>
+      <section class="agent-head">
+        <div class="agent-name">
+          <span id="agent-dot" class="dot"></span>
+          <strong id="agent-title"></strong>
+          <span id="agent-harness" class="chip"></span>
+        </div>
+        <span id="agent-status" class="status"></span>
+      </section>
+      <section id="ask" class="ask" hidden>
+        <p class="ask-label">Needs you</p>
+        <p id="ask-text" class="ask-text"></p>
+        <div class="answers">
+          <button type="button" class="btn primary" data-answer="yes">Yes</button>
+          <button type="button" class="btn" data-answer="always">Always</button>
+          <button type="button" class="btn danger" data-answer="no">No</button>
+        </div>
+      </section>
+      <pre id="screen" class="screen" aria-label="Agent terminal (read only)"></pre>
+      <form id="prompt" class="prompt" autocomplete="off">
+        <textarea
+          id="prompt-text"
+          rows="1"
+          maxlength="4000"
+          enterkeyhint="send"
+          placeholder="Message the agent…"
+          aria-label="Prompt"
+        ></textarea>
+        <div class="prompt-actions">
+          <button type="button" id="interrupt" class="btn ghost">Interrupt</button>
+          <button type="submit" id="send" class="btn primary">Send</button>
+        </div>
+      </form>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

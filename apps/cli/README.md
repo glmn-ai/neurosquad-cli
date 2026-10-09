@@ -55,8 +55,16 @@ prompt (a busy agent gets it when its turn ends), answer a permission prompt and
 by default, and without `--lan` it listens on this machine only. `nsq phone pair` prints the link
 and a QR code; the link carries the pairing token, so treat it as a password. `nsq phone rotate`
 replaces the token and disconnects every paired phone. The phone cannot start agents, change
-settings or type arbitrary keys. The API is `@neurosquad/remote`'s
-([docs/remote-proposal.md](../../docs/remote-proposal.md)); a phone UI for it is not part of nsq yet.
+settings or type arbitrary keys. **Experimental in 0.1.0.**
+
+The link opens nsq's own phone page (served by nsq, nothing from the internet): agents and their
+status, the question with Yes / Always / No, an agent's screen, a prompt box, interrupt. Add it to
+the home screen to keep it one tap away. Plain HTTP on the local network: use it on networks you
+trust (`docs/remote-proposal.md` covers tunnels with a real certificate).
+
+Who is connected is always visible: the dashboard's header shows the count and the device (`p`
+lists them and can cut them off), `nsq attach` puts it in the window title, and `nsq phone status`
+prints them.
 
 ## Account
 

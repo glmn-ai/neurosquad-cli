@@ -34,7 +34,7 @@
     "node": ">=22.13"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && node scripts/copy-web.mjs",
     "test": "vitest run --root ../.. packages/remote"
   },
   "dependencies": {
