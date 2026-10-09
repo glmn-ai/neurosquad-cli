@@ -153,7 +153,13 @@ describe('createBufferSource', () => {
       (samples) => chunks.push(Array.from(samples)),
       () => undefined
     )
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    // Each chunk is its own setTimeout; Windows timers tick at ~15 ms, so a
+    // fixed wait can end after two chunks. Wait for all three, then a little
+    // longer to see that nothing more comes after the end.
+    for (let i = 0; i < 200 && chunks.length < 3; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50))
     await source.stop()
     expect(chunks).toEqual([[1, 2], [3, 4], [5]])
   })
