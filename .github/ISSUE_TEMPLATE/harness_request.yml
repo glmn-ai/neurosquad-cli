@@ -1,7 +1,7 @@
 name: Harness integration request
 description: Ask nsq to support another AI coding CLI.
-title: "[Harness]: "
-labels: ["harness", "needs-triage"]
+title: '[Harness]: '
+labels: ['harness', 'needs-triage']
 body:
   - type: markdown
     attributes:
@@ -12,7 +12,7 @@ body:
     id: name
     attributes:
       label: Harness name
-      placeholder: "Gemini CLI, Qwen Code, Copilot CLI, Kilo…"
+      placeholder: 'Gemini CLI, Qwen Code, Copilot CLI, Kilo…'
     validations:
       required: true
   - type: input

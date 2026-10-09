@@ -35,6 +35,15 @@ export default tseslint.config(
     }
   },
   {
+    // CommonJS scripts run by GitHub Actions (actions/github-script, node --test).
+    files: ['.github/scripts/**/*.cjs'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { require: 'readonly', module: 'writable', process: 'readonly' }
+    },
+    rules: { '@typescript-eslint/no-require-imports': 'off' }
+  },
+  {
     // The phone page runs in the browser.
     files: ['packages/remote/src/phone/web/**/*.js'],
     languageOptions: {

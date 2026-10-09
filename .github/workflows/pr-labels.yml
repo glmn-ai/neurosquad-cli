@@ -1,0 +1,54 @@
+name: PR labels
+
+# Labels every pull request from its Conventional Commits title and the files
+# it touches (.github/scripts/pr-labels.cjs). pull_request_target so it also
+# works for PRs from forks; it checks out only the base branch's script and
+# never runs code from the PR. Labels are only added, never removed.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited, synchronize, ready_for_review]
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Label every pull request (open and closed), not only open ones
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: pr-labels-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          ALL: ${{ inputs.all }}
+        with:
+          script: |
+            const { labelPull } = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/pr-labels.cjs`)
+            const { owner, repo } = context.repo
+            const pulls = context.payload.pull_request
+              ? [context.payload.pull_request]
+              : await github.paginate(github.rest.pulls.list, {
+                  owner,
+                  repo,
+                  state: process.env.ALL === 'true' ? 'all' : 'open',
+                  per_page: 100
+                })
+            for (const pull of pulls) {
+              const added = await labelPull({ github, owner, repo, pull })
+              core.info(`#${pull.number}: ${added.length ? `added ${added.join(', ')}` : 'nothing to add'}`)
+            }
