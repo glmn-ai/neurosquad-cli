@@ -1,0 +1,61 @@
+# Configuration
+
+nsq works without any configuration. Settings live in **`~/.neurosquad-cli/config.json`**; every
+field is optional, and a missing or malformed file means the defaults. The dashboard reads it when
+it opens; the daemon (notifications, sound, phone) when it starts — after changing those,
+`nsq down` and `nsq up` (the agents resume).
+
+```json
+{
+  "logos": "auto",
+  "notifications": true,
+  "sound": true,
+  "detachKey": "Ctrl+]",
+  "dictation": { "enabled": true, "hotkey": "CommandOrControl+Shift+Space", "mode": "toggle" },
+  "phone": { "enabled": false, "lan": false, "port": 8766 }
+}
+```
+
+| Field           | Default                            | What                                                                                                                                       |
+| --------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `logos`         | `"auto"`                           | CLI logos: `"auto"` / `"images"` (real logos where the terminal can draw them), `"glyphs"` (two-cell badges), `"neutral"` (no brand marks) |
+| `notifications` | `true`                             | desktop notifications ([notifications](notifications.md))                                                                                  |
+| `sound`         | `true`                             | a sound with each notification                                                                                                             |
+| `detachKey`     | `"Ctrl+]"`                         | the key that leaves a full-screen agent, as `Ctrl+<key>`                                                                                   |
+| `dictation`     | on, `CommandOrControl+Shift+Space` | `enabled`, `hotkey`, `mode` (`toggle` / `hold`), `model` ([dictation](dictation.md))                                                       |
+| `phone`         | off                                | written by `nsq phone on` / `nsq phone off` ([phone](phone.md))                                                                            |
+
+## Environment variables
+
+| Variable               | What                                                                                                |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `NSQ_HOME`             | where nsq keeps its data (default `~/.neurosquad-cli`); each home has its own daemon                |
+| `OPENROUTER_API_KEY`   | the OpenRouter key when there is no OS keyring ([OpenRouter](openrouter.md))                        |
+| `NSQ_NO_ANIMATION=1`   | no animations (`NSQ_ANIMATION=1` forces them on, e.g. over SSH)                                     |
+| `NSQ_LOGOS`            | `images`, `glyphs` or `none` — overrides the logo style                                             |
+| `NSQ_IMAGES=0`         | never draw images in the terminal                                                                   |
+| `NSQ_COLOR`            | `truecolor`, `256`, `16` or `none`; otherwise detected (`NO_COLOR` and `FORCE_COLOR` are respected) |
+| `NSQ_GLYPHS`           | `ascii` or `unicode` — the set used for borders and status glyphs                                   |
+| `NSQ_AMBIGUOUS_WIDE=1` | for CJK terminals set to "ambiguous width = wide": switches to ASCII so borders line up             |
+| `NSQ_NO_NOTIFY=1`      | no desktop notifications from the daemon                                                            |
+| `NSQ_NO_BROWSER=1`     | `nsq login` prints the link instead of opening a browser                                            |
+
+Variables that affect the daemon (`OPENROUTER_API_KEY`, `NSQ_NO_NOTIFY`, `NSQ_HOME`) must be set
+where the daemon starts — the first `nsq` command that needs it — or restart it with `nsq down` /
+`nsq up`.
+
+## What is stored where
+
+| Path (under `~/.neurosquad-cli`) | What                                                      |
+| -------------------------------- | --------------------------------------------------------- |
+| `config.json`                    | your settings                                             |
+| `agents.json`                    | the agents: name, harness, folder, session, model, branch |
+| `layers/<harness>/`              | per-agent hook and plugin settings handed to the CLIs     |
+| `worktrees/`                     | agents' git checkouts ([worktrees](worktrees.md))         |
+| `models/`                        | dictation models                                          |
+| `daemon.json`, `daemon.log`      | the running daemon's address and its log (no secrets)     |
+
+Secrets — the OpenRouter key and the optional account session — are kept in the OS keyring, not in
+these files. The CLIs keep their own data (sessions, transcripts, logins) where they always do.
+
+**Privacy:** nsq has no telemetry. No account is needed.
