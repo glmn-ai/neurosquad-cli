@@ -23,7 +23,13 @@ export default tseslint.config(
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         Buffer: 'readonly',
-        URL: 'readonly'
+        URL: 'readonly',
+        fetch: 'readonly',
+        AbortSignal: 'readonly',
+        performance: 'readonly',
+        setInterval: 'readonly',
+        clearInterval: 'readonly',
+        setImmediate: 'readonly'
       }
     }
   }

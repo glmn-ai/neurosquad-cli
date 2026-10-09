@@ -11,6 +11,7 @@ import {
   elapsed,
   harnessFromAlias,
   statusLabel,
+  textWidth,
   truncate
 } from './format.js'
 import { attach, parseDetachKey } from './attach.js'
@@ -117,10 +118,13 @@ export function formatTable(agents: AgentView[], now = Date.now()): string[] {
     agent.status === 'needs-input' ? truncate(agent.detail ?? '', 60) : truncate(agent.cwd, 60)
   ])
   const head = ['NAME', 'HARNESS', 'STATUS', 'SINCE', 'COST', 'BRANCH', 'DETAIL']
-  const widths = head.map((title, i) => Math.max(title.length, ...rows.map((row) => row[i].length)))
+  // Display width, not UTF-16 length: CJK and emoji take two columns.
+  const widths = head.map((title, i) =>
+    Math.max(textWidth(title), ...rows.map((row) => textWidth(row[i])))
+  )
   const line = (cells: string[]): string =>
     cells
-      .map((cell, i) => cell.padEnd(widths[i]))
+      .map((cell, i) => cell + ' '.repeat(Math.max(0, widths[i] - textWidth(cell))))
       .join('  ')
       .trimEnd()
   return [line(head), ...rows.map(line)]

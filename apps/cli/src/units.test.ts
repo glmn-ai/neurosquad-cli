@@ -5,7 +5,6 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { flagBool, flagString, parseArgs, parseSince } from './args.js'
 import { costLabel, elapsed, harnessFromAlias, statusLabel, textWidth, truncate } from './format.js'
 import { LineDecoder, encode } from './protocol.js'
-import { macNotificationScript, toastXml } from './daemon/notify.js'
 import { AgentStore } from './daemon/store.js'
 import { answerKeys } from './daemon/answers.js'
 import { claudeProjectSlug } from './daemon/usage.js'
@@ -81,17 +80,6 @@ describe('protocol', () => {
   })
 })
 
-describe('notifications', () => {
-  it('toast XML and AppleScript are escaped', () => {
-    expect(toastXml('a <b>', 'x & "y"', true)).toContain('a &lt;b&gt;')
-    expect(toastXml('t', 'x & "y"', false)).toContain('x &amp; &quot;y&quot;')
-    expect(toastXml('t', 'b', false)).toContain('silent="true"')
-    expect(macNotificationScript('say "hi"', 'back\\slash', true)).toBe(
-      'display notification "back\\\\slash" with title "say \\"hi\\"" sound name "Glass"'
-    )
-  })
-})
-
 describe('store', () => {
   it('persists, finds by name or id prefix, and names uniquely', () => {
     const dir = mkdtempSync(join(tmpdir(), 'nsq-store-'))
@@ -145,12 +133,12 @@ describe('daemon helpers', () => {
 
 describe('attach detach key', () => {
   it('found as a control byte, kitty CSI u or modifyOtherKeys', () => {
-    expect(findDetachKey('abcd', '')).toEqual({ at: 2, length: 1 })
-    expect(findDetachKey('x[93;5u', '')).toEqual({ at: 1, length: 7 })
-    expect(findDetachKey('[93;5:1u[93;5:3u', '')?.at).toBe(0)
-    expect(findDetachKey('[27;5;93~', '')).toEqual({ at: 0, length: 10 })
-    expect(findDetachKey('[97;5u', '')).toEqual({ at: 0, length: 7 })
-    expect(findDetachKey('plain text', '')).toBeNull()
+    expect(findDetachKey('ab\x1dcd', '\x1d')).toEqual({ at: 2, length: 1 })
+    expect(findDetachKey('x\x1b[93;5u', '\x1d')).toEqual({ at: 1, length: 7 })
+    expect(findDetachKey('\x1b[93;5:1u\x1b[93;5:3u', '\x1d')?.at).toBe(0)
+    expect(findDetachKey('\x1b[27;5;93~', '\x1d')).toEqual({ at: 0, length: 10 })
+    expect(findDetachKey('\x1b[97;5u', '\x01')).toEqual({ at: 0, length: 7 })
+    expect(findDetachKey('plain text', '\x1d')).toBeNull()
   })
 })
 

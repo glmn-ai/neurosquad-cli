@@ -7,5 +7,21 @@
   },
   "include": ["src/**/*.ts"],
   "exclude": ["src/**/*.test.ts"],
-  "references": [{ "path": "../../packages/core" }]
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/term-view"
+    },
+    {
+      "path": "../../packages/tui-theme"
+    },
+    {
+      "path": "../../packages/dictation"
+    },
+    {
+      "path": "../../packages/notify"
+    }
+  ]
 }

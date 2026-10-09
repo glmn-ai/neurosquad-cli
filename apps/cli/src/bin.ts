@@ -37,6 +37,7 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq peek <agent> [-n 20]              the last lines of its screen
   nsq cost [--since 7d] [--json]        what each agent spent
   nsq openrouter set-key|clear-key|models [query]|status
+  nsq dictation setup|status|test <wav> [--model id]
   nsq up | down                         start / stop the daemon (and its agents)
   nsq doctor                            check harnesses, hooks, terminal
 `
@@ -48,8 +49,8 @@ async function main(argv: string[]): Promise<number> {
     case undefined:
     case 'ui':
     case 'dashboard': {
-      // The dashboard arrives with the TUI; until then, the agent list.
-      await cmdLs(args)
+      const { runDashboard } = await import('./tui/app.js')
+      await runDashboard()
       return 0
     }
     case 'daemon': {
@@ -99,6 +100,11 @@ async function main(argv: string[]): Promise<number> {
     case 'openrouter':
       await cmdOpenRouter(args)
       return 0
+    case 'dictation': {
+      const { cmdDictation } = await import('./dictation.js')
+      await cmdDictation(args)
+      return 0
+    }
     case '_input': {
       const { cmdRawInput } = await import('./commands.js')
       await cmdRawInput(args)

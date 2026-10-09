@@ -47,7 +47,7 @@ reviews:
         - Usage/cost: integer tokens, exact money arithmetic, unknown model = "no price", never $0.
     - path: "apps/cli/**"
       instructions: |
-        The nsq CLI and its Ink TUI. Review for terminal UX:
+        The nsq CLI and its TUI (a framework-free cell-diff renderer on @neurosquad/term-view and @neurosquad/tui-theme). Review for terminal UX:
         - Works in Windows Terminal, conhost, macOS Terminal/iTerm2, Linux terminals, tmux and over SSH; no assumptions about colors or Unicode width.
         - Raw mode is always restored on exit, crash or signal; attach mode passes keys through untouched (Ctrl keys, Ctrl+C) except the detach prefix.
         - Resize handling, no flicker or excessive re-renders, keyboard-only navigation, clear help/footer text.
