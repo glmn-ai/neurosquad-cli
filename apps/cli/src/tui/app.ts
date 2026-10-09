@@ -256,7 +256,12 @@ export class Dashboard {
 
   /** A crash anywhere: the terminal comes back first (raw mode, screen, mouse), then the error. */
   private readonly onCrash = (error: unknown): void => {
-    this.quit()
+    try {
+      this.quit()
+    } catch {
+      // Restoring failed too: still report the original error below.
+      this.onExit()
+    }
     process.stderr.write(
       `nsq: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`
     )

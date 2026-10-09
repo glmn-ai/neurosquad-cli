@@ -1,6 +1,6 @@
 // Two daemons started at the same moment on one nsq home: exactly one keeps running.
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -16,7 +16,39 @@ afterAll(() => {
   rmSync(home, { recursive: true, force: true })
 })
 
+async function race(count: number): Promise<{ codes: (number | null)[]; winner?: number }> {
+  const starts = Array.from({ length: count }, () =>
+    spawn(process.execPath, [BIN, 'daemon', '--foreground'], {
+      env,
+      stdio: 'ignore',
+      windowsHide: true
+    })
+  )
+  const codes = await Promise.all(
+    starts.map(
+      (child) =>
+        new Promise<number | null>((done) => {
+          child.on('exit', (code) => done(code))
+          setTimeout(() => done(null), 15_000)
+        })
+    )
+  )
+  return { codes, winner: starts.find((child) => child.exitCode === null)?.pid }
+}
+
 describe.skipIf(!built)('daemon lock', () => {
+  it('takes over a stale lock once, even when several start together', async () => {
+    // The lock of a daemon that died: a pid that no longer runs.
+    const dead = spawnSync(process.execPath, ['-e', '0']).pid
+    writeFileSync(join(home, 'daemon.lock'), String(dead))
+    const { codes, winner } = await race(4)
+    expect(codes.filter((code) => code === null)).toHaveLength(1)
+    expect(codes.filter((code) => code === 0)).toHaveLength(3)
+    expect(Number(readFileSync(join(home, 'daemon.lock'), 'utf8'))).toBe(winner)
+    spawnSync(process.execPath, [BIN, 'down'], { env, timeout: 30_000, windowsHide: true })
+    expect(existsSync(join(home, 'daemon.lock'))).toBe(false)
+  }, 60_000)
+
   it('lets one of several simultaneous daemons win', async () => {
     const starts = Array.from({ length: 4 }, () =>
       spawn(process.execPath, [BIN, 'daemon', '--foreground'], {

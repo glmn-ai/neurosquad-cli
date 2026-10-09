@@ -8,10 +8,13 @@ import {
   chmodSync,
   closeSync,
   existsSync,
+  linkSync,
   openSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
+  writeFileSync,
   writeSync
 } from 'node:fs'
 import { execFile } from 'node:child_process'
@@ -203,7 +206,7 @@ export class Daemon {
     })
     const ipc = ipcPath()
     // Another daemon already serves this home: never take its socket over.
-    if (await isListening(ipc)) {
+    if (!ownsDaemonLock(lockPath()) || (await isListening(ipc))) {
       await this.hooks.close()
       throw new DaemonRunningError()
     }
@@ -918,7 +921,7 @@ export class Daemon {
     )
     await this.hooks?.close()
     rmSync(paths.daemonState(), { force: true })
-    if (this.locked) rmSync(lockPath(), { force: true })
+    if (this.locked && ownsDaemonLock(lockPath())) rmSync(lockPath(), { force: true })
     process.exit(0)
   }
 
@@ -948,30 +951,88 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+function readLockPid(file: string): number | null {
+  try {
+    const pid = Number.parseInt(readFileSync(file, 'utf8'), 10)
+    return Number.isFinite(pid) && pid > 0 ? pid : null
+  } catch {
+    return null
+  }
+}
+
 /**
- * Takes `daemon.lock` (created exclusively, holding our pid). A lock whose daemon answers on the
- * socket, or whose pid is alive and starts answering within a few seconds, means another daemon
- * owns this home. A lock of a dead process — or of a reused pid that never answers — is stale and
- * taken over.
+ * Creates the lock holding our pid, atomically: the pid is written to a file of our own first and
+ * then hard-linked to the lock name, so the lock never exists empty. Where hard links are not
+ * available, an exclusive create.
  */
-async function acquireDaemonLock(file: string, ipc: string): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt++) {
+function createLock(file: string): boolean {
+  const temp = `${file}.${process.pid}.tmp`
+  writeFileSync(temp, String(process.pid), { mode: 0o600 })
+  try {
+    linkSync(temp, file)
+    return true
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
+    if (code === 'EEXIST') return false
+    if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EXDEV') throw error
     try {
       const fd = openSync(file, 'wx', 0o600)
       writeSync(fd, String(process.pid))
       closeSync(fd)
-      return
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      return true
+    } catch (fallback) {
+      if ((fallback as NodeJS.ErrnoException).code === 'EEXIST') return false
+      throw fallback
     }
-    let pid = NaN
+  } finally {
+    rmSync(temp, { force: true })
+  }
+}
+
+/** Removes the lock only if it still holds `pid` (another starter may have replaced it). */
+function removeStaleLock(file: string, pid: number | null): void {
+  const aside = `${file}.${process.pid}.stale`
+  try {
+    renameSync(file, aside)
+  } catch {
+    return
+  }
+  if (readLockPid(aside) !== pid) {
+    // A fresh lock of someone else: put it back (unless yet another one appeared meanwhile).
     try {
-      pid = Number.parseInt(readFileSync(file, 'utf8'), 10)
+      linkSync(aside, file)
     } catch {
-      // Being written right now: look again.
+      // There is a lock again either way.
+    }
+  }
+  rmSync(aside, { force: true })
+}
+
+/**
+ * Takes `daemon.lock`. A lock whose daemon answers on the socket, or whose live pid starts
+ * answering within a few seconds, means another daemon owns this home. A lock of a dead process,
+ * or of a reused pid that never answers, is stale and taken over — removed only while it still
+ * holds that pid. A lock without a readable pid is given a moment (it may be being replaced).
+ */
+async function acquireDaemonLock(file: string, ipc: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt++) {
+    if (createLock(file)) return
+    let pid = readLockPid(file)
+    if (pid === null) {
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      pid = readLockPid(file)
+      if (pid === null && existsSync(file)) {
+        let age = 0
+        try {
+          age = Date.now() - statSync(file).mtimeMs
+        } catch {
+          continue
+        }
+        if (age < 5000) continue
+      }
     }
     if (await isListening(ipc)) throw new DaemonRunningError()
-    if (Number.isFinite(pid) && pidAlive(pid)) {
+    if (pid !== null && pidAlive(pid)) {
       // Probably starting up: give it a moment to listen.
       for (let i = 0; i < 20; i++) {
         await new Promise((resolve) => setTimeout(resolve, 150))
@@ -979,9 +1040,14 @@ async function acquireDaemonLock(file: string, ipc: string): Promise<void> {
         if (!pidAlive(pid)) break
       }
     }
-    rmSync(file, { force: true })
+    removeStaleLock(file, pid)
   }
   throw new DaemonRunningError()
+}
+
+/** Ours still? Checked right before the socket is taken: a lost race ends here. */
+function ownsDaemonLock(file: string): boolean {
+  return readLockPid(file) === process.pid
 }
 
 function isListening(path: string): Promise<boolean> {
