@@ -69,6 +69,8 @@ In the dashboard, select an agent with the arrows, press **Enter** to work in it
 - **Your config stays yours.** `~/.claude`, `~/.codex` and `opencode.json` are never written:
   everything nsq needs lives in a per-agent layer (flags, environment, its own folder).
 - **OpenRouter built in.** One key, any model, for Claude Code, Codex and OpenCode.
+- **Your own model servers.** llama.cpp, Ollama, LM Studio, vLLM, SGLang, Unsloth Studio or any
+  OpenAI- / Anthropic-compatible API — tested, then offered to each CLI that can speak to it.
 - **Voice dictation.** Local speech recognition; the text is pasted into the agent, never sent.
 - **Phone (experimental).** Pair a phone with a QR code and answer your agents from it.
 - **Terminal graphics.** CLI logos over kitty / iTerm2 / sixel graphics, light
@@ -80,21 +82,22 @@ Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/
 
 ## Keys
 
-| Key                    | In the dashboard                                                   |
-| ---------------------- | ------------------------------------------------------------------ |
-| ↑ ↓ ← → / h j k l, Tab | select an agent (Tab walks all workspaces)                         |
-| Enter, double-click    | open the agent full screen — every key goes to it; **Ctrl+]** back |
-| y / a / n              | answer a permission prompt: yes / always / no                      |
-| s / S                  | send a prompt / send it when the current turn is done              |
-| c                      | start an agent (harness, name, prompt, folder, worktree, model…)   |
-| i · x · X              | interrupt · stop · remove                                          |
-| r · R · d              | restart (resumes the session) · rename · dangerous mode on/off     |
-| m                      | pick a model on OpenRouter (switches the agent to it) or "default" |
-| v                      | dictate into the agent (also a global hotkey) — pasted, never sent |
-| p                      | phones: who is connected                                           |
-| O                      | online on/off (Cloudflare tunnel, asks first)                      |
-| U                      | update: install it now, or restart onto an installed one           |
-| [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)        |
+| Key                    | In the dashboard                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------- |
+| ↑ ↓ ← → / h j k l, Tab | select an agent (Tab walks all workspaces)                                            |
+| Enter, double-click    | open the agent full screen — every key goes to it; **Ctrl+]** back                    |
+| y / a / n              | answer a permission prompt: yes / always / no                                         |
+| s / S                  | send a prompt / send it when the current turn is done                                 |
+| c                      | start an agent (harness, name, prompt, folder, worktree, model…)                      |
+| i · x · X              | interrupt · stop · remove                                                             |
+| r · R · d              | restart (resumes the session) · rename · dangerous mode on/off                        |
+| m                      | pick a model on OpenRouter (switches the agent to it), "default", or its own server's |
+| P                      | providers: your own model servers (add, test, models, remove)                         |
+| v                      | dictate into the agent (also a global hotkey) — pasted, never sent                    |
+| p                      | phones: who is connected                                                              |
+| O                      | online on/off (Cloudflare tunnel, asks first)                                         |
+| U                      | update: install it now, or restart onto an installed one                              |
+| [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)                           |
 
 The mouse works too: click selects, double-click opens, the wheel moves the selection.
 
@@ -103,7 +106,8 @@ The mouse works too: click selects, double-click opens, the wheel moves the sele
 ```text
 nsq                                   the dashboard (starts the daemon)
 nsq run <claude|codex|opencode> [prompt]
-        [--name n] [--worktree] [--model id] [--provider openrouter] [--dangerous] [--attach]
+        [--name n] [--worktree] [--model id] [--provider name|openrouter]
+        [--dangerous] [--attach]
 nsq run [--name n] -- <command…>      any command
 nsq ls [--json]                       agents and their status
 nsq attach <agent>                    full-screen terminal (Ctrl+] to detach)
@@ -111,11 +115,16 @@ nsq send <agent> "prompt" [--when-done]
 nsq answer <agent> yes|always|no      answer a permission prompt
 nsq interrupt|stop|start|restart <agent>
 nsq rm <agent> [--worktree]           remove (and delete its worktree)
-nsq set <agent> [--dangerous on|off] [--model id|none] [--provider openrouter|none]
+nsq set <agent> [--dangerous on|off] [--model id|none]
+        [--provider name|openrouter|none]
 nsq diff <agent>                      uncommitted changes (git diff HEAD) in its folder
 nsq peek <agent> [-n 20]              the last lines of its screen
 nsq cost [--since 7d] [--json]        what each agent spent
 nsq openrouter set-key|clear-key|models [query]|status
+nsq provider add <name> --url <base> [--key-stdin|--ask-key]
+                                      your own server: llama.cpp, Ollama, LM Studio,
+                                      vLLM, SGLang, Unsloth Studio, any compatible API
+nsq provider test|models|remove <name> · nsq provider list
 nsq phone on [--lan] [--port n]|off|pair|rotate|status
                                       answer agents from a phone
 nsq phone on --online [--expire 12h]  … from anywhere, through a Cloudflare tunnel (https)
@@ -145,6 +154,20 @@ NeuroSquad's OpenRouter app attribution headers. Without a key, an agent runs on
 login. **m** in the dashboard picks a model and switches the agent to OpenRouter (restarted on the
 same session, the conversation kept); "default" goes back. Details:
 [docs/guide/openrouter.md](docs/guide/openrouter.md).
+
+## Your own model servers
+
+```sh
+nsq provider add lmstudio --url http://localhost:1234      # tests it: models, which APIs it speaks
+nsq run claude --provider lmstudio --model qwen/qwen3-coder-30b
+nsq provider models lmstudio
+```
+
+Local (llama.cpp, Ollama, LM Studio, vLLM, SGLang, Unsloth Studio) or remote, OpenAI- or
+Anthropic-compatible. Claude Code uses the server's Anthropic endpoint, Codex its Responses endpoint
+(or chat completions through a local gateway), OpenCode either. The key (optional) is asked for
+without echo and kept in the OS keyring; requests show "no price". Details and a table of servers:
+[docs/guide/providers.md](docs/guide/providers.md).
 
 ## Phone (experimental)
 

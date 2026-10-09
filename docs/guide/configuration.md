@@ -43,11 +43,12 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `NSQ_NO_NOTIFY=1`                | notifications off: no desktop notifications, and the dashboard does not ring its terminal either    |
 | `NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN` | the ntfy push topic URL and token when there is no OS keyring ([phone](phone.md))                   |
 | `NSQ_OPENROUTER_BASE_URL`        | another OpenRouter-compatible API base (`…/api/v1`)                                                 |
+| `NSQ_PROVIDER_KEY_<NAME>`        | the key of your own server `<name>` when there is no OS keyring ([providers](providers.md))         |
 | `NSQ_NO_BROWSER=1`               | `nsq login` prints the link instead of opening a browser                                            |
 | `NSQ_NO_UPDATE=1`                | no update checks or installs ([updates](updates.md)); also off when `CI` is set                     |
 | `NSQ_UPDATE_REGISTRY`            | another npm registry for the update check (`https://…`)                                             |
 
-Variables that affect the daemon (`OPENROUTER_API_KEY`, `NSQ_OPENROUTER_BASE_URL`, `NSQ_NO_NOTIFY`,
+Variables that affect the daemon (`OPENROUTER_API_KEY`, `NSQ_OPENROUTER_BASE_URL`, `NSQ_PROVIDER_KEY_<NAME>`, `NSQ_NO_NOTIFY`,
 `NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN`, `NSQ_NO_UPDATE`, `NSQ_HOME`) must be set
 where the daemon starts — the first `nsq` command that needs it — or restart it with `nsq down` /
 `nsq up`.
@@ -58,6 +59,7 @@ where the daemon starts — the first `nsq` command that needs it — or restart
 | -------------------------------- | ---------------------------------------------------------------- |
 | `config.json`                    | your settings                                                    |
 | `agents.json`                    | the agents: name, harness, folder, session, model, branch        |
+| `providers.json`                 | your own model servers: address, endpoints, models (no keys)     |
 | `layers/`                        | per-agent hook and plugin settings handed to the CLIs            |
 | `worktrees/`                     | agents' git checkouts ([worktrees](worktrees.md))                |
 | `models/`                        | dictation models                                                 |
@@ -69,7 +71,7 @@ where the daemon starts — the first `nsq` command that needs it — or restart
 | `logs/update.log`                | the installer's output                                           |
 | `nsq.sock`                       | the daemon socket on macOS/Linux when `XDG_RUNTIME_DIR` is unset |
 
-Secrets (the OpenRouter key, the ntfy push topic and token, the optional account session) are kept
+Secrets (the OpenRouter key, your servers' keys, the ntfy push topic and token, the optional account session) are kept
 in the OS keyring, not in
 these files. The CLIs keep their own data (sessions, transcripts, logins) where they always do.
 
