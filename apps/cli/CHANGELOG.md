@@ -11,7 +11,7 @@
 - [#41](https://github.com/glmn-ai/neurosquad-cli/pull/41) [`95095f9`](https://github.com/glmn-ai/neurosquad-cli/commit/95095f9709e042a238c6025a5016dff7e1b4b774) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Fix "model not found" with OpenRouter models. Picking a model with **m** now switches the agent
   to OpenRouter with it (before, only the model changed, and the CLI got an OpenRouter slug on its
   own login); the first row, "default", goes back to the CLI's own login. The switch restarts the
-  agent on the same session — at once when it is idle, after the turn when it is working — so the
+  agent on the same session — once the agent is idle and you have stopped typing for 3 s, after the turn when it is working — so the
   conversation is kept. `nsq run`/`nsq set` refuse an OpenRouter slug without `--provider openrouter`
   (and a native id on OpenRouter) with the fix; the New agent form switches OpenRouter on for a
   typed `vendor/model` slug; agents saved with a slug and no provider move to OpenRouter at start
