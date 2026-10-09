@@ -1,6 +1,6 @@
 {
   "name": "@neurosquad/remote",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Optional cloud sign-in (device code, OS keyring) and a token-guarded phone API for nsq.",
   "license": "MIT",
   "author": "NeuroSquad",

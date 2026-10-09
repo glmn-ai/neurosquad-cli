@@ -1,5 +1,11 @@
 # @neurosquad/core
 
+## 0.2.0
+
+### Minor Changes
+
+- [#42](https://github.com/glmn-ai/neurosquad-cli/pull/42) [`83027a6`](https://github.com/glmn-ai/neurosquad-cli/commit/83027a6af43a44470d37f2ee63bc0947cfd73008) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Your own model servers: `nsq provider add <name> --url <base>` adds a local server (llama.cpp, Ollama, LM Studio, vLLM, SGLang, Unsloth Studio) or any OpenAI- / Anthropic-compatible API. The connection test lists its models and finds which endpoints it serves; each CLI is offered the server when it can speak to it — Claude Code on Anthropic messages, Codex on responses (or chat completions through a local gateway), OpenCode on either. `nsq run|set --provider <name> --model <id>`, `nsq provider test|list|models|remove`, and in the dashboard a provider choice in New agent (F2 lists the server's models) and a Providers screen (P). The key is optional, asked for without echo or read from stdin, kept in the OS keyring and handed only to the agent's environment; plain http only on this machine or the local network; the served context window reaches each CLI; requests show "no price".
+
 ## 0.1.1
 
 ### Patch Changes

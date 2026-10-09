@@ -1,5 +1,21 @@
 # neurosquad
 
+## 0.2.0
+
+### Minor Changes
+
+- [#36](https://github.com/glmn-ai/neurosquad-cli/pull/36) [`510dea9`](https://github.com/glmn-ai/neurosquad-cli/commit/510dea93dc3593a0016858edab93ec76fdba3c56) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - nsq keeps itself up to date: the daemon checks the npm registry every 6 hours (the package's public metadata only, with an ETag; nothing about you is sent), installs a new release in the background the way nsq was installed (npm into the same prefix, Homebrew, Scoop; npx and other managers get the command to run; never sudo), and restarts onto it once no agent is busy and no dashboard is open — agents resume on their sessions. The dashboard shows the update in its header and **U** installs or applies it now; `nsq update [--check]`, `nsq --version` and `nsq doctor` show it too. Off with `nsq config set autoUpdate false` (or `notify`) or `NSQ_NO_UPDATE=1`; never in CI or from a checkout. New: `nsq config get|set|unset`.
+
+- [#42](https://github.com/glmn-ai/neurosquad-cli/pull/42) [`83027a6`](https://github.com/glmn-ai/neurosquad-cli/commit/83027a6af43a44470d37f2ee63bc0947cfd73008) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Your own model servers: `nsq provider add <name> --url <base>` adds a local server (llama.cpp, Ollama, LM Studio, vLLM, SGLang, Unsloth Studio) or any OpenAI- / Anthropic-compatible API. The connection test lists its models and finds which endpoints it serves; each CLI is offered the server when it can speak to it — Claude Code on Anthropic messages, Codex on responses (or chat completions through a local gateway), OpenCode on either. `nsq run|set --provider <name> --model <id>`, `nsq provider test|list|models|remove`, and in the dashboard a provider choice in New agent (F2 lists the server's models) and a Providers screen (P). The key is optional, asked for without echo or read from stdin, kept in the OS keyring and handed only to the agent's environment; plain http only on this machine or the local network; the served context window reaches each CLI; requests show "no price".
+
+- [#39](https://github.com/glmn-ai/neurosquad-cli/pull/39) [`791c89f`](https://github.com/glmn-ai/neurosquad-cli/commit/791c89f0de9f8bbb34cb99eeea653528da3dae5a) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - `nsq phone on --online`: phone access from anywhere through a Cloudflare quick tunnel (https), an explicit opt-in with a warning, the link and QR printed, `O` in the dashboard to switch it. cloudflared is used from PATH or downloaded once into the nsq home and checked against its published sha256. Through the tunnel, wrong tokens lock an address out (5 → 15 minutes) and plain http is refused; phones that came in from the internet are marked as such. `--expire 12h` makes phones pair again; `nsq phone tunnel-token set` + `--tunnel-token --hostname` use your own named tunnel. `@neurosquad/remote` adds `openTunnelOrigin`, `Lockout`, `ensureCloudflared` and `CloudflareTunnel`.
+
+### Patch Changes
+
+- Updated dependencies [[`83027a6`](https://github.com/glmn-ai/neurosquad-cli/commit/83027a6af43a44470d37f2ee63bc0947cfd73008), [`791c89f`](https://github.com/glmn-ai/neurosquad-cli/commit/791c89f0de9f8bbb34cb99eeea653528da3dae5a)]:
+  - @neurosquad/core@0.2.0
+  - @neurosquad/remote@0.2.0
+
 ## 0.1.2
 
 ### Patch Changes
