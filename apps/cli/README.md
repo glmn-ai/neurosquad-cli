@@ -32,7 +32,7 @@ nsq                             # the dashboard
 | `nsq cost [--since 7d] [--json]`                                               | what each agent spent, from the harness's own logs                                                                                                                     |
 | `nsq openrouter set-key\|clear-key\|models [query]\|status`                    | OpenRouter                                                                                                                                                             |
 | `nsq phone on [--lan] [--port n]\|off\|pair\|rotate\|status`                   | phone access (below)                                                                                                                                                   |
-| `nsq phone push ntfy [url] [--token]` · `test` · `show` · `status` · `off`   | push "needs you" to the phone (ntfy)                                                                                                                                   |
+| `nsq phone push ntfy [--url] [--token]` · `test` · `show` · `status` · `off`   | push "needs you" to the phone (ntfy)                                                                                                                                   |
 | `nsq login` · `logout` · `whoami`                                              | the optional NeuroSquad account                                                                                                                                        |
 | `nsq up` · `nsq down`                                                          | start / stop the daemon (agents resume on `up`)                                                                                                                        |
 | `nsq doctor`                                                                   | check the harnesses, hooks, terminal                                                                                                                                   |
@@ -71,11 +71,12 @@ prints them.
 
 `nsq phone push ntfy` sends a notification to your phone when an agent needs you, through
 [ntfy](https://ntfy.sh) (open source, self-hostable). Without a URL it picks a random topic on
-ntfy.sh; give your own server's topic URL to self-host (`--token` for a protected topic). Subscribe
+ntfy.sh; `--url` asks for your own server's topic URL (`--token` asks for a protected topic's token;
+both can be piped in, one per line — never on the command line). Subscribe
 to the topic in the ntfy app. Only the agent's name and its question are sent, never other terminal
 content. The topic URL works like a password and is kept in the OS keyring (`NSQ_NTFY_URL` /
 `NSQ_NTFY_TOKEN` where there is none). With phone access on the network, tapping the notification
-opens the phone page. Also `nsq phone push test`, `show`, `off`.
+opens the phone page. Also `nsq phone push test`, `show`, `status`, `off`.
 
 ## Account
 

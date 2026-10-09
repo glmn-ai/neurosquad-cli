@@ -98,4 +98,27 @@ describe('ntfy push', () => {
     expect(() => checkTokenTransport(parseNtfyUrl('https://ntfy.sh/t'), 'tk_x')).not.toThrow()
     expect(() => checkTokenTransport(parseNtfyUrl('http://127.0.0.1:8080/t'), 'tk_x')).not.toThrow()
   })
+
+  it('an answer during a delivery lets the same question push again', async () => {
+    let release: (() => void) | undefined
+    let calls = 0
+    const push = new NtfyPush(
+      () => {},
+      (async () => {
+        calls++
+        if (calls === 1) await new Promise<void>((resolve) => (release = resolve))
+        return new Response('{}', { status: 200 })
+      }) as unknown as typeof fetch,
+      () => 1000
+    )
+    push.target = async () => ({ target: { server: 'https://ntfy.example', topic: 'nsq-t' } })
+    const event = { agentId: 'a', agentName: 'api-fix', question: 'Allow?' }
+    const first = push.needsYou(event)
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    push.answered('a')
+    release?.()
+    expect(await first).toBe(true)
+    expect(await push.needsYou(event)).toBe(true)
+    expect(calls).toBe(2)
+  })
 })

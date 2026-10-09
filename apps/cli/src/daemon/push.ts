@@ -101,6 +101,8 @@ export function ntfyMessage(target: NtfyTarget, event: NeedsYou): Record<string,
 export class NtfyPush {
   private readonly last = new Map<string, { at: number; question?: string }>()
   private readonly inFlight = new Set<string>()
+  /** Bumped when an agent is answered: a delivery that was in flight then no longer counts. */
+  private readonly generation = new Map<string, number>()
 
   constructor(
     private readonly log: (line: string) => void,
@@ -115,7 +117,11 @@ export class NtfyPush {
     const raw = stored ?? process.env['NSQ_NTFY_URL']
     if (!raw) return null
     try {
-      const token = (await getSecret(NTFY_TOKEN_SECRET)) ?? process.env['NSQ_NTFY_TOKEN']
+      // A token belongs to its URL: the keyring's with the keyring's, the environment's with the
+      // environment's - never an environment token sent to a server stored in the keyring.
+      const token = stored
+        ? await getSecret(NTFY_TOKEN_SECRET)
+        : process.env['NSQ_NTFY_TOKEN'] || undefined
       const target = parseNtfyUrl(raw)
       checkTokenTransport(target, token)
       return { target, ...(token ? { token } : {}) }
@@ -134,8 +140,10 @@ export class NtfyPush {
     if (previous && now - previous.at < PER_AGENT_MS && previous.question === event.question) {
       return false
     }
-    // One send at a time per agent and question; the 30 s memory only after a delivery.
-    const key = `${event.agentId}\u0000${event.question ?? ''}`
+    // One send at a time per agent, question and answer generation; the 30 s memory only after
+    // a delivery that was not overtaken by an answer.
+    const gen = this.generation.get(event.agentId) ?? 0
+    const key = `${event.agentId}\u0000${gen}\u0000${event.question ?? ''}`
     if (this.inFlight.has(key)) return false
     this.inFlight.add(key)
     try {
@@ -144,7 +152,9 @@ export class NtfyPush {
         configured.token,
         ntfyMessage(configured.target, event)
       )
-      if (ok) this.last.set(event.agentId, { at: now, question: event.question })
+      if (ok && (this.generation.get(event.agentId) ?? 0) === gen) {
+        this.last.set(event.agentId, { at: now, question: event.question })
+      }
       return ok
     } finally {
       this.inFlight.delete(key)
@@ -154,6 +164,7 @@ export class NtfyPush {
   /** Clears the per-agent memory (the agent was answered: the next question pushes again). */
   answered(agentId: string): void {
     this.last.delete(agentId)
+    this.generation.set(agentId, (this.generation.get(agentId) ?? 0) + 1)
   }
 
   async send(
