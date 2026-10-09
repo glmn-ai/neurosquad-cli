@@ -859,7 +859,13 @@ export class Daemon {
         try {
           status = await this.phone.start({ ...readConfig().phone, ...change })
         } catch (error) {
-          if (wasRunning && previous) await this.phone.start(previous).catch(() => undefined)
+          if (wasRunning && previous) {
+            await this.phone.start(previous).catch((again: unknown) => {
+              this.log(
+                `phone: could not restart with the previous settings, phone access is off: ${again instanceof Error ? again.message : String(again)}`
+              )
+            })
+          }
           throw error
         }
         saved(change)
