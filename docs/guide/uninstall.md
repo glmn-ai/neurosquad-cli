@@ -30,8 +30,8 @@
    Commit or copy anything you want to keep from `~/.neurosquad-cli/worktrees` first. If you set
    `NSQ_HOME`, delete that folder instead.
 
-5. **Remove secrets from the OS keyring** (optional): before uninstalling, `nsq openrouter clear-key`
-   and `nsq logout`; or delete the `neurosquad-cli` entries in Windows Credential Manager, the macOS
+5. **Remove secrets from the OS keyring** (optional): before uninstalling, `nsq openrouter clear-key`,
+   `nsq phone push off` and `nsq logout`; or delete the `neurosquad-cli` entries in Windows Credential Manager, the macOS
    Keychain or your Secret Service app.
 
 Your CLIs' own configuration was never changed, so there is nothing to undo in `~/.claude`,

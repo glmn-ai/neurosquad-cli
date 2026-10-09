@@ -574,7 +574,7 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
   }
   if (!['status', 'on', 'off', 'pair', 'rotate'].includes(verb)) {
     throw new UsageError(
-      'nsq phone on [--lan] [--port n] | off | pair | rotate | status | push ntfy [url]|off|test|show'
+      'nsq phone on [--lan] [--port n] | off | pair | rotate | status | push ntfy [--url] [--token]|off|test|show|status'
     )
   }
   const port = flagString(args, 'port')

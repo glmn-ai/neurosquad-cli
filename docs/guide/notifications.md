@@ -31,8 +31,8 @@ WezTerm and Ghostty show as a notification. Over SSH it always does this, since 
 notification would show on the remote machine. So keep the dashboard open in a terminal on the machine you sit at, e.g. over
 SSH.
 
-To see from your phone which agent needs you (while its page is open — there are no phone push
-notifications in 0.1.0), see [Phone](phone.md).
+For notifications on your phone (a push through ntfy when an agent needs you), see
+[Phone](phone.md).
 
 ## Turning it off
 
