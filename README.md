@@ -112,8 +112,6 @@ nsq cost [--since 7d] [--json]        what each agent spent
 nsq openrouter set-key|clear-key|models [query]|status
 nsq phone on [--lan] [--port n]|off|pair|rotate|status
                                       answer agents from a phone
-nsq phone push ntfy [url] [--token t]|off|test|show|status
-                                      push "needs you" to the phone
 nsq login | logout | whoami           the optional NeuroSquad account
 nsq dictation setup|status|test <wav> [--model id]
 nsq up | down                         start / stop the daemon (and its agents)
@@ -140,13 +138,12 @@ login. Details: [docs/guide/openrouter.md](docs/guide/openrouter.md).
 ```sh
 nsq phone on --lan     # off by default; without --lan it listens on this machine only
 nsq phone pair         # prints the link and a QR code — scan it with the phone
-nsq phone push ntfy    # optional: a push via ntfy when an agent needs you
 ```
 
 From the phone you can see the agents and their screens, send a prompt, answer a permission
 prompt and interrupt. A phone cannot start agents, change settings or type arbitrary keys. The
 link carries the pairing token — treat it like a password; `nsq phone rotate` signs every phone
-out. Pushes through [ntfy](https://ntfy.sh) carry only the agent's name and its question. This
+out. This
 part is the newest and most likely to change: [docs/guide/phone.md](docs/guide/phone.md).
 
 ## Voice dictation
@@ -163,9 +160,9 @@ Windows arm64.
 - **No account required.** Everything works without signing in.
 - **No telemetry.** nsq does not report usage anywhere.
 - Data lives in `~/.neurosquad-cli` (move it with `NSQ_HOME`). Secrets (the OpenRouter key, the
-  ntfy topic and token, the optional account session) live in the OS keyring.
+  optional account session) live in the OS keyring.
 - Network access is what you ask for: your agents' own traffic, OpenRouter if you use it, the
-  one-time dictation model download, ntfy if you turn it on, and the NeuroSquad account if you
+  one-time dictation model download, and the NeuroSquad account if you
   sign in.
 
 ## Platforms

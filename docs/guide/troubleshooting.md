@@ -66,8 +66,8 @@ Windows 11.
 - **"the dashboard needs an interactive terminal (try `nsq ls`)"**: `nsq` was run with its output
   piped or without a terminal. Use `nsq ls` and the other commands in scripts.
 - **"no OS keyring is available here; set the value in the environment instead"**: on a headless
-  machine, `nsq openrouter set-key` and `nsq phone push ntfy` cannot store secrets. Set
-  `OPENROUTER_API_KEY`, or `NSQ_NTFY_URL` / `NSQ_NTFY_TOKEN`, where the daemon starts.
+  machine, `nsq openrouter set-key` cannot store the key. Set `OPENROUTER_API_KEY` where the daemon
+  starts.
 - **"could not create a worktree on branch nsq/<name>"**: the branch is left over from an earlier
   agent with that name. `git branch -D nsq/<name>`, or use another `--name`.
 - **"dictation is not installed (npm i -g @neurosquad/dictation next to nsq)"**: the optional
