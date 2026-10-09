@@ -59,9 +59,9 @@ function labelsFor({ title = '', body = '', files = [], author = '' }) {
   const match = TITLE.exec(title.trim())
   if (match) {
     const [, type, scope, bang] = match
-    if (TYPES[type]) labels.add(TYPES[type])
+    if (Object.hasOwn(TYPES, type)) labels.add(TYPES[type])
     for (const part of (scope || '').split(/[,/ ]+/).filter(Boolean)) {
-      if (SCOPES[part]) labels.add(SCOPES[part])
+      if (Object.hasOwn(SCOPES, part)) labels.add(SCOPES[part])
     }
     if (bang) labels.add('breaking')
     if (type === 'chore' && scope === 'release') labels.delete('chore')
@@ -70,7 +70,7 @@ function labelsFor({ title = '', body = '', files = [], author = '' }) {
   if (/^dependabot/.test(author)) labels.add('dependencies')
 
   // A Version PR only bumps versions and changelogs: its paths say nothing.
-  if (labels.has('release') && /^chore\(release\)/.test(title.trim())) return [...labels].sort()
+  if (/^chore\(release\): version packages$/i.test(title.trim())) return [...labels].sort()
 
   const tests = files.filter((f) => /\.test\.[cm]?[jt]sx?$/.test(f))
   if (files.length > 0 && tests.length === files.length) labels.add('tests')

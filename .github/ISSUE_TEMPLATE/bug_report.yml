@@ -1,7 +1,7 @@
 name: Bug report
 description: Something in nsq does not work as expected.
-title: "[Bug]: "
-labels: ["bug", "needs-triage"]
+title: '[Bug]: '
+labels: ['bug', 'needs-triage']
 body:
   - type: markdown
     attributes:
@@ -53,7 +53,7 @@ body:
     id: terminal
     attributes:
       label: Terminal and shell
-      placeholder: "Windows Terminal + PowerShell 7, iTerm2 + zsh, tmux over SSH…"
+      placeholder: 'Windows Terminal + PowerShell 7, iTerm2 + zsh, tmux over SSH…'
   - type: dropdown
     id: harness
     attributes:
@@ -69,7 +69,7 @@ body:
     id: harness-version
     attributes:
       label: Harness version
-      placeholder: "claude --version, codex --version…"
+      placeholder: 'claude --version, codex --version…'
   - type: textarea
     id: logs
     attributes:

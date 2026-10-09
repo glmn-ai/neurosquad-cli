@@ -38,6 +38,21 @@ test('a Version PR is only release', () => {
   )
 })
 
+test('a release chore that is not a Version PR keeps its path labels', () => {
+  assert.deepEqual(
+    labelsFor({
+      title: 'chore(release): adjust workflow',
+      files: ['.github/workflows/release.yml']
+    }),
+    ['ci', 'release']
+  )
+})
+
+test('inherited object keys are not labels', () => {
+  assert.deepEqual(labelsFor({ title: 'constructor: x' }), ['needs-triage'])
+  assert.deepEqual(labelsFor({ title: 'feat(toString): x' }), ['enhancement'])
+})
+
 test('never empty', () => {
   assert.deepEqual(labelsFor({ title: 'Update thing' }), ['needs-triage'])
 })
