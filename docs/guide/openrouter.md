@@ -35,8 +35,9 @@ attribution headers below.
 
 ## Key safety
 
-The key goes **only** into the agent's environment — never into command-line arguments, logs or
-files. Without a key, the OpenRouter recipe is not applied and the agent runs on its CLI's own
+nsq keeps the key in the OS keyring (or reads `OPENROUTER_API_KEY` from the daemon's environment)
+and hands it to an agent **only** through that agent's environment at launch — never in
+command-line arguments, logs or nsq's files. Without a key, the OpenRouter recipe is not applied and the agent runs on its CLI's own
 login.
 
 ## Attribution

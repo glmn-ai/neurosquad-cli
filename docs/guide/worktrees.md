@@ -16,8 +16,9 @@ In the dashboard: **c** → worktree.
 
 - A new branch **`nsq/<agent name>`**, started from the current `HEAD` of the repository you ran
   `nsq run` in (e.g. `nsq/flaky-test`).
-- A checkout of it in **`~/.neurosquad-cli/worktrees/<repo>-<id>`** — outside your repository, so
-  it never shows up in your own `git status`.
+- A checkout of it in **`~/.neurosquad-cli/worktrees/<repo>-<id>`** (by default; under `NSQ_HOME`
+  if you set it) — outside your repository unless you point `NSQ_HOME` inside it, so it does not
+  show up in your own `git status`.
 - The agent runs in that checkout, at the repository root even if you ran `nsq run` from a
   subfolder. `nsq ls` shows its branch.
 

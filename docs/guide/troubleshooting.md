@@ -103,7 +103,9 @@ nsq down                        # stop the daemon and the agents
 nsq up                          # start again; agents resume
 ```
 
-To try nsq without your existing agents, point it at another folder: `NSQ_HOME=/tmp/nsq-test nsq`.
+To try nsq without your existing agents, point it at another folder: `NSQ_HOME=/tmp/nsq-test nsq`
+(POSIX shells); in PowerShell `$env:NSQ_HOME = "$env:TEMP
+sq-test"; nsq`.
 
 Still stuck? [Open an issue](https://github.com/glmn-ai/neurosquad-cli/issues/new/choose) with the
 `nsq doctor` output, or ask in [Discussions](https://github.com/glmn-ai/neurosquad-cli/discussions).
