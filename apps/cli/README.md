@@ -64,23 +64,25 @@ settings or type arbitrary keys. **Experimental in 0.1.0.**
 The link opens nsq's own phone page (served by nsq, nothing from the internet): agents and their
 status, the question with Yes / Always / No, an agent's screen, a prompt box, interrupt. Add it to
 the home screen to keep it one tap away. Plain HTTP on the local network: use it on networks you
-trust (`docs/remote-proposal.md` covers tunnels with a real certificate).
+trust, or go online with a real certificate (below).
 
 Who is connected is always visible: the dashboard's header shows the count and the device (`p`
 lists them and can cut them off), `nsq attach` puts it in the window title, and `nsq phone status`
 prints them.
 
-### Push (ntfy)
+### Online
 
 `nsq phone on --online` makes the page reachable from anywhere through a Cloudflare quick tunnel
 (https; an explicit opt-in every time, with a warning — anyone with the link and token can control
-your agents). The address changes on every start, so pair again; `--expire 12h` makes phones pair
-again after that long. cloudflared comes from `PATH` or is downloaded once into
+your agents). The address changes on every start, so pair again; with `--expire 12h` phones have to
+re-pair once the token is that old. cloudflared comes from `PATH` or is downloaded once into
 `~/.neurosquad-cli/bin`, checked against its published sha256. Wrong tokens from the internet lock
 an address out for 15 minutes; phones that came through the tunnel are marked `(internet)`.
 `nsq phone off` (or `nsq phone on` without `--online`) closes it. Your own hostname:
 `nsq phone tunnel-token set`, then `--online --tunnel-token --hostname <host>`
 ([guide](../../docs/guide/phone.md)).
+
+### Push (ntfy)
 
 `nsq phone push ntfy` sends a notification to your phone when an agent needs you, through
 [ntfy](https://ntfy.sh) (open source, self-hostable). Without a URL it picks a random topic on
@@ -88,8 +90,8 @@ ntfy.sh; `--url` asks for your own server's topic URL (`--token` asks for a prot
 both can be piped in, one per line — never on the command line). Subscribe
 to the topic in the ntfy app. Only the agent's name and its question are sent, never other terminal
 content. The topic URL works like a password and is kept in the OS keyring (`NSQ_NTFY_URL` /
-`NSQ_NTFY_TOKEN` where there is none). With phone access on the network, tapping the notification
-opens the phone page. Also `nsq phone push test`, `show`, `status`, `off`.
+`NSQ_NTFY_TOKEN` where there is none). With phone access online or on the network, tapping the
+notification opens the phone page. Also `nsq phone push test`, `show`, `status`, `off`.
 
 ## Account
 

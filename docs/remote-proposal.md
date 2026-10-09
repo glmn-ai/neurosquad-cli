@@ -121,10 +121,12 @@ than A (React + HeroUI in the CLI package) but i18n and polish for free.
 one), cloudflared from PATH or downloaded once with its sha256 verified, a separate loopback
 listener for the tunnel with a per-address lockout and HTTPS-only.
 
-Same as the desktop: `cloudflared` quick tunnel (binary downloaded with a pinned sha256, an empty
-`--config` to dodge `~/.cloudflared/config.yaml`), long-poll because quick tunnels drop SSE; or
-document Tailscale / `ssh -R` for people who already have them. Gives HTTPS, so in-page
-notifications work while open. **Effort: ~2 days.**
+The download is not pinned to one release: the latest release's asset is checked against the
+sha256 digest GitHub publishes for it (and Cloudflare's checksum list in the release notes for
+plain binaries) and refused without one or on a mismatch. A `cloudflared` on PATH is used as is.
+Quick tunnels get an empty `--config` (to dodge `~/.cloudflared/config.yaml`) and the phone page
+long-polls, because quick tunnels drop SSE. Tailscale / `ssh -R` remain an alternative for people
+who already have them.
 
 ### D. Cloud relay + push (server work on the NeuroSquad cloud, additive under `/api/v1`)
 

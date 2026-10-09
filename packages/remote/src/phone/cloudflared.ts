@@ -14,10 +14,17 @@
 //     after the notes are written, so their line describes a different archive and is not used.)
 //   - Only `https://github.com/cloudflare/cloudflared/releases/download/…` is fetched.
 // A `cloudflared` the user installed themselves (on PATH) is used as is: that one is their choice.
-import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
+import { delimiter, isAbsolute, join } from 'node:path'
 import { gunzipSync } from 'node:zlib'
 
 export const CLOUDFLARED_RELEASE_API =
@@ -159,25 +166,37 @@ export interface CloudflaredBinary {
   version?: string
 }
 
-/** A `cloudflared` the user installed themselves, if one is on PATH. */
-export function cloudflaredOnPath(): Promise<string | null> {
-  return new Promise((resolve) => {
-    execFile(
-      process.platform === 'win32' ? 'where' : 'which',
-      ['cloudflared'],
-      { windowsHide: true, timeout: 5000 },
-      (error, stdout) => {
-        if (error) {
-          resolve(null)
-          return
-        }
-        const first = String(stdout)
-          .split(/\r?\n/)
-          .find((line) => line.trim())
-        resolve(first ? first.trim() : null)
+/**
+ * A `cloudflared` the user installed themselves, if one is on PATH. Only absolute PATH entries are
+ * searched — never the current directory (Windows `where` would look there first), so a
+ * `cloudflared.exe` lying in some folder is never picked up unverified.
+ */
+export function cloudflaredOnPath(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform
+): Promise<string | null> {
+  const pathValue = (platform === 'win32' ? (env['Path'] ?? env['PATH']) : env['PATH']) ?? ''
+  const extensions =
+    platform === 'win32'
+      ? (env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD')
+          .split(';')
+          .map((ext) => ext.trim().toLowerCase())
+          .filter((ext) => ext === '.exe' || ext === '.com')
+      : ['']
+  const separator = platform === 'win32' ? ';' : delimiter
+  for (const dir of pathValue.split(separator)) {
+    const folder = dir.trim().replace(/^"(.*)"$/, '$1')
+    if (!folder || !isAbsolute(folder)) continue
+    for (const ext of extensions) {
+      const candidate = join(folder, `cloudflared${ext}`)
+      try {
+        if (statSync(candidate).isFile()) return Promise.resolve(candidate)
+      } catch {
+        // Not here.
       }
-    )
-  })
+    }
+  }
+  return Promise.resolve(null)
 }
 
 /**

@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { gzipSync } from 'node:zlib'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   cloudflaredAssetName,
+  cloudflaredOnPath,
   ensureCloudflared,
   extractFromTarGz,
   publishedChecksums,
@@ -208,6 +209,25 @@ describe('cloudflared download verification', () => {
       fetch: fakeFetch(info, archive)
     })
     expect(readFileSync(got.path)).toEqual(binary)
+  })
+
+  it('finds cloudflared only in absolute PATH entries, never the current directory', async () => {
+    const name = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'
+    const bin = join(dir, 'tools')
+    mkdirSync(bin)
+    writeFileSync(join(dir, name), 'planted')
+    const cwd = process.cwd()
+    process.chdir(dir)
+    try {
+      const sep = process.platform === 'win32' ? ';' : ':'
+      expect(await cloudflaredOnPath({ PATH: `.${sep}tools`, Path: `.${sep}tools` })).toBeNull()
+      writeFileSync(join(bin, name), 'installed')
+      expect(await cloudflaredOnPath({ PATH: `.${sep}${bin}`, Path: `.${sep}${bin}` })).toBe(
+        join(bin, name)
+      )
+    } finally {
+      process.chdir(cwd)
+    }
   })
 
   it('prefers a cloudflared the user installed', async () => {

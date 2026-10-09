@@ -711,7 +711,10 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
   if (port !== undefined && (!/^\d{1,5}$/.test(port) || Number(port) > 65535))
     throw new UsageError('--port takes a number from 0 to 65535')
   const tunnelPort = flagString(args, 'tunnel-port')
-  if (tunnelPort !== undefined && (!/^\d{1,5}$/.test(tunnelPort) || Number(tunnelPort) > 65535))
+  if (
+    tunnelPort !== undefined &&
+    (!/^\d{1,5}$/.test(tunnelPort) || Number(tunnelPort) < 1 || Number(tunnelPort) > 65535)
+  )
     throw new UsageError('--tunnel-port takes a number from 1 to 65535')
   if (typeof args.flags.get('tunnel-token') === 'string') {
     // A tunnel token works like a password: never on the command line.

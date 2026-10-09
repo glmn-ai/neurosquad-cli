@@ -242,8 +242,9 @@ export class CloudflareTunnel {
         settle()
       })
       child.on('exit', (code) => {
-        process.off('exit', this.killOnExit)
+        // A stale exit (after a restart) must not drop the next connector's registration.
         if (!live()) return
+        process.off('exit', this.killOnExit)
         this.child = null
         // Not restarted on its own: a quick tunnel would come back at a new address, i.e. a phone
         // that silently stops working. Better to say so.

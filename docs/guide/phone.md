@@ -117,7 +117,7 @@ keyring, `off` cannot be stored: remove `NSQ_NTFY_URL` (and `NSQ_NTFY_TOKEN`) fr
 where the daemon starts, then `nsq down` / `nsq up`.
 
 What a push contains: the title `<agent> needs you` and the agent's question (cut to 300
-characters, control characters removed). When phone access is on with `--lan`, it also carries a
+characters, control characters removed). When phone access is online, or on with `--lan`, it also carries a
 link to the phone page — the online https address when online, else this computer's local network
 address and port, never the token — so tapping the notification opens the page. Nothing else from the terminal is sent. Pushes only go out
 for "needs you", not for "finished". A push is skipped only when it repeats the question that was

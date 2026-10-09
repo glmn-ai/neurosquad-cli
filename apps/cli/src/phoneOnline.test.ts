@@ -162,5 +162,8 @@ describe.skipIf(!built)('online phone access (fake cloudflared)', () => {
     const alone = nsq('phone', 'on', '--tunnel-token')
     expect(alone.status).not.toBe(0)
     expect(alone.stderr + alone.stdout).toContain('--tunnel-token goes with --online')
+    const zero = nsq('phone', 'on', '--online', '--tunnel-port', '0')
+    expect(zero.status).not.toBe(0)
+    expect(zero.stderr + zero.stdout).toContain('--tunnel-port takes a number from 1')
   })
 })

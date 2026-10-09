@@ -225,10 +225,16 @@ export class PhoneAccess {
     const server = this.server
     if (!server) return
     const mode: TunnelMode = settings.tunnel === 'named' ? 'named' : 'quick'
+    // A named tunnel's service URL (set in the Cloudflare dashboard) is a fixed local port.
+    const wantedPort = mode === 'named' ? (settings.tunnelPort ?? DEFAULT_NAMED_TUNNEL_PORT) : 0
     const current = this.tunnel.status()
     if (current.mode === mode && (current.state === 'running' || current.state === 'starting')) {
       if (mode === 'quick') return
-      if (current.url === normalizeTunnelHostname(settings.tunnelHostname ?? '')) return
+      if (
+        current.url === normalizeTunnelHostname(settings.tunnelHostname ?? '') &&
+        server.tunnelOriginPort() === wantedPort
+      )
+        return
     }
     this.tunnel.stop()
     let token: string | undefined
@@ -262,9 +268,12 @@ export class PhoneAccess {
       return
     }
     if (this.server !== server) return
-    const originPort = await server.openTunnelOrigin(
-      mode === 'named' ? (settings.tunnelPort ?? DEFAULT_NAMED_TUNNEL_PORT) : 0
-    )
+    // A listener left from another mode or port is not the one this tunnel forwards to.
+    const open = server.tunnelOriginPort()
+    if (open !== undefined && wantedPort !== 0 && open !== wantedPort) {
+      await server.closeTunnelOrigin()
+    }
+    const originPort = await server.openTunnelOrigin(wantedPort)
     const status = await this.tunnel.start({
       binary,
       origin: `http://127.0.0.1:${originPort}`,
