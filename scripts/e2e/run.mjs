@@ -12,6 +12,13 @@
 //   openrouter an agent on the OpenRouter recipe: every request to the
 //              (fake) OpenRouter carries the attribution headers, no
 //              visibility header, the key never in argv
+//   custom     agents on the user's own providers (`nsq provider add`): fake
+//              local servers — one with every endpoint and a key, one with
+//              chat completions only and no key (Codex through nsq's
+//              Responses gateway), one with Anthropic messages only — each
+//              harness hits the right endpoint with the chosen model and key,
+//              no OpenRouter attribution header, the key never in argv;
+//              a harness whose API the server lacks is refused
 //   models     the model picker's path: an OpenRouter slug without OpenRouter is refused;
 //              picking one (model + provider together) switches a running agent at once,
 //              restarted on the same session; mid-turn it waits for the turn to end (a prompt
@@ -25,7 +32,7 @@
 //
 //   node scripts/e2e/run.mjs --harness claude|codex|opencode|all
 //        [--work <scratch dir>] [--bin <dir with the CLIs>] [--only hello,perm]
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
@@ -115,6 +122,35 @@ function nsq(...args) {
     log(`nsq ${args.join(' ')} → ${result.status}: ${(result.stderr || result.stdout).trim()}`)
   return result
 }
+/** `nsq …` without blocking this process (the fake servers here must keep answering). */
+function nsqAsync(...args) {
+  return new Promise((resolveRun) => {
+    const child = spawn(process.execPath, [BIN, ...args], {
+      env: sandbox.env,
+      cwd: sandbox.project,
+      windowsHide: true
+    })
+    let stdout = ''
+    let stderr = ''
+    child.stdout.on('data', (chunk) => (stdout += chunk))
+    child.stderr.on('data', (chunk) => (stderr += chunk))
+    // Bounded like the synchronous helper: a stalled command fails the check, never the run.
+    const timer = setTimeout(() => {
+      stderr += ' (timed out after 120 s)'
+      child.kill()
+    }, 120_000)
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      log(`nsq ${args.join(' ')} → could not start: ${error.message}`)
+      resolveRun({ status: null, stdout, stderr: `${stderr}${error.message}` })
+    })
+    child.on('close', (status) => {
+      clearTimeout(timer)
+      if (status !== 0) log(`nsq ${args.join(' ')} → ${status}: ${(stderr || stdout).trim()}`)
+      resolveRun({ status, stdout, stderr })
+    })
+  })
+}
 const list = () => {
   const result = nsq('ls', '--json')
   try {
@@ -150,6 +186,59 @@ async function waitStatus(name, kinds, timeoutMs = 120_000) {
 
 const runs = (step) => !only || only.has(step)
 
+// The user's own servers for the `custom` step (each a fake model with fewer endpoints).
+const CUSTOM_KEY = 'sk-nsq-e2e-custom-provider-key-7f3a'
+const customServers = {}
+let customAdded = false
+if (runs('custom')) {
+  customServers.full = await startFakeModel({
+    key: CUSTOM_KEY,
+    models: [
+      { id: 'fake-model', object: 'model', owned_by: 'llamacpp', meta: { n_ctx: 32768 } },
+      // LM Studio-style id: looks like an OpenRouter slug, and an OpenRouter key is set in the
+      // sandbox — the agent must stay on this server (never moved to OpenRouter).
+      { id: 'qwen/qwen3-coder-30b', object: 'model', owned_by: 'lmstudio' },
+      { id: 'fake-other', object: 'model', owned_by: 'llamacpp' }
+    ]
+  })
+  customServers.chat = await startFakeModel({ endpoints: ['chat'] })
+  customServers.messages = await startFakeModel({ endpoints: ['anthropic'] })
+  // The key reaches nsq only through its environment (no OS keyring touched).
+  sandbox.env.NSQ_PROVIDER_KEY_E2E_FULL = CUSTOM_KEY
+  log(
+    'custom providers',
+    Object.values(customServers)
+      .map((server) => server.base)
+      .join(' ')
+  )
+}
+
+/** Every process command line on this machine (to prove a key never reaches argv). */
+function commandLines() {
+  try {
+    if (process.platform === 'win32') {
+      return execFileSync(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-Command',
+          'Get-CimInstance Win32_Process | ForEach-Object { $_.CommandLine }'
+        ],
+        { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, windowsHide: true }
+      )
+    }
+    return execFileSync('ps', ['-eww', '-o', 'args='], {
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024
+    })
+  } catch (error) {
+    return `unavailable: ${error}`
+  }
+}
+
+const KEY_TAIL = CUSTOM_KEY.slice(-4)
+/** The credential a request carried (the fake keeps its last 4 characters), or undefined. */
+const credentialOf = (headers = {}) => headers.authorization ?? headers['x-api-key']
 /**
  * Real OpenRouter slugs (from `GET https://openrouter.ai/api/v1/models`, 2026-10-09) — what the
  * picker hands over, passed through unchanged. OpenCode's first one is not in its catalog.
@@ -648,6 +737,177 @@ try {
       )
     }
 
+    if (runs('custom')) {
+      const add = (id, server, ...extra) =>
+        nsqAsync('provider', 'add', id, '--url', `${server.base}/v1`, ...extra)
+      if (!customAdded) {
+        customAdded = true
+        const full = await add('e2e-full', customServers.full)
+        check(
+          'custom: provider add tests the server and finds every endpoint',
+          full.status === 0 && /endpoints: chat, responses, messages/.test(full.stdout),
+          (full.stdout || full.stderr).trim()
+        )
+        const providers = JSON.parse(nsq('provider', 'list', '--json').stdout || '[]')
+        const stored = providers.find((p) => p.id === 'e2e-full')
+        const providersFile = join(sandbox.env.NSQ_HOME, 'providers.json')
+        const file = existsSync(providersFile) ? readFileSync(providersFile, 'utf8') : ''
+        check(
+          'custom: stored without the key; the served context window kept',
+          stored?.models?.find((m) => m.id === 'fake-model')?.contextWindow === 32768 &&
+            !file.includes(CUSTOM_KEY),
+          stored
+        )
+        const chat = await add('e2e-chat', customServers.chat)
+        check(
+          'custom: a chat-only server without a key',
+          chat.status === 0 && /endpoints: chat \(/.test(chat.stdout),
+          chat.stdout.trim()
+        )
+        const messages = await add('e2e-msgs', customServers.messages)
+        check(
+          'custom: an Anthropic-only server',
+          messages.status === 0 && /endpoints: messages \(/.test(messages.stdout),
+          messages.stdout.trim()
+        )
+        const remote = await nsqAsync(
+          'provider',
+          'add',
+          'e2e-public',
+          '--url',
+          'http://example.com:1234'
+        )
+        check(
+          'custom: plain http to a public host is refused',
+          remote.status !== 0 && /use https/.test(remote.stderr),
+          remote.stderr.trim()
+        )
+        const argvKey = await nsqAsync(
+          'provider',
+          'add',
+          'e2e-argv',
+          '--url',
+          customServers.chat.base,
+          '--key',
+          'sk-x'
+        )
+        check(
+          'custom: a key given as an argument is refused',
+          argvKey.status !== 0,
+          argvKey.stderr.trim()
+        )
+      }
+      const plans = {
+        claude: [['e2e-full', '/v1/messages', true]],
+        codex: [
+          ['e2e-full', '/v1/responses', true],
+          ['e2e-chat', '/v1/chat/completions', false]
+        ],
+        opencode: [
+          ['e2e-full', '/v1/chat/completions', true],
+          ['e2e-msgs', '/v1/messages', false]
+        ]
+      }[short]
+      const servers = { 'e2e-full': 'full', 'e2e-chat': 'chat', 'e2e-msgs': 'messages' }
+      for (const [provider, path, keyed] of plans) {
+        const server = customServers[servers[provider]]
+        const name = `${short}-${provider}`
+        const before = server.requests.length
+        // Claude Code: the user's own settings.json routes elsewhere (another base URL, Bedrock).
+        // Its `env` overrides the process environment — the agent must still reach this server.
+        // On the full server an LM Studio-style id (`vendor/model`, like an OpenRouter slug).
+        const model = provider === 'e2e-full' ? 'qwen/qwen3-coder-30b' : 'fake-model'
+        const userSettings = join(sandbox.claudeDir, 'settings.json')
+        const ownSettings = short === 'claude' ? readFileSync(userSettings, 'utf8') : undefined
+        if (ownSettings) {
+          const hostile = JSON.parse(ownSettings)
+          hostile.env = {
+            ...hostile.env,
+            ANTHROPIC_BASE_URL: 'http://127.0.0.1:9',
+            CLAUDE_CODE_USE_BEDROCK: '1',
+            ANTHROPIC_AUTH_TOKEN: 'sk-user-own-anthropic-token-zzzz'
+          }
+          writeFileSync(userSettings, JSON.stringify(hostile))
+        }
+        const started = await nsqAsync(
+          'run',
+          short,
+          '--name',
+          name,
+          '--provider',
+          provider,
+          '--model',
+          model,
+          '[nsq:hello] on my own server'
+        )
+        const working = await waitStatus(name, ['working', 'finished'], 60_000)
+        const lines = commandLines()
+        const done = await waitStatus(name, ['finished'], 90_000)
+        const turns = server.requests.slice(before).filter((r) => r.protocol && !r.probe)
+        const peek = nsq('peek', name, '-n', '60').stdout
+        check(
+          `${short} on ${provider}: the turn ran on that server (${path})`,
+          started.status === 0 &&
+            done.agent?.status === 'finished' &&
+            done.agent?.provider === 'custom' &&
+            /NSQ_HELLO_DONE/.test(peek) &&
+            turns.length > 0 &&
+            turns.every((r) => r.path === path),
+          { seen: [...working.seen, ...done.seen], paths: [...new Set(turns.map((r) => r.path))] }
+        )
+        const scripted = turns.filter((r) => r.scenario === 'hello')
+        check(
+          `${short} on ${provider}: the chosen model, ${keyed ? 'the key' : 'no key'}, no attribution header`,
+          scripted.length > 0 &&
+            scripted.every((r) => r.model === model) &&
+            turns.every((r) => {
+              const h = r.headers ?? {}
+              const credential = credentialOf(h)
+              // Keyless: neither header may carry the key (a placeholder token is fine).
+              const carriesKey = [h.authorization, h['x-api-key']].some((v) =>
+                v?.endsWith(KEY_TAIL)
+              )
+              return (
+                (keyed ? credential?.endsWith(KEY_TAIL) : !carriesKey) &&
+                !('http-referer' in h) &&
+                !('x-title' in h) &&
+                !Object.keys(h).some((k) => k.startsWith('x-openrouter'))
+              )
+            }),
+          turns.slice(0, 3).map((r) => ({
+            model: r.model,
+            credential: credentialOf(r.headers),
+            attribution: Object.keys(r.headers ?? {}).filter((k) =>
+              /openrouter|referer|title/.test(k)
+            )
+          }))
+        )
+        check(
+          `${short} on ${provider}: the key is in no process's command line`,
+          !lines.startsWith('unavailable') && !lines.includes(CUSTOM_KEY),
+          lines.startsWith('unavailable') ? lines.slice(0, 200) : undefined
+        )
+        nsq('stop', name)
+        if (ownSettings) writeFileSync(userSettings, ownSettings)
+      }
+      if (short === 'claude') {
+        const refused = await nsqAsync(
+          'run',
+          'claude',
+          '--name',
+          'claude-chat-only',
+          '--provider',
+          'e2e-chat',
+          '--model',
+          'fake-model'
+        )
+        check(
+          'claude on a chat-only server is refused, with the reason',
+          refused.status !== 0 && /Anthropic Messages API/.test(refused.stderr),
+          refused.stderr.trim()
+        )
+      }
+    }
     if (runs('models')) await modelsScenario(short)
 
     if (runs('worktree')) {
@@ -685,6 +945,7 @@ try {
       // stopped
     }
   await fake.close()
+  for (const server of Object.values(customServers)) await server.close()
   ntfy.close()
   const failed = checks.filter((c) => !c.ok)
   writeFileSync(join(WORK, 'checks.json'), JSON.stringify(checks, null, 2))
