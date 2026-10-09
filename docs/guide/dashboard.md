@@ -38,6 +38,7 @@ and label (ASCII `! * + - x` where the terminal needs it).
 | d                      | dangerous mode on/off                                                                       |
 | v                      | dictate into the agent (also the global hotkey); the text is pasted, never sent             |
 | p                      | phones: who is connected; a new pairing token cuts them off                                 |
+| U                      | update: install a new release now, or restart onto an installed one ([updates](updates.md)) |
 | [ ]                    | previous / next page of tiles                                                               |
 | b                      | sidebar on/off                                                                              |
 | ?                      | help                                                                                        |

@@ -41,6 +41,9 @@ irm https://raw.githubusercontent.com/glmn-ai/neurosquad-cli/main/packaging/inst
 Both install scripts accept `NSQ_VERSION` (e.g. `0.1.0`, default `latest`); `install.sh` also
 takes `NSQ_PREFIX`, the npm global prefix to install into.
 
+nsq keeps itself up to date from then on, the same way it was installed; see
+[updates](updates.md) for what it does and how to turn it off.
+
 Check the install:
 
 ```sh
@@ -74,5 +77,5 @@ You can also start agents from the dashboard: press **c**.
 - [Agents and harnesses](agents.md) — what each CLI supports, sessions, dangerous mode, cost.
 - [OpenRouter](openrouter.md) — any model through one key.
 - [Notifications](notifications.md), [Phone](phone.md), [Dictation](dictation.md).
-- [Configuration](configuration.md), [Troubleshooting](troubleshooting.md),
+- [Configuration](configuration.md), [Updates](updates.md), [Troubleshooting](troubleshooting.md),
   [Uninstall](uninstall.md).

@@ -26,7 +26,9 @@ npx neurosquad                 # or try it without installing
 ```
 
 More ways (Homebrew, Scoop, install scripts) and uninstalling:
-[docs/guide/getting-started.md](docs/guide/getting-started.md).
+[docs/guide/getting-started.md](docs/guide/getting-started.md). nsq then keeps itself up to date:
+it installs a new release in the background the way you installed it and switches to it when no
+agent is busy ([updates](docs/guide/updates.md); `nsq config set autoUpdate false` turns it off).
 
 ## Quick start
 
@@ -88,6 +90,7 @@ Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/
 | m                      | pick a model on OpenRouter (switches the agent to it) or "default" |
 | v                      | dictate into the agent (also a global hotkey) — pasted, never sent |
 | p                      | phones: who is connected                                           |
+| U                      | update: install it now, or restart onto an installed one           |
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)        |
 
 The mouse works too: click selects, double-click opens, the wheel moves the selection.
@@ -117,7 +120,9 @@ nsq phone push ntfy [--url] [--token]|off|test|show|status
 nsq login | logout | whoami           the optional NeuroSquad account
 nsq dictation setup|status|test <wav> [--model id]
 nsq up | down                         start / stop the daemon (and its agents)
-nsq doctor                            check harnesses, hooks, terminal
+nsq update [--check]                  install the newest release now (or only check)
+nsq config [get|set|unset <key> [value]]   settings, e.g. autoUpdate true|notify|false
+nsq doctor                            check harnesses, hooks, terminal, updates
 ```
 
 Everything you can do in the dashboard you can also script: `nsq ls --json`, `nsq send`,
@@ -170,7 +175,9 @@ Windows arm64.
   ntfy topic and token, the optional account session) live in the OS keyring.
 - Network access is what you ask for: your agents' own traffic, OpenRouter if you use it, the
   one-time dictation model download, ntfy if you turn it on, and the NeuroSquad account if you
-  sign in.
+  sign in. Plus the update check: every 6 hours one request to the npm registry for nsq's public
+  package metadata, with nothing about you in it (`NSQ_NO_UPDATE=1` or
+  `nsq config set autoUpdate false` turns it off — [updates](docs/guide/updates.md)).
 
 ## Platforms
 
@@ -189,6 +196,7 @@ from the packed npm package on Node 22 and 24. Works over SSH: the daemon runs w
 [Phone](docs/guide/phone.md) ·
 [Dictation](docs/guide/dictation.md) ·
 [Configuration](docs/guide/configuration.md) ·
+[Updates](docs/guide/updates.md) ·
 [Troubleshooting](docs/guide/troubleshooting.md) ·
 [Uninstall](docs/guide/uninstall.md)
 
