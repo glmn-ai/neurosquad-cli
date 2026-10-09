@@ -76,6 +76,8 @@ describe('Claude Code launch', () => {
     expect(plan.env.ANTHROPIC_CUSTOM_HEADERS).not.toMatch(/Visibility/i)
     // The key is never in argv.
     expect(plan.args.join(' ')).not.toContain('sk-or-test')
+    expect(plan.env.CLAUDE_CODE_USE_BEDROCK).toBe('')
+    expect(plan.env.CLAUDE_CODE_USE_VERTEX).toBe('')
   })
 
   it('a native model goes to --model', () => {
@@ -183,5 +185,101 @@ describe('command launch', () => {
     )
     expect(plan.command).toBe('/bin/sh')
     expect(plan.args).toEqual(['-c', 'echo hi'])
+  })
+})
+
+describe('custom provider launch', () => {
+  const provider = {
+    id: 'local',
+    name: 'local',
+    protocol: 'http' as const,
+    host: '127.0.0.1',
+    port: 1234,
+    pathPrefix: '',
+    models: [{ id: 'qwen3-coder' }],
+    modelsFetchedAt: '',
+    endpoints: { chat: true, responses: false, messages: true },
+    createdAt: '',
+    updatedAt: ''
+  }
+
+  it('applies the recipe on top of the harness layer, the key only in env', () => {
+    const plan = prepareLaunch(
+      ctx(
+        {
+          harness: 'claude-code',
+          provider: 'custom',
+          customProviderId: 'local',
+          model: 'qwen3-coder'
+        },
+        { customProvider: { provider, key: 'sk-local' } }
+      )
+    )
+    expect(plan.args).toContain('--settings')
+    expect(plan.env).toMatchObject({
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:1234',
+      ANTHROPIC_AUTH_TOKEN: 'sk-local',
+      ANTHROPIC_MODEL: 'qwen3-coder'
+    })
+    expect(plan.args.join(' ')).not.toContain('sk-local')
+    expect(JSON.stringify(plan.env)).not.toMatch(/openrouter|X-Title/i)
+    // The routing is in the settings layer too (it overrides the user's settings.json `env`),
+    // the key only in the environment.
+    const settingsFile = plan.args[plan.args.indexOf('--settings') + 1]!
+    const settingsText = readFileSync(settingsFile, 'utf8')
+    expect(JSON.parse(settingsText).env).toMatchObject({
+      ANTHROPIC_BASE_URL: 'http://127.0.0.1:1234',
+      ANTHROPIC_MODEL: 'qwen3-coder',
+      ANTHROPIC_API_KEY: '',
+      CLAUDE_CODE_USE_BEDROCK: ''
+    })
+    expect(settingsText).not.toContain('sk-local')
+    // The token: blanked in the file (a user's own ANTHROPIC_AUTH_TOKEN there loses too), read by
+    // the apiKeyHelper from the environment.
+    const written = JSON.parse(settingsText)
+    expect(written.env.ANTHROPIC_AUTH_TOKEN).toBe('')
+    expect(written.apiKeyHelper).toMatch(/^node ".+\.token\.cjs"$/)
+    expect(plan.env.NEUROSQUAD_CLAUDE_TOKEN).toBe('sk-local')
+    const helper = /"(.+)"/.exec(written.apiKeyHelper)![1]!
+    expect(readFileSync(helper, 'utf8')).not.toContain('sk-local')
+    // Off a provider, the settings carry no env.
+    const own = prepareLaunch(ctx({ harness: 'claude-code' }))
+    const ownSettings = JSON.parse(
+      readFileSync(own.args[own.args.indexOf('--settings') + 1]!, 'utf8')
+    )
+    expect(ownSettings.env).toBeUndefined()
+  })
+
+  it('OpenCode 2 moves the custom model into its config', () => {
+    const plan = prepareLaunch(
+      ctx(
+        {
+          harness: 'opencode',
+          provider: 'custom',
+          customProviderId: 'local',
+          model: 'qwen3-coder'
+        },
+        { customProvider: { provider } }
+      ),
+      { openCodeV2: true }
+    )
+    expect(plan.args).not.toContain('--model')
+    const config = JSON.parse(plan.env['OPENCODE_CONFIG_CONTENT']!)
+    expect(config.model).toBe('neurosquad-custom/qwen3-coder')
+    expect(config.provider['neurosquad-custom'].options.baseURL).toBe('http://127.0.0.1:1234/v1')
+  })
+
+  it('without the provider (removed) or for another one: nothing of it applied', () => {
+    const removed = prepareLaunch(
+      ctx({ harness: 'codex-cli', provider: 'custom', customProviderId: 'gone', model: 'm' })
+    )
+    expect(removed.args.join(' ')).not.toContain('neurosquad-custom')
+    const other = prepareLaunch(
+      ctx(
+        { harness: 'codex-cli', provider: 'custom', customProviderId: 'other', model: 'm' },
+        { customProvider: { provider } }
+      )
+    )
+    expect(other.args.join(' ')).not.toContain('neurosquad-custom')
   })
 })
