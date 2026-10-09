@@ -10,27 +10,31 @@ nsq run opencode --model anthropic/claude-sonnet-4.5
 nsq run --name web -- npm run dev               # any command
 ```
 
-| Option                  |                                                                |
-| ----------------------- | -------------------------------------------------------------- |
-| `--name <n>`            | the agent's name (default: derived from the harness)           |
-| `--worktree`, `-w`      | its own git branch and checkout ([worktrees](worktrees.md))    |
-| `--model <id>`          | the model, in the harness's own format (or an OpenRouter slug) |
-| `--provider openrouter` | run through OpenRouter ([OpenRouter](openrouter.md))           |
-| `--dangerous`           | approve its permission prompts automatically (see below)       |
-| `--attach`              | open it full screen right away                                 |
+| Option                  |                                                                                                   |
+| ----------------------- | ------------------------------------------------------------------------------------------------- |
+| `--name <n>`            | the agent's name (default: `claude`, `codex`, `opencode` or the command's name, then `-2`, `-3`…) |
+| `--cwd <dir>`           | start in another folder (default: the current one)                                                |
+| `--worktree`, `-w`      | its own git branch and checkout ([worktrees](worktrees.md))                                       |
+| `--model <id>`          | the model, in the harness's own format (or an OpenRouter slug)                                    |
+| `--provider openrouter` | run through OpenRouter ([OpenRouter](openrouter.md)); `--openrouter` is the same                  |
+| `--dangerous`           | approve its permission prompts automatically (see below)                                          |
+| `--attach`, `-a`        | open it full screen right away                                                                    |
+| `--json`                | print the new agent as JSON                                                                       |
 
-The folder you run from is the agent's working directory; agents in the same folder form a
+Harness names also accept `cc` / `claude-code`, `codex-cli` and `oc`.
+
+The folder you run from (or `--cwd`) is the agent's working directory; agents in the same folder form a
 **workspace** in the dashboard's sidebar.
 
 ## Supported CLIs
 
-| Harness      | Status from                        | Interrupt    | Dangerous mode                   |
-| ------------ | ---------------------------------- | ------------ | -------------------------------- |
-| Claude Code  | its hooks + the session transcript | Escape       | live — switch on/off at any time |
-| Codex        | its hooks                          | Escape       | at launch (restart to change)    |
-| OpenCode 1.x | an OpenCode plugin                 | Escape twice | at launch (restart to change)    |
-| OpenCode 2.x | an OpenCode plugin                 | Escape twice | at launch (restart to change)    |
-| any command  | output and silence                 | Ctrl+C       | —                                |
+| Harness      | Status from                        | Interrupt    | Dangerous mode                                                |
+| ------------ | ---------------------------------- | ------------ | ------------------------------------------------------------- |
+| Claude Code  | its hooks + the session transcript | Escape       | live — switch on/off at any time                              |
+| Codex        | its hooks                          | Escape       | at launch (restart to change); also turns off Codex's sandbox |
+| OpenCode 1.x | an OpenCode plugin                 | Escape twice | at launch (restart to change)                                 |
+| OpenCode 2.x | an OpenCode plugin                 | Escape twice | live — switch on/off at any time                              |
+| any command  | output and silence                 | Ctrl+C       | —                                                             |
 
 nsq tells OpenCode 1.x and 2.x apart by `opencode --version`. The technical details for each CLI —
 flags, environment, hook events — are in [docs/harnesses.md](../harnesses.md).
@@ -82,8 +86,10 @@ do harm you can't undo.
 
 - **Claude Code:** live. nsq answers Claude Code's permission requests with "allow" while the mode
   is on, and switching it takes effect at once; your deny rules still apply.
-- **Codex, OpenCode:** applied at launch. After a change, `nsq restart <agent>` (or **r**) restarts
-  it on the same session.
+- **OpenCode 2.x:** live as well. nsq's OpenCode plugin asks nsq on every permission check.
+- **Codex, OpenCode 1.x:** applied at launch. After a change, `nsq restart <agent>` (or **r**)
+  restarts it on the same session. For Codex it is `--dangerously-bypass-approvals-and-sandbox`, so
+  it also turns off Codex's sandbox.
 
 ```sh
 nsq run claude --dangerous "refactor the parser"
@@ -117,6 +123,6 @@ nsq ls                        # name, harness, status, branch, cost
 nsq stop api-fix              # stop the process (the agent stays in the list)
 nsq start api-fix             # start it again (resumes)
 nsq rm api-fix                # remove it; its worktree is kept unless you add --worktree
-nsq diff api-fix              # git diff of its folder
+nsq diff api-fix              # uncommitted changes in its folder (git diff HEAD)
 nsq peek api-fix -n 20        # the last lines of its screen
 ```

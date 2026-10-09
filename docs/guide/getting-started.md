@@ -38,6 +38,9 @@ scoop install neurosquad-cli
 irm https://raw.githubusercontent.com/glmn-ai/neurosquad-cli/main/packaging/install/install.ps1 | iex
 ```
 
+Both install scripts accept `NSQ_VERSION` (e.g. `0.1.0`, default `latest`); `install.sh` also
+takes `NSQ_PREFIX`, the npm global prefix to install into.
+
 Check the install:
 
 ```sh

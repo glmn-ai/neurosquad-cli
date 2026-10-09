@@ -1,13 +1,13 @@
 # Uninstall
 
-1. **Stop the daemon and the agents:**
+1. **Remove agents' worktrees you no longer need** (optional — `nsq rm <agent> --worktree` per
+   agent), and their branches `nsq/<name>` in your repositories (`git branch -D nsq/<name>`).
+
+2. **Stop the daemon and the agents** (after step 1, which starts the daemon if it was stopped):
 
    ```sh
    nsq down
    ```
-
-2. **Remove agents' worktrees you no longer need** (optional — `nsq rm <agent> --worktree` per
-   agent), and their branches `nsq/<name>` in your repositories (`git branch -D nsq/<name>`).
 
 3. **Remove the package** the way you installed it:
 
@@ -30,8 +30,8 @@
    Commit or copy anything you want to keep from `~/.neurosquad-cli/worktrees` first. If you set
    `NSQ_HOME`, delete that folder instead.
 
-5. **Remove secrets from the OS keyring** (optional): before uninstalling, `nsq openrouter clear-key`
-   and `nsq logout`; or delete the `neurosquad-cli` entries in Windows Credential Manager, the macOS
+5. **Remove secrets from the OS keyring** (optional): before uninstalling, `nsq openrouter clear-key`,
+   `nsq phone push off` and `nsq logout`; or delete the `neurosquad-cli` entries in Windows Credential Manager, the macOS
    Keychain or your Secret Service app.
 
 Your CLIs' own configuration was never changed, so there is nothing to undo in `~/.claude`,

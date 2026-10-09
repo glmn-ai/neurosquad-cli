@@ -18,15 +18,18 @@ In the dashboard: **c** → worktree.
   `nsq run` in (e.g. `nsq/flaky-test`).
 - A checkout of it in **`~/.neurosquad-cli/worktrees/<repo>-<id>`** — outside your repository, so
   it never shows up in your own `git status`.
-- The agent runs in that checkout. `nsq ls` shows its branch.
+- The agent runs in that checkout, at the repository root even if you ran `nsq run` from a
+  subfolder. `nsq ls` shows its branch.
 
-`--worktree` needs the folder to be inside a git repository.
+`--worktree` needs the folder to be inside a git repository. If a branch `nsq/<name>` already
+exists (for example from an agent you removed), creating the worktree fails with "could not create
+a worktree on branch nsq/<name>": delete the old branch or pick another `--name`.
 
 ## Reviewing and merging
 
 ```sh
-nsq diff flaky-test                 # git diff of the agent's checkout
-git -C ~/code/my-app log nsq/flaky-test
+nsq diff flaky-test                 # uncommitted changes in the agent's checkout
+git -C ~/code/my-app log -p HEAD..nsq/flaky-test   # what it committed
 git -C ~/code/my-app merge nsq/flaky-test
 ```
 

@@ -1,10 +1,10 @@
 # Phone (experimental)
 
 > **Experimental in 0.1.0.** Phone access is the newest part of nsq; its page, commands and push
-> options may change in the next releases. Feedback is very welcome.
+> options may change in the next releases.
 
-Leave your desk and keep your agents moving: from a phone you can see the agents, read their
-screens, send a prompt, answer a permission prompt and interrupt a turn.
+From a phone you can see the agents, read their screens, send a prompt, answer a permission prompt
+and interrupt a turn.
 
 ## Turn it on and pair
 
@@ -19,7 +19,9 @@ their status and pending question. Tap an agent to read its screen, type a promp
 turn ends.
 
 The phone has to reach your computer: the same Wi-Fi, or a network you already have between them
-(a VPN such as Tailscale, an SSH tunnel). Without `--lan`, nsq listens on this machine only.
+(a VPN such as Tailscale, an SSH tunnel). Without `--lan`, nsq listens on this machine only. The
+choice and the port are remembered: after one `nsq phone on --lan`, a plain `nsq phone on` stays
+on the network; `nsq phone on --lan=off` goes back to this machine only.
 
 ```sh
 nsq phone status         # on/off, address, which phones are connected
@@ -31,18 +33,36 @@ In the dashboard, **p** shows the connected phones — who is connected is alway
 
 ## Push notifications (optional)
 
-<!-- LAUNCH: confirm the exact ntfy setup command and what the push carries before release. -->
+The phone page only shows updates while it is open. To get a notification on the phone when an
+agent needs you, nsq can push through [ntfy](https://ntfy.sh), either the public ntfy.sh server or
+your own. Push is off by default.
 
-The phone page alerts you while it is open. To get "needs you" and "finished" in your pocket, nsq
-can send push notifications through [ntfy](https://ntfy.sh) — the public ntfy.sh server or your
-own. It is off by default. Whatever goes into a push leaves your machine for that server, so use a
-topic nobody can guess, or self-host ntfy.
+```sh
+nsq phone push ntfy                                   # a new random topic on ntfy.sh
+nsq phone push ntfy https://ntfy.example.com/my-topic --token tk_…   # your server / topic
+nsq phone push test                                   # send a test notification
+nsq phone push show                                   # print the topic URL
+nsq phone push                                        # status: on/off, which server
+nsq phone push off
+```
+
+`nsq phone push ntfy` prints the topic URL; subscribe to it in the ntfy app. Anyone who knows the
+topic URL can read it, so treat it like a password. The URL and the optional access token are kept
+in the OS keyring, not in `config.json` or the log (where there is no keyring, set `NSQ_NTFY_URL`
+and `NSQ_NTFY_TOKEN` in the daemon's environment). The URL must be https; plain http is accepted
+only for this machine or a local network address.
+
+What a push contains: the title `<agent> needs you` and the agent's question (cut to 300
+characters, control characters removed). Nothing else from the terminal is sent. Pushes only go out
+for "needs you", not for "finished". The same question from the same agent is pushed at most once
+per 30 seconds. Push works whether or not `nsq phone on` is set. When phone access is on with `--lan`, tapping the notification opens the phone page
+(the link does not include the token).
 
 ## Security
 
 - **Off by default**, and loopback-only unless you pass `--lan`.
-- **The link is a password.** It carries the pairing token (24 random bytes, kept in a file only you
-  can read, shown only by `nsq phone pair`). Anyone with the link on your network can do what a
+- **The link is a password.** It carries the pairing token (24 random bytes in `~/.neurosquad-cli/phone-token`,
+  readable only by you on macOS/Linux, shown only by `nsq phone pair`). Anyone with the link on your network can do what a
   phone can. `nsq phone rotate` revokes it at once.
 - **A phone can do little on purpose.** It can read agents and screens, send prompts, answer and
   interrupt. It **cannot** start agents or commands, send raw keys to a terminal, stop or remove

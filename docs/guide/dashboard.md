@@ -29,7 +29,7 @@ and label (ASCII `! * + - x` where the terminal needs it).
 | ↑ ↓ ← → / h j k l, Tab | select an agent (Tab walks all workspaces)                                                  |
 | Enter, double-click    | open the agent full screen — every key goes to it; **Ctrl+]** back to the grid              |
 | y / a / n              | answer the selected agent's permission prompt (yes / always / no)                           |
-| s / S                  | send a prompt / send it when the current turn is done                                       |
+| s / S                  | send a prompt (queued if the agent is busy) / send it when the current turn is done         |
 | c                      | start an agent (harness, name, prompt, folder, worktree, OpenRouter, model, dangerous mode) |
 | m                      | pick a model (OpenRouter's catalogue)                                                       |
 | i                      | interrupt the current turn (with each CLI's own interrupt key)                              |
@@ -43,10 +43,16 @@ and label (ASCII `! * + - x` where the terminal needs it).
 | ?                      | help                                                                                        |
 | q                      | quit — agents keep running (`nsq down` stops them)                                          |
 
+Also: on an agent that is not waiting, **n** opens New agent. **Ctrl+C** quits like **q**, **+** works like **c**, **Shift+Tab** walks backwards, **Esc**
+closes a dialog. **Enter** on a stopped agent starts it. In the New agent form, **Tab** / **↑ ↓**
+move between fields, **← →** pick the harness, **Space** toggles a box, and **F2** or **Ctrl+O**
+picks an OpenRouter model (and switches OpenRouter on).
+
 The bottom line always shows the keys that matter right now (for an agent that needs you: y / a /
 n first).
 
-**Mouse:** click selects, double-click opens, the wheel moves the selection; in a full-screen agent
+**Mouse:** click selects (a click on a workspace selects its first agent), double-click opens, the
+wheel moves the selection through all agents; in a full-screen agent
 that asked for the mouse, clicks go to it.
 
 ## Full screen and `nsq attach`
@@ -69,10 +75,10 @@ nsq interrupt api-fix
 
 ## Looks
 
-- **Logos:** the real CLI logos where the terminal can draw images (kitty, Ghostty, iTerm2,
-  WezTerm, foot and other sixel terminals; Windows Terminal 1.22+, VS Code, Konsole and xterm are
-  asked at start-up), two-cell badges elsewhere, neutral badges with `NSQ_LOGOS=none`. Inside tmux,
-  screen or zellij images are off.
+- **Logos:** the real CLI logos in terminals nsq recognises as able to draw images (kitty, Ghostty,
+  iTerm2, WezTerm, foot, mlterm), two-cell badges elsewhere, neutral badges with `NSQ_LOGOS=none`.
+  Inside tmux, screen or zellij images are off. A `logos` value in
+  [config.json](configuration.md) other than `auto` takes precedence over `NSQ_LOGOS`.
 - **Animations** (working spinner, needs-you pulse, finish sparkle) run on one shared clock, pause
   while an agent is full screen or the terminal loses focus, and are off over SSH, at 16 colours
   and with `NSQ_NO_ANIMATION=1`.

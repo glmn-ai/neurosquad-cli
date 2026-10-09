@@ -1,6 +1,6 @@
 # Voice dictation
 
-Talk to your agents instead of typing long prompts. Speech is recognised **on your machine**; the
+Dictate prompts instead of typing them. Speech is recognised **on your machine**; the
 text is pasted into the agent's input and **never submitted** — you read it and press Enter.
 
 ## Use it

@@ -5,18 +5,15 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Status: 0.1.0 preview](https://img.shields.io/badge/status-0.1.0%20preview-orange.svg)
 
-**Run several AI coding agents in your terminal. Stop babysitting them.**
+Run several AI coding agents from one terminal.
 
 `nsq` starts Claude Code, Codex, OpenCode or any command, keeps them running in a background
-daemon, shows them all as live terminals in one dashboard, and tells you — **with the question** —
-when one of them needs you. Answer it right there, without switching windows.
-
-<!-- LAUNCH: docs/media/dashboard.gif is recorded from the e2e runs (scripts/e2e/tui-shot.mjs) before release. -->
+daemon, shows them as live terminals in one dashboard, and tells you when one of them is waiting for you,
+including the question it is asking. You can answer from the dashboard.
 
 ![The nsq dashboard: workspaces and agents on the left, a grid of live agent terminals on the right](docs/media/dashboard.gif)
 
-> **0.1.0 is a preview.** It works and we use it every day, but commands, keys and config may still
-> change before 1.0. Please [report what breaks](https://github.com/glmn-ai/neurosquad-cli/issues).
+> **0.1.0 is a preview.** Commands, keys and config may still change before 1.0. Please [report what breaks](https://github.com/glmn-ai/neurosquad-cli/issues).
 
 ## Install
 
@@ -59,9 +56,10 @@ In the dashboard, select an agent with the arrows, press **Enter** to work in it
   `s` to send a prompt — or `S` to send it when the current turn ends.
 - **Notifications and sound.** A native notification on Windows, macOS and Linux when an agent
   needs you or finishes — one per agent, withdrawn when it works again. Over SSH or without a
-  desktop, the terminal bell / OSC 9 / OSC 777 take over.
+  desktop, the dashboard rings its own terminal instead (bell + OSC 9).
 - **A git worktree per agent.** `--worktree` gives the agent its own checkout on branch
-  `nsq/<name>`, so parallel agents don't trip over each other. `nsq diff <agent>` shows its changes.
+  `nsq/<name>`, so parallel agents don't trip over each other. `nsq diff <agent>` shows its
+  uncommitted changes.
 - **Cost per agent.** `nsq cost` reads tokens from each harness's own logs. A model without a known
   price shows "no price", never $0.
 - **Your config stays yours.** `~/.claude`, `~/.codex` and `opencode.json` are never written:
@@ -69,7 +67,7 @@ In the dashboard, select an agent with the arrows, press **Enter** to work in it
 - **OpenRouter built in.** One key, any model, for Claude Code, Codex and OpenCode.
 - **Voice dictation.** Local speech recognition; the text is pasted into the agent, never sent.
 - **Phone (experimental).** Pair a phone with a QR code and answer your agents from it.
-- **Looks right in your terminal.** Real CLI logos over kitty / iTerm2 / sixel graphics, light
+- **Terminal graphics.** CLI logos over kitty / iTerm2 / sixel graphics, light
   animations that switch off over SSH and on request, ASCII fallbacks.
 
 Supported: **Claude Code**, **Codex**, **OpenCode** (1.x and 2.x), and **any command**
@@ -108,12 +106,14 @@ nsq answer <agent> yes|always|no      answer a permission prompt
 nsq interrupt|stop|start|restart <agent>
 nsq rm <agent> [--worktree]           remove (and delete its worktree)
 nsq set <agent> [--dangerous on|off] [--model id|none] [--provider openrouter|none]
-nsq diff <agent>                      git diff of the agent's folder
+nsq diff <agent>                      uncommitted changes (git diff HEAD) in its folder
 nsq peek <agent> [-n 20]              the last lines of its screen
 nsq cost [--since 7d] [--json]        what each agent spent
 nsq openrouter set-key|clear-key|models [query]|status
-nsq phone on [--lan]|off|pair|rotate|status
-nsq dictation setup|status|test <wav>
+nsq phone on [--lan]|off|pair|rotate|status   answer agents from a phone
+nsq phone push ntfy [url] [--token t] | test | show | off   push "needs you" to the phone
+nsq login | logout | whoami           the optional NeuroSquad account
+nsq dictation setup|status|test <wav> [--model id]
 nsq up | down                         start / stop the daemon (and its agents)
 nsq doctor                            check harnesses, hooks, terminal
 ```
@@ -138,13 +138,14 @@ login. Details: [docs/guide/openrouter.md](docs/guide/openrouter.md).
 ```sh
 nsq phone on --lan     # off by default; without --lan it listens on this machine only
 nsq phone pair         # prints the link and a QR code — scan it with the phone
+nsq phone push ntfy    # optional: a push via ntfy when an agent needs you
 ```
 
 From the phone you can see the agents and their screens, send a prompt, answer a permission
 prompt and interrupt. A phone cannot start agents, change settings or type arbitrary keys. The
 link carries the pairing token — treat it like a password; `nsq phone rotate` signs every phone
-out. Push notifications through [ntfy](https://ntfy.sh) are optional. This part is the newest and
-most likely to change: [docs/guide/phone.md](docs/guide/phone.md).
+out. Pushes through [ntfy](https://ntfy.sh) carry only the agent's name and its question. This
+part is the newest and most likely to change: [docs/guide/phone.md](docs/guide/phone.md).
 
 ## Voice dictation
 
@@ -159,10 +160,11 @@ Windows arm64.
 
 - **No account required.** Everything works without signing in.
 - **No telemetry.** nsq does not report usage anywhere.
-- Data lives in `~/.neurosquad-cli` (move it with `NSQ_HOME`); secrets (the OpenRouter key) live
-  in the OS keyring.
+- Data lives in `~/.neurosquad-cli` (move it with `NSQ_HOME`). Secrets (the OpenRouter key, the
+  ntfy topic and token, the optional account session) live in the OS keyring.
 - Network access is what you ask for: your agents' own traffic, OpenRouter if you use it, the
-  one-time dictation model download, and ntfy if you turn it on.
+  one-time dictation model download, ntfy if you turn it on, and the NeuroSquad account if you
+  sign in.
 
 ## Platforms
 

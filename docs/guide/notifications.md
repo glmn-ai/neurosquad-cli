@@ -10,7 +10,8 @@ The rules:
 - **"Needs you" stays on screen** until you answer; "finished" is an ordinary notification.
 - **Withdrawn when the agent works again** — a notification asking for an answer you already gave
   would be wrong. (Where the system cannot withdraw notifications, it stays until dismissed.)
-- **Sound** plays separately from the notification, so turning sound off means no noise at all.
+- **Sound** plays separately from the notification; `"sound": false` silences it. (The terminal
+  bell of the fallback below still rings.)
 
 The daemon sends notifications even when the dashboard is closed.
 
@@ -25,9 +26,9 @@ The daemon sends notifications even when the dashboard is closed.
 ## Over SSH and without a desktop
 
 When no desktop notification can be shown — an SSH session, a server, a container — the dashboard
-rings **its terminal** instead: a terminal notification where the terminal supports one (OSC 9 for
-iTerm2, WezTerm, Ghostty; OSC 777 for foot, urxvt; OSC 99 for kitty; passed through tmux) and the
-bell everywhere else. So keep the dashboard open in a terminal on the machine you sit at, e.g. over
+rings **its terminal** instead: the bell, plus an OSC 9 sequence that terminals such as iTerm2,
+WezTerm and Ghostty show as a notification. Over SSH it always does this, since a desktop
+notification would show on the remote machine. So keep the dashboard open in a terminal on the machine you sit at, e.g. over
 SSH.
 
 For notifications on your phone, see [Phone](phone.md).
@@ -40,4 +41,6 @@ In `~/.neurosquad-cli/config.json` ([configuration](configuration.md)):
 { "notifications": false, "sound": false }
 ```
 
-`NSQ_NO_NOTIFY=1` in the daemon's environment turns desktop notifications off as well.
+`NSQ_NO_NOTIFY=1` in the daemon's environment also turns desktop notifications off. In both cases
+an open dashboard then rings its own terminal instead (bell + OSC 9); in 0.1.0 there is no setting
+that silences that bell.
