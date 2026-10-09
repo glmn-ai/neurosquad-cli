@@ -98,8 +98,9 @@ there — the theme switches to the ASCII set. `NSQ_GLYPHS=ascii|unicode` forces
 `logos: "images" | "glyphs" | "none"` (option of `createTheme`, env `NSQ_LOGOS`):
 
 - `images` — the real logo through a terminal graphics protocol when the terminal has one, else
-  the glyph badge;
-- `glyphs` — a two-cell badge: the monogram (`Cc`, `Cx`, `Oc`, `>_`) on the brand colour;
+  the glyph badge (Claude Code has no image: it always gets its glyph badge);
+- `glyphs` — a two-cell badge: the monogram (`Cx`, `Oc`, `>_`) on the brand colour; Claude Code is
+  a neutral `CC` (light grey on dark grey, no brand colour);
 - `none` — the same badge on a neutral chip, no brand marks or colours at all.
 
 Image support: `detectGraphicsFromEnv(env)` knows kitty and Ghostty (kitty protocol), iTerm2 and
@@ -118,7 +119,8 @@ wrapped in save/restore by `placeAt`. Pass a kitty `id` to replace an image in p
 
 Adding a harness: an entry in `HARNESS_LOGOS` (`src/logos.ts`) — it immediately gets a glyph badge
 — plus its icon in the source folder of `scripts/gen-logos.py` for the PNGs
-(`python scripts/gen-logos.py <icons dir>`, needs Pillow).
+(`python scripts/gen-logos.py <icons dir>`, needs Pillow). Without PNGs, `logoImage` returns
+`undefined` and the glyph badge stays.
 
 ### Animations
 
@@ -154,10 +156,16 @@ Rules the lead TUI should keep (the package gives you the pieces):
 
 ## Trademarks
 
-The harness logos shipped here (Claude Code, Codex, OpenCode) are trademarks of their respective
-owners. They are used only to identify which CLI an agent runs, nothing more; they do not imply
-any endorsement of or affiliation with NeuroSquad or nsq. The `command` icon and the `>S` mark are
-ours. Users and redistributors who prefer no third-party marks can set `logos: "none"`
+Claude Code, Codex and OpenCode are trademarks of their respective owners. Their names are used
+only to describe which CLI an agent runs; this does not imply any partnership with, endorsement
+of, or affiliation with NeuroSquad or nsq.
+
+- **Claude Code** is shown with a neutral `CC` glyph (light grey on dark grey), at Anthropic's
+  request: this package ships no Claude Code logo, image or brand colour.
+- The Codex and OpenCode icons shipped here are under review with their owners.
+- The `command` icon and the `>S` mark are ours.
+
+Users and redistributors who prefer no third-party marks at all can set `logos: "none"`
 (`NSQ_LOGOS=none`) for neutral badges.
 
 ## Maintainer scripts

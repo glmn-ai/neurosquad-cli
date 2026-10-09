@@ -18,8 +18,9 @@ import { createTheme } from './theme.js'
 const theme = createTheme({ env: {}, isTTY: true, platform: 'linux', colorLevel: 3, unicode: true })
 
 describe('registry', () => {
-  it('ships 16 and 32 px PNGs for every logo', () => {
+  it('ships 16 and 32 px PNGs for every logo except Claude Code', () => {
     for (const id of Object.keys(HARNESS_LOGOS)) {
+      if (id === 'claude-code') continue
       for (const px of [16, 32]) {
         const png = logoPng(id, px)
         expect(png, id).toBeDefined()
@@ -32,6 +33,21 @@ describe('registry', () => {
         expect(opaque, id).toBeGreaterThan(px)
       }
     }
+  })
+
+  it('Claude Code: no image in any protocol, a neutral grey CC badge in every mode', () => {
+    expect(logoPng('claude-code', 16)).toBeUndefined()
+    expect(logoPng('claude-code', 32)).toBeUndefined()
+    for (const protocol of ['kitty', 'iterm2', 'sixel'] as const)
+      expect(logoImage('claude-code', { protocol })).toBeUndefined()
+    const logo = HARNESS_LOGOS['claude-code']
+    expect(logo.monogram).toBe('CC')
+    expect(logo.brand).toEqual({ r: 0x3f, g: 0x3f, b: 0x46 })
+    expect(logo.ink).toEqual({ r: 0xe4, g: 0xe4, b: 0xe7 })
+    for (const mode of ['images', 'glyphs', 'none'] as const)
+      expect(lineText(logoBadge(theme, 'claude-code', mode))).toBe('CC')
+    const ascii = createTheme({ env: {}, isTTY: true, platform: 'linux', colorLevel: 0 })
+    expect(logoBadge(ascii, 'claude-code')).toEqual([expect.objectContaining({ text: 'CC' })])
   })
 
   it('unknown harnesses get the generic command logo', () => {
@@ -63,12 +79,13 @@ describe('decodePng', () => {
     expect(() => decodePng(Buffer.from('not a png'))).toThrow()
   })
 
-  it('decodes the brand colour of the Claude Code logo', () => {
-    const img = decodePng(logoPng('claude-code', 32) as Buffer)
+  it('decodes the brand colour of the Codex logo', () => {
+    const img = decodePng(logoPng('codex', 32) as Buffer)
     let best = 0
     for (let i = 0; i < img.data.length; i += 4) {
       const [r, g, b, a] = img.data.subarray(i, i + 4)
-      if (a > 250 && Math.abs(r - 217) < 8 && Math.abs(g - 119) < 8 && Math.abs(b - 87) < 8) best++
+      if (a > 250 && Math.abs(r - 0x00) < 24 && Math.abs(g - 0x80) < 24 && Math.abs(b - 0xf7) < 24)
+        best++
     }
     expect(best).toBeGreaterThan(20)
   })
@@ -100,7 +117,7 @@ describe('image protocols', () => {
   })
 
   it('sixel: DCS with transparent background, palette and bands', () => {
-    const seq = sixelImage(decodePng(logoPng('claude-code', 16) as Buffer))
+    const seq = sixelImage(decodePng(logoPng('codex', 16) as Buffer))
     expect(seq.startsWith('\x1bP0;1;0q"1;1;16;16')).toBe(true)
     expect(seq.endsWith('\x1b\\')).toBe(true)
     expect(seq).toMatch(/#0;2;\d+;\d+;\d+/)

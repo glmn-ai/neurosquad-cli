@@ -98,7 +98,7 @@ function wrap(text, width) {
 }
 
 async function claude() {
-  const SPINNER = ['·', '✢', '✳', '✶', '✻', '✽']
+  const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴']
   const width = COLS - 2
   let liveLines = 0
   let tick = 0
@@ -112,7 +112,7 @@ async function claude() {
   }
   const live = () => {
     const lines = [
-      `${rgb(215, 119, 87)}${SPINNER[tick % SPINNER.length]} ${pick(['Thinking', 'Reading', 'Editing', 'Running'])}…${RESET} ${rgb(153, 153, 153)}(${Math.floor(tick / 12)}s · ↑ ${(tokens / 1000).toFixed(1)}k tokens · esc to interrupt)${RESET}`,
+      `${rgb(170, 170, 178)}${SPINNER[tick % SPINNER.length]} ${pick(['Thinking', 'Reading', 'Editing', 'Running'])}…${RESET} ${rgb(153, 153, 153)}(${Math.floor(tick / 12)}s · ↑ ${(tokens / 1000).toFixed(1)}k tokens · esc to interrupt)${RESET}`,
       '',
       `${rgb(136, 136, 136)}╭${'─'.repeat(width - 2)}╮${RESET}`,
       `${rgb(136, 136, 136)}│${RESET} > ${' '.repeat(width - 5)}${rgb(136, 136, 136)}│${RESET}`,
@@ -122,7 +122,7 @@ async function claude() {
     liveLines = lines.length
     return lines.join('\r\n')
   }
-  out(`${rgb(215, 119, 87)}✻${RESET} Welcome to ${CSI}1mFake Code${RESET}\r\n\r\n`)
+  out(`${rgb(170, 170, 178)}>${RESET} Welcome to ${CSI}1mFake Code${RESET}\r\n\r\n`)
   out(live())
   while (running()) {
     tick++

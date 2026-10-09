@@ -87,5 +87,6 @@ the OS keyring. Nothing in nsq needs it.
 
 Everything lives in `~/.neurosquad-cli` (`NSQ_HOME` to move it). No telemetry; the account is optional.
 
-MIT licensed. Harness names and logos are trademarks of their owners, used only to identify which
-CLI an agent runs.
+MIT licensed. Harness names are trademarks of their owners, used only to describe which CLI an
+agent runs. Claude Code is shown with a neutral `CC` glyph at Anthropic's request; the other CLIs'
+icons are under review with their owners.

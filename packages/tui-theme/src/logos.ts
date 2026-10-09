@@ -4,10 +4,11 @@
  * badge fallback.
  *
  * Trademarks: each logo identifies the CLI it belongs to and is the property of its owner; see
- * the package README. `logos: 'none'` draws neutral badges with no brand marks or colours.
+ * the package README. Claude Code has no image and only a neutral "CC" badge, at Anthropic's
+ * request. `logos: 'none'` draws neutral badges with no brand marks or colours.
  *
  * Adding a harness: an entry in `HARNESS_LOGOS` (+ its PNGs via `scripts/gen-logos.py`). Without
- * PNGs it still gets a glyph badge.
+ * PNGs it still gets a glyph badge, and `logoImage` returns undefined (callers keep the badge).
  */
 import { inflateSync } from 'node:zlib'
 import { contrast, hex, type Rgb } from './color.js'
@@ -20,7 +21,7 @@ import { ROLE_SOURCES } from './tokens.js'
 export interface HarnessLogo {
   readonly id: string
   readonly name: string
-  /** The colour the badge is filled with (the brand's own primary colour). */
+  /** The colour the badge is filled with (the brand's own primary colour, or a neutral grey). */
   readonly brand: Rgb
   /** Two ASCII characters drawn on the badge. ASCII on purpose: always exactly 2 cells. */
   readonly monogram: string
@@ -29,7 +30,15 @@ export interface HarnessLogo {
 }
 
 export const HARNESS_LOGOS = {
-  'claude-code': { id: 'claude-code', name: 'Claude Code', brand: hex('#d97757'), monogram: 'Cc' },
+  // Claude Code: a neutral "CC" monogram only — no image, no brand colour or mark (Anthropic asked
+  // us not to use the Claude Code logo). `logos: 'images'` falls back to this glyph badge.
+  'claude-code': {
+    id: 'claude-code',
+    name: 'Claude Code',
+    brand: hex('#3f3f46'),
+    monogram: 'CC',
+    ink: hex('#e4e4e7')
+  },
   codex: { id: 'codex', name: 'Codex', brand: hex('#0080f7'), monogram: 'Cx' },
   opencode: {
     id: 'opencode',
