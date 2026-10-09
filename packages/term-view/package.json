@@ -1,6 +1,6 @@
 {
   "name": "@neurosquad/term-view",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Live agent terminals as tiles: a headless xterm screen per agent and a diff renderer that paints it into any rectangle of the host terminal.",
   "license": "MIT",
   "author": "NeuroSquad",
