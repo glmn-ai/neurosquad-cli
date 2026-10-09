@@ -19,7 +19,7 @@
 //
 // --native-notify keeps desktop notifications on (a headless Linux has no
 // notification server, so the dashboard must still ring); without it they are
-// switched off, which must ring as well. --headless-check first runs the
+// switched off (NSQ_NO_NOTIFY=1), which silences the ring too. --headless-check first runs the
 // dashboard with no X display (SSH, servers): it must keep running and keep
 // native noise off the screen; --display then records against a virtual X server.
 // --project is the folder the agents work in, shown in the recording (default: on
@@ -252,15 +252,20 @@ try {
     { exitCode, missing: agents.filter((a) => !plain(output).includes(a.name)).map((a) => a.name) }
   )
   // The fallback when no desktop notification can show: BEL + OSC 9 with the text.
+  // Notifications switched off (NSQ_NO_NOTIFY=1) silence it as well.
   // eslint-disable-next-line no-control-regex -- terminal escapes
   const rings = [...output.matchAll(/\x07\x1b\]9;([^\x07]*)\x07/g)].map((m) => m[1])
-  check(
-    'needs you rings the terminal (BEL + OSC 9)',
-    asking
-      ? rings.some((text) => text.includes(asking.name) && /needs you/.test(text))
-      : rings.length > 0,
-    rings
-  )
+  if (has('native-notify')) {
+    check(
+      'needs you rings the terminal (BEL + OSC 9)',
+      asking
+        ? rings.some((text) => text.includes(asking.name) && /needs you/.test(text))
+        : rings.length > 0,
+      rings
+    )
+  } else {
+    check('notifications off: needs you does not ring the terminal', rings.length === 0, rings)
+  }
 
   // The first agent full screen, then back to the grid.
   press('\r', 'Enter (open full screen)')
