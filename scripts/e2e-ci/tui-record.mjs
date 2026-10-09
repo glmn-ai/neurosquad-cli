@@ -25,7 +25,15 @@
 // --project is the folder the agents work in, shown in the recording (default: on
 // GitHub Actions ~/demo-shop of the runner, so the GIF shows a clean name; else a
 // folder in the scratch work dir). Created for the run and removed afterwards.
-import { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -48,6 +56,15 @@ const out = resolve(get('out', join(root, '..', '.nsq-e2e', 'tui-record')))
 const work = resolve(get('work', join(out, 'work')))
 const cols = Number(get('cols', '140'))
 const rows = Number(get('rows', '38'))
+// Never delete a folder this script did not make: a --work or --project of the caller
+// must be new (or an empty folder); only the default scratch under --out is wiped.
+const refuseExisting = (dir, option) => {
+  if (existsSync(dir) && readdirSync(dir).length > 0) {
+    console.error(`tui-record: ${option} ${dir} exists and is not empty; pass a new folder`)
+    process.exit(2)
+  }
+}
+if (get('work')) refuseExisting(work, '--work')
 mkdirSync(out, { recursive: true })
 rmSync(work, { recursive: true, force: true })
 mkdirSync(work, { recursive: true })
@@ -85,7 +102,7 @@ const project = get('project')
     : sandbox.project
 const ownProject = project !== sandbox.project
 if (ownProject) {
-  rmSync(project, { recursive: true, force: true })
+  refuseExisting(project, get('project') ? '--project' : '~/demo-shop')
   mkdirSync(project, { recursive: true })
   writeFileSync(join(project, 'README.md'), '# demo-shop\n\nA small web shop.\n')
   writeFileSync(
