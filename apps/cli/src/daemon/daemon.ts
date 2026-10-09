@@ -157,6 +157,9 @@ const SWITCH_WAIT_MS = 10_000
 
 type ModelSwitchResult = { applied: ModelSwitchApplied; warnings?: string[] }
 
+/** Between the old process's exit and the new start (a test can widen it: NSQ_RESTART_PAUSE_MS). */
+const RESTART_PAUSE_MS = Number(process.env['NSQ_RESTART_PAUSE_MS']) || 800
+
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export class Daemon {
@@ -696,7 +699,7 @@ export class Daemon {
   private async restartAgent(id: string): Promise<string[]> {
     this.store.update(id, { wantRunning: true })
     await this.stopAgent(id, true)
-    await sleep(800)
+    await sleep(RESTART_PAUSE_MS)
     // Stopped (or removed) during the pause: that stop wins, nothing starts.
     const record = this.store.get(id)
     if (!record?.wantRunning) return []

@@ -20,7 +20,7 @@ const nsq = (...args: string[]): { status: number | null; stdout: string; stderr
     encoding: 'utf8',
     timeout: 60_000,
     windowsHide: true,
-    env: { ...process.env, NSQ_HOME: home, NSQ_NO_NOTIFY: '1' }
+    env: { ...process.env, NSQ_HOME: home, NSQ_NO_NOTIFY: '1', NSQ_RESTART_PAUSE_MS: '4000' }
   })
   return { status: result.status, stdout: result.stdout, stderr: result.stderr }
 }
@@ -87,7 +87,12 @@ describe.skipIf(!built)('daemon smoke', () => {
       cols: 100,
       rows: 30,
       cwd: work,
-      env: { ...process.env, NSQ_HOME: home, NSQ_NO_NOTIFY: '1' } as Record<string, string>
+      env: {
+        ...process.env,
+        NSQ_HOME: home,
+        NSQ_NO_NOTIFY: '1',
+        NSQ_RESTART_PAUSE_MS: '4000'
+      } as Record<string, string>
     })
     let screen = ''
     attached.onData((data) => {
@@ -119,16 +124,22 @@ describe.skipIf(!built)('daemon smoke', () => {
     // A stop during a restart's pause wins: the restart does not start the agent again.
     expect(nsq('start', 'echo').status).toBe(0)
     expect(await until(() => list().some((a) => a.name === 'echo' && a.running))).toBe(true)
+    // The daemon's restart pause is 4 s here (NSQ_RESTART_PAUSE_MS): the stop lands inside it.
+    let restartDone = false
     const restarting = new Promise<number | null>((resolveRestart) => {
       const child = spawn(process.execPath, [BIN, 'restart', 'echo'], {
         cwd: work,
         windowsHide: true,
-        env: { ...process.env, NSQ_HOME: home, NSQ_NO_NOTIFY: '1' }
+        env: { ...process.env, NSQ_HOME: home, NSQ_NO_NOTIFY: '1', NSQ_RESTART_PAUSE_MS: '4000' }
       })
-      child.on('exit', (code) => resolveRestart(code))
+      child.on('exit', (code) => {
+        restartDone = true
+        resolveRestart(code)
+      })
     })
     expect(await until(() => list().some((a) => a.name === 'echo' && !a.running), 5_000)).toBe(true)
     expect(nsq('stop', 'echo').status).toBe(0)
+    expect(restartDone).toBe(false)
     expect(await restarting).toBe(0)
     await new Promise((resolveWait) => setTimeout(resolveWait, 1500))
     expect(list().find((a) => a.name === 'echo')?.running).toBe(false)
