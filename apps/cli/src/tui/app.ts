@@ -45,7 +45,7 @@ import { formatUsd, type HarnessId } from '@neurosquad/core'
 import { DaemonClient } from '../client/client.js'
 import { readConfig } from '../config.js'
 import { findDetachKey, parseDetachKey } from '../attach.js'
-import { HARNESS_LABEL, elapsed } from '../format.js'
+import { HARNESS_LABEL, costLabel, elapsed } from '../format.js'
 import type { AgentView, DaemonEvent, PhoneView, UpdateView } from '../protocol.js'
 import { updateBadge } from '../update/describe.js'
 import { paths } from '../paths.js'
@@ -69,6 +69,16 @@ import {
 } from './layout.js'
 import { PickList, TextField, fitText } from './widgets.js'
 import { bindDictation, type DictationBinding } from '../dictation.js'
+import {
+  endpointsLabel,
+  listProviders,
+  providerKey,
+  providerModels,
+  removeProvider,
+  saveProvider
+} from '../providers.js'
+import { nextPreset, presetsLine, providerChoices } from './providerChoices.js'
+import { customProviderAddress, type CustomProvider } from '@neurosquad/core'
 import { modelNeedsOpenRouter, modelSwitchText, type ModelSwitchApplied } from '../modelRules.js'
 
 /** Leaves the dashboard's terminal modes: colours, focus, paste, mouse, cursor, alternate screen. */
@@ -99,8 +109,16 @@ type Modal =
       loading: boolean
       error?: string
       onPick: (id: string) => void
+      /** The list's source, for the title and the loading line (OpenRouter by default). */
+      source?: string
     }
   | { kind: 'message'; title: string; body: string }
+  | {
+      kind: 'providers'
+      list: PickList<CustomProvider & { hasKey: boolean }>
+      busy?: string
+    }
+  | { kind: 'provider-add'; form: ProviderForm }
 
 interface NewAgentForm {
   harness: number
@@ -110,9 +128,22 @@ interface NewAgentForm {
   cwd: TextField
   model: TextField
   worktree: boolean
-  openrouter: boolean
+  /** '' = the harness's own login, 'openrouter', or one of the user's providers (its id). */
+  provider: string
   dangerous: boolean
 }
+
+/** Add (or re-test) one of the user's own servers. */
+interface ProviderForm {
+  field: number
+  name: TextField
+  url: TextField
+  /** Shown masked; empty keeps the stored key (none for a new provider). */
+  key: TextField
+  busy: boolean
+  error?: string
+}
+const PROVIDER_FIELDS = ['name', 'url', 'key', 'save'] as const
 
 const HARNESS_CHOICES: { id: HarnessId; label: string }[] = [
   { id: 'claude-code', label: 'Claude Code' },
@@ -127,11 +158,14 @@ const FORM_FIELDS = [
   'prompt',
   'cwd',
   'worktree',
-  'openrouter',
+  'provider',
   'model',
   'dangerous',
   'start'
 ] as const
+
+const errorText = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error)
 
 function statusOf(agent: AgentView): AgentStatus {
   if (!agent.running || agent.status === 'exited') return 'exited'
@@ -1086,19 +1120,17 @@ export class Dashboard {
       ]
       const titleRight: Line = [
         seg(
-          `${HARNESS_LABEL[agent.harness]}${agent.model ? ` · ${agent.model}` : ''} · ${elapsed(agent.statusAt ?? agent.createdAt)}`,
+          `${HARNESS_LABEL[agent.harness]}${agent.model ? ` · ${agent.model}` : ''}${agent.provider === 'custom' && agent.customProviderId ? ` @${agent.customProviderId}` : ''} · ${elapsed(agent.statusAt ?? agent.createdAt)}`,
           { fg: 'mutedText', bg: 'tileBg' }
         ),
-        ...(agent.costPico !== undefined
+        ...(agent.costPico !== undefined || agent.unpricedRequests
           ? [
-              seg(` · ${formatUsd(BigInt(agent.costPico))}${agent.unpricedRequests ? '+' : ''}`, {
-                fg: 'mutedText',
+              seg(` · ${costLabel(agent)}`, {
+                fg: costLabel(agent) === 'no price' ? 'faintText' : 'mutedText',
                 bg: 'tileBg'
               })
             ]
-          : agent.unpricedRequests
-            ? [seg(' · no price', { fg: 'faintText', bg: 'tileBg' })]
-            : [])
+          : [])
       ]
       const footer: Line = attention
         ? [
@@ -1263,7 +1295,8 @@ export class Dashboard {
           ['i', 'interrupt the turn'],
           ['x / X', 'stop / remove the agent'],
           ['r', 'restart (resumes the session)'],
-          ['m', 'model from OpenRouter (switches the agent to it) or "default"'],
+          ['m', 'model: OpenRouter’s (switches the agent to it), "default", or its own server’s'],
+          ['P', 'providers: your own servers — llama.cpp, Ollama, LM Studio, vLLM…'],
           ['d', 'dangerous mode on/off'],
           ['R', 'rename'],
           ['[ ]', 'previous / next page of tiles'],
@@ -1313,13 +1346,23 @@ export class Dashboard {
         return
       }
       case 'models': {
-        const r = this.box(canvas, 84, Math.min(24, this.height - 4), 'Model')
+        const r = this.box(
+          canvas,
+          84,
+          Math.min(24, this.height - 4),
+          modal.source ? `Model — ${modal.source}` : 'Model'
+        )
         text(r, 0, [
           seg('filter ', { fg: 'mutedText', bg: 'tileBg' }),
           ...modal.list.filter.render(r.width - 7, true)
         ])
         if (modal.loading)
-          text(r, 3, [seg('loading the OpenRouter model list…', { fg: 'mutedText', bg: 'tileBg' })])
+          text(r, 3, [
+            seg(`loading the ${modal.source ?? 'OpenRouter'} model list…`, {
+              fg: 'mutedText',
+              bg: 'tileBg'
+            })
+          ])
         if (modal.error) text(r, 3, [seg(modal.error, { fg: 'danger', bg: 'tileBg' })])
         const items = modal.list.visible()
         const rows = r.height - 3
@@ -1338,6 +1381,98 @@ export class Dashboard {
             seg(fitText(item.price, r.width - Math.floor(r.width * 0.6)), { fg: 'mutedText', bg })
           ])
         })
+        return
+      }
+      case 'providers': {
+        const r = this.box(
+          canvas,
+          90,
+          Math.min(20, this.height - 4),
+          'Providers — your own servers'
+        )
+        const items = modal.list.items
+        if (items.length === 0)
+          text(r, 1, [
+            seg(
+              'None yet. a adds one: llama.cpp, Ollama, LM Studio, vLLM, SGLang, Unsloth Studio',
+              {
+                fg: 'mutedText',
+                bg: 'tileBg'
+              }
+            )
+          ])
+        items.forEach((p, i) => {
+          if (i + 1 >= r.height - 2) return
+          const sel = i === modal.list.selected
+          const bg = sel ? 'selectionBg' : 'tileBg'
+          text(r, i + 1, [
+            seg(fitText(` ${p.id}`, 16), { fg: 'text', bg, bold: sel }),
+            seg(fitText(customProviderAddress(p), 24), { fg: 'mutedText', bg }),
+            seg(fitText(endpointsLabel(p), 26), { fg: 'mutedText', bg }),
+            seg(fitText(`${p.models.length} model${p.models.length === 1 ? '' : 's'}`, 11), {
+              fg: 'mutedText',
+              bg
+            }),
+            seg(fitText(p.hasKey ? 'key ••••' : 'no key', Math.max(0, r.width - 77)), {
+              fg: 'faintText',
+              bg
+            })
+          ])
+        })
+        text(r, r.height - 1, [
+          seg(modal.busy ?? 'a add · t test · Enter models · x remove · Esc close', {
+            fg: modal.busy ? 'accentText' : 'faintText',
+            bg: 'tileBg'
+          })
+        ])
+        return
+      }
+      case 'provider-add': {
+        const f = modal.form
+        const r = this.box(canvas, 84, 13, 'Add a provider')
+        const row = (at: number, index: number, name: string, input: TextField): void => {
+          const focus = f.field === index
+          text(r, at, [
+            seg(fitText(name, 8), {
+              fg: focus ? 'accentText' : 'mutedText',
+              bg: 'tileBg',
+              bold: focus
+            })
+          ])
+          canvas.put(r.x + 8, r.y + at, input.render(r.width - 8, focus))
+        }
+        row(0, 0, 'Name', f.name)
+        row(1, 1, 'URL', f.url)
+        row(2, 2, 'Key', f.key)
+        const presets = presetsLine().split(' · ')
+        text(r, 4, [
+          seg(fitText(`F2 defaults: ${presets.slice(0, 3).join(' · ')}`, r.width), {
+            fg: 'faintText',
+            bg: 'tileBg'
+          })
+        ])
+        text(r, 5, [
+          seg(fitText(`             ${presets.slice(3).join(' · ')}`, r.width), {
+            fg: 'faintText',
+            bg: 'tileBg'
+          })
+        ])
+        text(r, 6, [
+          seg('The key is optional (local servers) and goes to the OS keyring, never a file.', {
+            fg: 'faintText',
+            bg: 'tileBg'
+          })
+        ])
+        if (f.error) text(r, 8, [seg(fitText(f.error, r.width), { fg: 'danger', bg: 'tileBg' })])
+        const saveFocus = f.field === 3
+        text(r, 10, [
+          seg(f.busy ? ' Testing… ' : ' Test & save ', {
+            fg: saveFocus ? 'accentFg' : 'text',
+            bg: saveFocus ? 'accent' : 'chipBg',
+            bold: true
+          }),
+          seg('   Tab move · F2 defaults · Esc back', { fg: 'faintText', bg: 'tileBg' })
+        ])
         return
       }
       case 'new': {
@@ -1393,7 +1528,33 @@ export class Dashboard {
         field(3, 2, HARNESS_CHOICES[f.harness].id === 'command' ? 'Command' : 'Prompt', f.prompt)
         field(4, 3, 'Folder', f.cwd)
         toggle(6, 4, 'Worktree', f.worktree, 'its own git branch and checkout')
-        toggle(7, 5, 'OpenRouter', f.openrouter, 'route through OpenRouter (needs a key)')
+        {
+          const focus = FORM_FIELDS[f.field] === 'provider'
+          const { choices, unfit } = providerChoices(HARNESS_CHOICES[f.harness].id)
+          const choice = choices.find((c) => c.id === f.provider) ?? choices[0]!
+          label(7, 'Provider', focus)
+          canvas.put(r.x + 12, r.y + 7, [
+            seg(choices.length > 1 ? '◂ ' : '  ', { fg: 'mutedText', bg: 'tileBg' }),
+            seg(` ${choice.label} `, {
+              fg: 'text',
+              bg: focus ? 'selectionBg' : 'chipBg',
+              bold: focus
+            }),
+            seg(choices.length > 1 ? ' ▸  ' : '    ', { fg: 'mutedText', bg: 'tileBg' }),
+            seg(choice.hint, { fg: 'faintText', bg: 'tileBg' })
+          ])
+          if (focus && unfit.length > 0) {
+            text(r, 12, [
+              seg(
+                fitText(
+                  `not offered: ${unfit.map((u) => `${u.id} — ${u.reason}`).join('; ')}`,
+                  r.width
+                ),
+                { fg: 'faintText', bg: 'tileBg' }
+              )
+            ])
+          }
+        }
         field(8, 6, 'Model', f.model)
         toggle(9, 7, 'Dangerous', f.dangerous, 'approve its permission prompts')
         const startFocus = FORM_FIELDS[f.field] === 'start'
@@ -1642,6 +1803,9 @@ export class Dashboard {
       case 'U':
         this.showUpdate()
         return
+      case 'P':
+        this.openProviders()
+        return
       case 'b':
         this.sidebarMode = this.layout.sidebar ? 'hidden' : 'shown'
         this.prev = undefined
@@ -1756,6 +1920,27 @@ export class Dashboard {
           this.toastMessage('a command agent has no model to pick')
           return
         }
+        if (agent.provider === 'custom' && agent.customProviderId) {
+          // An agent on one of the user's own servers: that server's models, the provider stays.
+          // (Its ids look like OpenRouter slugs — `qwen/qwen3-coder-30b` — but are the server's.)
+          this.openCustomModels(agent.customProviderId, (model) =>
+            this.request(
+              this.client
+                .request<{ applied?: ModelSwitchApplied; warnings?: string[] }>({
+                  t: 'set',
+                  id: agent.id,
+                  model
+                })
+                .then((r) => ({
+                  warnings: [
+                    modelSwitchText(model, 'custom', r.applied, agent.customProviderId),
+                    ...(r.warnings ?? [])
+                  ]
+                }))
+            )
+          )
+          return
+        }
         // A pick from OpenRouter's list puts the agent on OpenRouter too: on its own login the
         // harness does not know `vendor/model` slugs ("model not found"). "Default" goes back.
         this.openModels(agent.id, (picked) => {
@@ -1800,7 +1985,7 @@ export class Dashboard {
         cwd: new TextField(selected?.workspace ?? this.launchCwd),
         model: new TextField('', 'default'),
         worktree: false,
-        openrouter: false,
+        provider: '',
         dangerous: false
       }
     }
@@ -1844,12 +2029,208 @@ export class Dashboard {
       )
   }
 
+  /** The model picker over one of the user's own servers (asked now; the stored list if it is down). */
+  private openCustomModels(providerId: string, onPick: (id: string) => void): void {
+    const list = new PickList<{ id: string; name: string; price: string }>(
+      [],
+      (m) => m.id,
+      (m) => m.name
+    )
+    const modal: Modal = { kind: 'models', list, loading: true, onPick, source: providerId }
+    this.modal = modal
+    providerModels(providerId).then(
+      ({ models, error }) => {
+        list.items = models.map((m) => ({
+          id: m.id,
+          name: m.name ?? '',
+          price: m.contextWindow ? `${m.contextWindow.toLocaleString('en-US')} ctx` : ''
+        }))
+        modal.loading = false
+        if (error) modal.error = `${error}${models.length ? ' — the stored list' : ''}`
+        this.schedule()
+      },
+      (error: unknown) => {
+        modal.loading = false
+        modal.error = errorText(error)
+        this.schedule()
+      }
+    )
+  }
+
+  private openProviders(): void {
+    const list = new PickList<CustomProvider & { hasKey: boolean }>(
+      [],
+      (p) => p.id,
+      (p) => customProviderAddress(p)
+    )
+    const modal: Modal = { kind: 'providers', list }
+    this.modal = modal
+    this.refreshProviders(modal)
+  }
+
+  private refreshProviders(modal: Extract<Modal, { kind: 'providers' }>): void {
+    let providers: CustomProvider[] = []
+    try {
+      providers = listProviders()
+    } catch (error) {
+      modal.busy = String(error)
+    }
+    void Promise.all(
+      providers.map(async (p) => ({ ...p, hasKey: Boolean(await providerKey(p.id)) }))
+    ).then(
+      (items) => {
+        modal.list.items = items
+        modal.list.selected = Math.min(modal.list.selected, Math.max(0, items.length - 1))
+        this.schedule()
+      },
+      (error: unknown) => {
+        modal.busy = errorText(error)
+        this.schedule()
+      }
+    )
+  }
+
+  private handleProviders(modal: Extract<Modal, { kind: 'providers' }>, key: KeyEvent): void {
+    const current = modal.list.items[modal.list.selected]
+    switch (key.name) {
+      case 'escape':
+        this.modal = null
+        return
+      case 'up':
+      case 'down':
+        modal.list.selected = Math.max(
+          0,
+          Math.min(modal.list.items.length - 1, modal.list.selected + (key.name === 'up' ? -1 : 1))
+        )
+        return
+      case 'a':
+      case '+':
+        this.modal = {
+          kind: 'provider-add',
+          form: {
+            field: 0,
+            name: new TextField('', 'e.g. lmstudio'),
+            url: new TextField('', 'e.g. http://localhost:1234 (F2: defaults)'),
+            key: new TextField('', 'optional — local servers need none', true),
+            busy: false
+          }
+        }
+        return
+      case 'enter':
+        if (current) this.openCustomModels(current.id, () => this.openProviders())
+        return
+      case 't':
+        if (!current || modal.busy) return
+        modal.busy = `testing ${current.id}…`
+        void saveProvider(current.id, undefined, 'keep').then(
+          (result) => {
+            modal.busy = undefined
+            this.toastMessage(
+              result.ok
+                ? `${current.id}: ${result.test.models.length} models, endpoints: ${endpointsLabel(result.provider)}`
+                : `${current.id}: ${result.error}`
+            )
+            this.refreshProviders(modal)
+          },
+          (error: unknown) => {
+            modal.busy = undefined
+            this.toastMessage(`${current.id}: ${errorText(error)}`)
+            this.schedule()
+          }
+        )
+        return
+      case 'x':
+      case 'delete':
+        if (!current) return
+        this.modal = {
+          kind: 'confirm',
+          title: `Remove ${current.id}?`,
+          body: `${customProviderAddress(current)} and its key. Agents on it will not start until moved to another provider.`,
+          yes: () => {
+            void removeProvider(current.id).then(
+              () => this.openProviders(),
+              (error: unknown) => this.toastMessage(`${current.id}: ${errorText(error)}`)
+            )
+          }
+        }
+        return
+    }
+  }
+
+  private handleProviderForm(form: ProviderForm, event: KeyEvent): void {
+    if (form.busy) return
+    const name = event.type === 'key' ? event.name : ''
+    if (name === 'escape') {
+      this.openProviders()
+      return
+    }
+    if (name === 'tab' || name === 'down' || name === 'up') {
+      const step = name === 'up' || (name === 'tab' && event.shift) ? -1 : 1
+      form.field = (form.field + step + PROVIDER_FIELDS.length) % PROVIDER_FIELDS.length
+      return
+    }
+    if (name === 'f2' || (event.ctrl && name === 'o')) {
+      const preset = nextPreset(form.url.value, event.shift ? -1 : 1)
+      form.url.value = preset.url
+      form.url.cursor = preset.url.length
+      if (!form.name.value.trim()) {
+        form.name.value = preset.name
+        form.name.cursor = preset.name.length
+      }
+      return
+    }
+    const field = PROVIDER_FIELDS[form.field]
+    if (name === 'enter') {
+      if (field !== 'save') {
+        form.field = PROVIDER_FIELDS.indexOf('save')
+        return
+      }
+      const id = form.name.value.trim().toLowerCase()
+      const url = form.url.value.trim()
+      if (!id || !url) {
+        form.error = 'a name and the server address, please'
+        return
+      }
+      form.busy = true
+      form.error = undefined
+      const keyText = form.key.value.trim()
+      void saveProvider(id, url, keyText ? { set: keyText } : 'keep').then(
+        (result) => {
+          form.busy = false
+          if (!result.ok) {
+            form.error = result.error
+            this.schedule()
+            return
+          }
+          form.key.value = ''
+          this.toastMessage(
+            `${result.provider.id}: ${result.test.models.length} models, endpoints: ${endpointsLabel(result.provider)}`
+          )
+          if (this.modal?.kind === 'provider-add') this.openProviders()
+          this.schedule()
+        },
+        (error: unknown) => {
+          form.busy = false
+          form.error = errorText(error)
+          this.schedule()
+        }
+      )
+      return
+    }
+    if (field !== 'save') form[field].handle(event)
+  }
+
   private handleModal(event: InputEvent): void {
     const modal = this.modal as Modal
     if (event.type === 'mouse') return
     if (event.type === 'focus') return
     const key = event.type === 'key' ? event : undefined
-    if (key?.name === 'escape' && modal.kind !== 'models') {
+    if (
+      key?.name === 'escape' &&
+      modal.kind !== 'models' &&
+      modal.kind !== 'providers' &&
+      modal.kind !== 'provider-add'
+    ) {
       this.modal = null
       return
     }
@@ -1889,6 +2270,12 @@ export class Dashboard {
       case 'new':
         this.handleForm(modal.form, event as KeyEvent)
         return
+      case 'providers':
+        if (key) this.handleProviders(modal, key)
+        return
+      case 'provider-add':
+        this.handleProviderForm(modal.form, event as KeyEvent)
+        return
     }
   }
 
@@ -1902,12 +2289,20 @@ export class Dashboard {
     }
     if (name === 'f2' || (event.ctrl && name === 'o')) {
       const back = this.modal
-      this.openModels(undefined, (id) => {
+      const pick = (id: string): void => {
         form.model.value = id
         form.model.cursor = id.length
-        // An OpenRouter slug needs OpenRouter; "default" is the harness's own login.
-        form.openrouter = id !== ''
         this.modal = back
+      }
+      if (form.provider && form.provider !== 'openrouter') {
+        // One of the user's own servers: its own models.
+        this.openCustomModels(form.provider, pick)
+        return
+      }
+      this.openModels(undefined, (id) => {
+        pick(id)
+        // An OpenRouter slug needs OpenRouter; "default" is the harness's own login.
+        form.provider = id !== '' ? 'openrouter' : ''
       })
       return
     }
@@ -1916,15 +2311,35 @@ export class Dashboard {
       return
     }
     switch (current) {
-      case 'harness':
+      case 'harness': {
         if (name === 'left')
           form.harness = (form.harness + HARNESS_CHOICES.length - 1) % HARNESS_CHOICES.length
         else if (name === 'right' || name === 'space')
           form.harness = (form.harness + 1) % HARNESS_CHOICES.length
         else if (name === 'enter') form.field = 2
+        // A provider this harness cannot speak to is not kept.
+        const { choices } = providerChoices(HARNESS_CHOICES[form.harness].id)
+        if (!choices.some((c) => c.id === form.provider)) form.provider = ''
         return
+      }
+      case 'provider': {
+        const { choices } = providerChoices(HARNESS_CHOICES[form.harness].id)
+        const at = Math.max(
+          0,
+          choices.findIndex((c) => c.id === form.provider)
+        )
+        const step = name === 'left' ? -1 : name === 'right' || name === 'space' ? 1 : 0
+        if (step === 0) return
+        const next = choices[(at + step + choices.length) % choices.length]!
+        if (next.id !== form.provider) {
+          form.provider = next.id
+          // A model belongs to its provider.
+          form.model.value = ''
+          form.model.cursor = 0
+        }
+        return
+      }
       case 'worktree':
-      case 'openrouter':
       case 'dangerous':
         if (name === 'space' || name === 'enter' || name === 'x') form[current] = !form[current]
         return
@@ -1945,9 +2360,10 @@ export class Dashboard {
     }
     const model = form.model.value.trim()
     let notice: string | undefined
-    if (harness !== 'command' && !form.openrouter && modelNeedsOpenRouter(harness, model)) {
+    // Only on the own login: a custom server's ids look like slugs but are the server's.
+    if (harness !== 'command' && form.provider === '' && modelNeedsOpenRouter(harness, model)) {
       // Typed by hand: a `vendor/model` slug only runs through OpenRouter.
-      form.openrouter = true
+      form.provider = 'openrouter'
       notice = `${model} is an OpenRouter model id: OpenRouter turned on`
     }
     this.modal = null
@@ -1966,7 +2382,13 @@ export class Dashboard {
             ...(harness !== 'command' && prompt ? { prompt } : {}),
             ...(command ? { command } : {}),
             ...(form.worktree ? { worktree: true } : {}),
-            ...(form.openrouter ? { provider: 'openrouter' as const } : {}),
+            ...(form.provider === 'openrouter'
+              ? { provider: 'openrouter' as const }
+              : form.provider
+                ? // Unchanged even if the server was removed meanwhile: the daemon refuses with the
+                  // reason, never starts it on the CLI's own login.
+                  { provider: 'custom' as const, customProviderId: form.provider }
+                : {}),
             ...(harness !== 'command' && model ? { model } : {}),
             ...(form.dangerous ? { dangerousMode: true } : {})
           }

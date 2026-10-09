@@ -19,7 +19,9 @@ export interface AgentView {
   cwd: string
   worktree?: { path: string; branch: string }
   command?: string[]
-  provider?: 'openrouter'
+  provider?: 'openrouter' | 'custom'
+  /** `custom`: the user's provider (`nsq provider list`). */
+  customProviderId?: string
   model?: string
   dangerousMode?: boolean
   createdAt: number
@@ -50,7 +52,9 @@ export interface RunSpec {
   cwd: string
   prompt?: string
   worktree?: boolean
-  provider?: 'openrouter'
+  provider?: 'openrouter' | 'custom'
+  /** `custom`: the user's provider (`nsq provider list`). */
+  customProviderId?: string
   model?: string
   dangerousMode?: boolean
   /** `command` harness: argv. */
@@ -80,7 +84,9 @@ export type Request =
       id: string
       dangerousMode?: boolean
       model?: string | null
-      provider?: 'openrouter' | null
+      provider?: 'openrouter' | 'custom' | null
+      /** With `provider: 'custom'`. */
+      customProviderId?: string
     }
   | { t: 'snapshot'; id: string }
   | { t: 'cost'; since?: number }
