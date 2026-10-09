@@ -461,6 +461,8 @@ describe('Updater', () => {
     })
     next.noteStarted()
     expect(next.view()).toMatchObject({ updatedFrom: '0.1.0', state: 'idle' })
+    expect(updateBadge(next.view())?.text).toBe('updated to 0.2.0 (was 0.1.0)')
+    expect(updateBadge(next.view(), Date.now() + 120_000)).toBeNull()
     expect((await next.check()).state).toBe('current') // the cached answer: no new request
   }, 30_000)
 

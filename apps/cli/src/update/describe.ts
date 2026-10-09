@@ -71,7 +71,8 @@ export function describeUpdate(view: UpdateView, now = Date.now()): string[] {
 
 /** One short phrase for the dashboard header, or null when there is nothing to say. */
 export function updateBadge(
-  view: UpdateView | null
+  view: UpdateView | null,
+  now = Date.now()
 ): { text: string; tone: 'info' | 'warn' } | null {
   if (!view) return null
   switch (view.state) {
@@ -101,6 +102,9 @@ export function updateBadge(
     case 'restarting':
       return { text: `restarting on ${view.installed ?? view.latest}…`, tone: 'info' }
     default:
-      return null
+      // Just switched: said for a minute (a toast alone is easily missed or replaced).
+      return view.updatedFrom && view.updatedAt !== undefined && now - view.updatedAt < 60_000
+        ? { text: `updated to ${view.current} (was ${view.updatedFrom})`, tone: 'info' }
+        : null
   }
 }

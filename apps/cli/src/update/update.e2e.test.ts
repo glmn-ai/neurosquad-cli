@@ -252,7 +252,7 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       // Same dashboard process, reconnected to the new daemon.
       expect(
         await until(
-          () => [...seen].some((line) => line.includes('nsq updated to 0.1.2 (was 0.1.1)')),
+          () => [...seen].some((line) => line.includes('updated to 0.1.2 (was 0.1.1)')),
           30_000
         ),
         [
