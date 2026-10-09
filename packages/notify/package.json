@@ -1,6 +1,6 @@
 {
   "name": "@neurosquad/notify",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Native desktop notifications and sound for nsq without Electron: Windows toasts, macOS, Linux (D-Bus), terminal fallback (BEL / OSC 9 / OSC 777).",
   "license": "MIT",
   "author": "NeuroSquad",

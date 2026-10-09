@@ -1,6 +1,6 @@
 {
   "name": "@neurosquad/dictation",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Local, offline voice dictation for terminal apps: global hotkey, microphone capture and sherpa-onnx speech recognition. Audio never leaves the machine.",
   "license": "MIT",
   "author": "NeuroSquad",
