@@ -72,15 +72,18 @@ export interface LaunchPlan {
   openCodeV2?: boolean
 }
 
-/** Keys that interrupt a turn without closing the CLI. */
-export function interruptKeys(harness: HarnessId): string {
+/**
+ * Presses that interrupt a turn without closing the CLI, one write each (`sendPresses`):
+ * OpenCode wants Escape twice, and both in one write read as a single key.
+ */
+export function interruptKeys(harness: HarnessId): readonly string[] {
   switch (harness) {
     case 'claude-code':
     case 'codex-cli':
-      return '\x1b'
+      return ['\x1b']
     case 'opencode':
-      return '\x1b\x1b'
+      return ['\x1b', '\x1b']
     default:
-      return '\x03'
+      return ['\x03']
   }
 }
