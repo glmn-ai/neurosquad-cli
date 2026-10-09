@@ -165,8 +165,9 @@ of, or affiliation with NeuroSquad or nsq.
 - The Codex and OpenCode icons shipped here are under review with their owners.
 - The `command` icon and the `>S` mark are ours.
 
-Users and redistributors who prefer no third-party marks at all can set `logos: "none"`
-(`NSQ_LOGOS=none`) for neutral badges.
+Users and redistributors who prefer no third-party icons or brand colours can set
+`logos: "none"` (`NSQ_LOGOS=none`): every harness then gets its two-letter monogram on a neutral
+chip.
 
 ## Maintainer scripts
 

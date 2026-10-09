@@ -209,7 +209,8 @@ Claude Code, Codex and OpenCode are trademarks of their respective owners. nsq u
 only to describe which CLI an agent runs; this does not imply any partnership with, endorsement of,
 or affiliation with NeuroSquad. Claude Code is shown with a neutral `CC` glyph, at Anthropic's
 request — nsq ships no Claude Code logo. The other CLIs' icons are under review with their owners.
-Prefer no third-party marks at all? Set `NSQ_LOGOS=none` for neutral badges.
+Prefer no third-party icons or brand colours? Set `NSQ_LOGOS=none`: each CLI then gets its
+two-letter monogram on a neutral chip.
 
 ## License
 
