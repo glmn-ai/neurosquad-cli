@@ -98,10 +98,43 @@ nsq set api-fix --dangerous off        # or press d in the dashboard
 
 ## Models
 
-`--model <id>` passes the harness's own model id. `nsq set <agent> --model <id>` changes it
-(`--model none` clears it); like a provider change, it applies on the agent's next start. With
-`--provider openrouter` it takes an OpenRouter slug, and **m** in the dashboard opens OpenRouter's
-catalogue — see [OpenRouter](openrouter.md).
+`--model <id>` passes the harness's own model id (`claude-opus-5-5`, `gpt-5.5`,
+`anthropic/claude-sonnet-4-5` for OpenCode). With `--provider openrouter` it takes an OpenRouter
+slug (`vendor/model`) — see [OpenRouter](openrouter.md).
+
+An OpenRouter slug only exists on OpenRouter: on Claude Code's or Codex's own login it is "model
+not found". So nsq refuses `nsq run claude --model openai/gpt-5` without `--provider openrouter`
+and says so. (OpenCode's own ids are `provider/model` too, so there a slash proves nothing; nsq
+does not guess.)
+
+### Changing the model
+
+**m** in the dashboard opens OpenRouter's catalogue. Picking a model **puts the agent on
+OpenRouter with it**; the first row, **default**, puts it back on the CLI's own login and its
+default model. From the command line:
+
+```sh
+nsq set api-fix --provider openrouter --model openai/gpt-6-sol   # what m does
+nsq set api-fix --provider none --model none                      # what "default" does
+nsq set api-fix --provider none --model claude-opus-5-5           # one of its own models
+```
+
+None of the three CLIs can switch safely inside a running session, so nsq restarts the agent **on
+the same session** — the conversation is kept:
+
+| Agent is…                         | The switch happens                                                              |
+| --------------------------------- | ------------------------------------------------------------------------------- |
+| idle or finished                  | now (after you stop typing into it for a few seconds)                           |
+| working, or waiting for an answer | when the turn ends; prompts queued with `--when-done` then run on the new model |
+| stopped                           | on its next start                                                               |
+
+Why not in the session: Claude Code's `/model <id>` does accept an id, but it asks to confirm the
+switch and **writes the model into your `~/.claude/settings.json`** — every later `claude` you run
+would start on an OpenRouter slug and fail. Codex's `/model` and OpenCode's `/models` are pickers
+that take no id. And a provider change (own login ↔ OpenRouter) needs new environment variables
+(key, base URL) that a running process cannot get. Codex resumes a session on its last turn's
+model, so going back from OpenRouter nsq passes your configured Codex model (or the session's last
+own one) explicitly.
 
 ## Cost
 

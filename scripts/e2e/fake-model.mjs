@@ -20,6 +20,7 @@
 //   node scripts/e2e/fake-model.mjs [--port 0] [--log requests.jsonl]
 import { createServer } from 'node:http'
 import { appendFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 
@@ -485,6 +486,28 @@ function headersOf(req) {
   return out
 }
 
+/**
+ * A fingerprint of a credential header (sha256, 12 hex): a test can tell which key arrived
+ * (`credentialFingerprint('Bearer <key>')`) without the log holding it.
+ */
+export function credentialFingerprint(value) {
+  return createHash('sha256').update(value).digest('hex').slice(0, 12)
+}
+
+function credentialsOf(req) {
+  const out = {}
+  for (const name of SECRET_HEADERS) {
+    const value = req.headers[name]
+    if (typeof value === 'string' && name !== 'cookie') out[name] = credentialFingerprint(value)
+  }
+  return out
+}
+
+/** The scripted prompts the conversation holds (`[nsq:…] text`): shows a resumed session. */
+function promptsIn(data) {
+  return [...new Set(data.match(/\[nsq:[a-z0-9-]+\][^"\\]{0,60}/gi) ?? [])]
+}
+
 export async function startFakeModel({ port = 0, logFile, scenarios = SCENARIOS } = {}) {
   const requests = []
   const server = createServer((req, res) => {
@@ -558,7 +581,9 @@ export async function startFakeModel({ port = 0, logFile, scenarios = SCENARIOS 
       tools: reply.tools?.slice(0, 40),
       replied: reply.tool ? `tool ${reply.tool.name}` : `text ${String(reply.text).slice(0, 60)}`,
       usage: reply.usage,
-      headers: headersOf(req)
+      headers: headersOf(req),
+      credentials: credentialsOf(req),
+      prompts: promptsIn(data)
     })
     if (reply.delayMs) await sleep(reply.delayMs)
     const model = body.model ?? MODEL

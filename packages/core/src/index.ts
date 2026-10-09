@@ -2,6 +2,7 @@
 export * from './harnesses/types.js'
 export * from './harnesses/launch.js'
 export * from './harnesses/claude/hooks.js'
+export * from './harnesses/claude/sessionModels.js'
 export * from './harnesses/codex/hooks.js'
 export * from './harnesses/codex/launch.js'
 export * from './harnesses/codex/config.js'

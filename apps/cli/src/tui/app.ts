@@ -67,6 +67,7 @@ import {
 } from './layout.js'
 import { PickList, TextField, fitText } from './widgets.js'
 import { bindDictation, type DictationBinding } from '../dictation.js'
+import { modelNeedsOpenRouter, modelSwitchText, type ModelSwitchApplied } from '../modelRules.js'
 
 /** Leaves the dashboard's terminal modes: colours, focus, paste, mouse, cursor, alternate screen. */
 const RESTORE = '\x1b[0m\x1b[?1004l\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l'
@@ -117,6 +118,7 @@ const HARNESS_CHOICES: { id: HarnessId; label: string }[] = [
   { id: 'opencode', label: 'OpenCode' },
   { id: 'command', label: 'Command' }
 ]
+const DEFAULT_MODEL_ROW = 'default — the harness’s own login and model'
 const FORM_FIELDS = [
   'harness',
   'name',
@@ -1043,7 +1045,7 @@ export class Dashboard {
           ['i', 'interrupt the turn'],
           ['x / X', 'stop / remove the agent'],
           ['r', 'restart (resumes the session)'],
-          ['m', 'model (OpenRouter models with --provider openrouter)'],
+          ['m', 'model from OpenRouter (switches the agent to it) or "default"'],
           ['d', 'dangerous mode on/off'],
           ['R', 'rename'],
           ['[ ]', 'previous / next page of tiles'],
@@ -1097,8 +1099,8 @@ export class Dashboard {
           ...modal.list.filter.render(r.width - 7, true)
         ])
         if (modal.loading)
-          text(r, 2, [seg('loading the OpenRouter model list…', { fg: 'mutedText', bg: 'tileBg' })])
-        if (modal.error) text(r, 2, [seg(modal.error, { fg: 'danger', bg: 'tileBg' })])
+          text(r, 3, [seg('loading the OpenRouter model list…', { fg: 'mutedText', bg: 'tileBg' })])
+        if (modal.error) text(r, 3, [seg(modal.error, { fg: 'danger', bg: 'tileBg' })])
         const items = modal.list.visible()
         const rows = r.height - 3
         if (modal.list.selected < modal.list.scroll) modal.list.scroll = modal.list.selected
@@ -1108,7 +1110,11 @@ export class Dashboard {
           const sel = modal.list.scroll + i === modal.list.selected
           const bg = sel ? 'selectionBg' : 'tileBg'
           text(r, i + 2, [
-            seg(fitText(` ${item.id}`, Math.floor(r.width * 0.6)), { fg: 'text', bg, bold: sel }),
+            seg(fitText(` ${item.id || item.name}`, Math.floor(r.width * 0.6)), {
+              fg: item.id ? 'text' : 'mutedText',
+              bg,
+              bold: sel
+            }),
             seg(fitText(item.price, r.width - Math.floor(r.width * 0.6)), { fg: 'mutedText', bg })
           ])
         })
@@ -1519,19 +1525,31 @@ export class Dashboard {
           }
         }
         return
-      case 'm':
-        this.openModels(agent.id, (model) =>
+      case 'm': {
+        if (agent.harness === 'command') {
+          this.toastMessage('a command agent has no model to pick')
+          return
+        }
+        // A pick from OpenRouter's list puts the agent on OpenRouter too: on its own login the
+        // harness does not know `vendor/model` slugs ("model not found"). "Default" goes back.
+        this.openModels(agent.id, (picked) => {
+          const model = picked || undefined
+          const provider = model ? ('openrouter' as const) : undefined
           this.request(
             this.client
-              .request({ t: 'set', id: agent.id, model })
-              .then((r) =>
-                (r as { restartNeeded?: boolean }).restartNeeded
-                  ? { warnings: [`model ${model}: applies after a restart (r)`] }
-                  : r
-              )
+              .request<{ applied?: ModelSwitchApplied; warnings?: string[] }>({
+                t: 'set',
+                id: agent.id,
+                model: model ?? null,
+                provider: provider ?? null
+              })
+              .then((r) => ({
+                warnings: [modelSwitchText(model, provider, r.applied), ...(r.warnings ?? [])]
+              }))
           )
-        )
+        })
         return
+      }
     }
   }
 
@@ -1563,8 +1581,10 @@ export class Dashboard {
   }
 
   private openModels(agentId: string | undefined, onPick: (id: string) => void): void {
+    // First row: back to the harness's own login and default model (picked as '').
+    const fallback = { id: '', name: DEFAULT_MODEL_ROW, price: '' }
     const list = new PickList<{ id: string; name: string; price: string }>(
-      [],
+      [fallback],
       (m) => m.id,
       (m) => m.name
     )
@@ -1576,14 +1596,17 @@ export class Dashboard {
       })
       .then(
         (models) => {
-          list.items = models.map((m) => ({
-            id: m.id,
-            name: m.name,
-            price:
-              m.promptPerMTok !== undefined && m.completionPerMTok !== undefined
-                ? `$${m.promptPerMTok} / $${m.completionPerMTok} per M`
-                : ''
-          }))
+          list.items = [
+            fallback,
+            ...models.map((m) => ({
+              id: m.id,
+              name: m.name,
+              price:
+                m.promptPerMTok !== undefined && m.completionPerMTok !== undefined
+                  ? `$${m.promptPerMTok} / $${m.completionPerMTok} per M`
+                  : ''
+            }))
+          ]
           modal.loading = false
           this.schedule()
         },
@@ -1656,7 +1679,8 @@ export class Dashboard {
       this.openModels(undefined, (id) => {
         form.model.value = id
         form.model.cursor = id.length
-        form.openrouter = true
+        // An OpenRouter slug needs OpenRouter; "default" is the harness's own login.
+        form.openrouter = id !== ''
         this.modal = back
       })
       return
@@ -1693,6 +1717,13 @@ export class Dashboard {
       this.toastMessage('a command agent needs a command')
       return
     }
+    const model = form.model.value.trim()
+    let notice: string | undefined
+    if (harness !== 'command' && !form.openrouter && modelNeedsOpenRouter(harness, model)) {
+      // Typed by hand: a `vendor/model` slug only runs through OpenRouter.
+      form.openrouter = true
+      notice = `${model} is an OpenRouter model id: OpenRouter turned on`
+    }
     this.modal = null
     const command =
       harness === 'command'
@@ -1710,14 +1741,14 @@ export class Dashboard {
             ...(command ? { command } : {}),
             ...(form.worktree ? { worktree: true } : {}),
             ...(form.openrouter ? { provider: 'openrouter' as const } : {}),
-            ...(form.model.value.trim() ? { model: form.model.value.trim() } : {}),
+            ...(harness !== 'command' && model ? { model } : {}),
             ...(form.dangerous ? { dangerousMode: true } : {})
           }
         })
         .then((result) => {
           this.noteAgent(result.agent)
           this.selected = result.agent.id
-          return result
+          return notice ? { warnings: [notice, ...result.warnings] } : result
         })
     )
   }

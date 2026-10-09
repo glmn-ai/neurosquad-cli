@@ -13,7 +13,7 @@
 // keys, strings, numbers, booleans, arrays and inline tables — what a Codex
 // config holds. Arrays of tables (`[[x]]`) are skipped; nothing read here
 // lives in one.
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
@@ -206,6 +206,8 @@ export interface CodexUserConfig {
   model?: string
   /** `approvals_reviewer` in effect ("user" | "auto_review" | …). */
   approvalsReviewer?: string
+  /** `model_provider`, from the selected profile if it sets one (absent: Codex's own, `openai`). */
+  modelProvider?: string
   /** Ids of the user's `model_providers` whose `base_url` is OpenRouter's. */
   openRouterProviderIds: string[]
   /** Every id the user's `model_providers` defines. */
@@ -232,8 +234,10 @@ export function codexUserConfigFrom(config: Toml | null): CodexUserConfig {
     .map(([id]) => id)
   const model = str(profile?.model) ?? str(config.model)
   const approvalsReviewer = str(profile?.approvals_reviewer) ?? str(config.approvals_reviewer)
+  const modelProvider = str(profile?.model_provider) ?? str(config.model_provider)
   return {
     ...(model ? { model } : {}),
+    ...(modelProvider ? { modelProvider } : {}),
     ...(approvalsReviewer ? { approvalsReviewer } : {}),
     openRouterProviderIds,
     providerIds: Object.keys(providers)
@@ -255,4 +259,57 @@ export function readCodexUserConfig(home = codexHome()): CodexUserConfig {
   const value = codexUserConfigFrom(text === undefined ? null : parseToml(text))
   cache = { at: Date.now(), home, value }
   return value
+}
+
+/** The rollout file of one Codex session (`sessions/YYYY/MM/DD/rollout-…-<id>.jsonl`), if any. */
+function findRollout(home: string, sessionId: string): string | undefined {
+  const suffix = `${sessionId}.jsonl`
+  const walk = (dir: string, depth: number): string | undefined => {
+    let entries
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+    } catch {
+      return undefined
+    }
+    // Newest first: the date folders sort by name.
+    for (const entry of entries.sort((a, b) => b.name.localeCompare(a.name))) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory() && depth < 3) {
+        const found = walk(path, depth + 1)
+        if (found) return found
+      } else if (entry.isFile() && entry.name.startsWith('rollout-') && entry.name.endsWith(suffix))
+        return path
+    }
+    return undefined
+  }
+  return walk(join(home, 'sessions'), 0)
+}
+
+/**
+ * The model of every turn of a Codex session, oldest first (its rollout's `turn_context`s).
+ * Codex resumes a session on the model its last turn ran on unless `--model` says otherwise,
+ * so a caller switching a session back to the user's own login needs the earlier one.
+ * Never throws; [] when the session has no rollout here.
+ */
+export function codexSessionModels(sessionId: string, home: string = codexHome()): string[] {
+  const file = findRollout(home, sessionId)
+  if (!file) return []
+  let text: string
+  try {
+    text = readFileSync(file, 'utf-8')
+  } catch {
+    return []
+  }
+  const models: string[] = []
+  for (const line of text.split('\n')) {
+    if (!line.includes('"turn_context"')) continue
+    try {
+      const entry = JSON.parse(line) as { type?: string; payload?: { model?: unknown } }
+      if (entry.type === 'turn_context' && typeof entry.payload?.model === 'string')
+        models.push(entry.payload.model)
+    } catch {
+      // a torn last line
+    }
+  }
+  return models
 }

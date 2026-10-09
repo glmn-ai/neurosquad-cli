@@ -24,9 +24,23 @@ nsq run codex --provider openrouter --model openai/gpt-5
 nsq run opencode --provider openrouter --model qwen/qwen3-coder
 ```
 
-In the dashboard: **c** → OpenRouter, and **m** picks a model from the catalogue. To move an
-existing agent: `nsq set <agent> --provider openrouter --model <slug>` (applies on its next start;
-`--provider none` goes back to the CLI's own login).
+In the dashboard: **c** → OpenRouter (**F2** picks from the catalogue; a typed `vendor/model` slug
+switches OpenRouter on by itself). **m** on an existing agent picks a model from the catalogue and
+**switches the agent to OpenRouter** with it, restarted on the same session (the conversation is
+kept; a working agent switches when its turn ends). The first row, **default**, goes back to the
+CLI's own login. The same from the command line:
+`nsq set <agent> --provider openrouter --model <slug>`, and back with
+`nsq set <agent> --provider none --model none` — see
+[Changing the model](agents.md#changing-the-model).
+
+The slug reaches the CLI unchanged: `ANTHROPIC_MODEL` for Claude Code, `--model` for Codex,
+`--model openrouter/<slug>` for OpenCode — which nsq also declares on OpenCode's `openrouter`
+provider, because OpenCode refuses models its catalogue does not list yet ("Model not found").
+
+Codex treats a few slugs as its own models: `openai/gpt-6-*` gets the tool format of Codex's
+GPT-6 models (code mode, tools sent as an `additional_tools` input item) instead of plain function
+tools. Whether OpenRouter's Responses endpoint accepts that could not be checked without a key; if
+such an agent cannot run commands, pick another OpenAI slug (`openai/gpt-5.5`) for Codex.
 
 How each CLI is pointed at OpenRouter (environment variables for Claude Code, a session-only
 provider for Codex, a config layer for OpenCode) is described in

@@ -70,6 +70,12 @@ import { openRouterKey, setSecret, OPENROUTER_SECRET } from './secrets.js'
 import { UsageTracker } from './usage.js'
 import { KEY_GAP_MS, answerKeys, type AnswerKey } from './answers.js'
 import { fetchOpenRouterModels } from './models.js'
+import {
+  checkModelChoice,
+  modelNeedsOpenRouter,
+  ownModelOnResume,
+  type ModelSwitchApplied
+} from '../modelRules.js'
 import { VERSION } from '../version.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
 import { PhoneAccess } from './phone.js'
@@ -102,6 +108,10 @@ interface Runtime {
   tokens?: number
   /** OpenCode 2.x (its plugin asks nsq about dangerous mode on every permission). */
   openCodeV2?: boolean
+  /** When the person last typed or pasted into the agent (a model switch waits for a pause). */
+  lastInputAt?: number
+  /** A model/provider change waiting for the current turn to end (then: restart on the same session). */
+  switchPending?: boolean
 }
 
 interface Client {
@@ -140,6 +150,17 @@ const READY_SETTLE_MS = 1500
 const READY_MARKERS: Partial<Record<AgentRecord['harness'], RegExp>> = {
   opencode: /ctrl\+p commands|Ask anything/
 }
+/** A model switch restarts the harness only after the person has not typed for this long… */
+const SWITCH_QUIET_MS = 3000
+/** …waiting at most this long; still typing then → it waits for the end of the turn instead. */
+const SWITCH_WAIT_MS = 10_000
+
+type ModelSwitchResult = { applied: ModelSwitchApplied; warnings?: string[] }
+
+/** Between the old process's exit and the new start (a test can widen it: NSQ_RESTART_PAUSE_MS). */
+const RESTART_PAUSE_MS = Number(process.env['NSQ_RESTART_PAUSE_MS']) || 800
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export class Daemon {
   private readonly store = new AgentStore()
@@ -254,8 +275,9 @@ export class Daemon {
     // Agents that were running when the daemon stopped come back, resumed.
     for (const record of this.store.all()) {
       if (record.wantRunning) {
-        void this.startAgent(record).catch((error: unknown) =>
-          this.log(`resume of ${record.name} failed: ${String(error)}`)
+        void this.startAgent(record).then(
+          (warnings) => warnings.forEach((warning) => this.log(`${record.name}: ${warning}`)),
+          (error: unknown) => this.log(`resume of ${record.name} failed: ${String(error)}`)
         )
       }
     }
@@ -421,10 +443,14 @@ export class Daemon {
           })
         )
     }
-    if (event.kind === 'finished') {
-      this.scheduleCost(1500)
-      if (!event.error) this.drainQueue(event.agentId)
-    }
+    if (event.kind === 'finished') this.scheduleCost(1500)
+    if (rt.switchPending && (event.kind === 'finished' || event.kind === 'idle')) {
+      // The turn is over (or was interrupted): the model change waiting for it goes in now;
+      // the restart then sends the queued prompts on the new model.
+      void this.applyModelSwitch(event.agentId).catch((error: unknown) =>
+        this.log(`${record.name}: model switch failed: ${String(error)}`)
+      )
+    } else if (event.kind === 'finished' && !event.error) this.drainQueue(event.agentId)
   }
 
   private adoptSession(id: string, sessionId: string): void {
@@ -513,6 +539,24 @@ export class Daemon {
       openCodeV2 = isOpenCodeV2(await openCodeVersionOf(openCodeExecutable(executable)))
       this.rt(record.id).openCodeV2 = openCodeV2
     }
+    // A model only OpenRouter knows on an agent still on its own login (nsq 0.1.1's model
+    // picker left agents like that): the harness would answer "model not found".
+    let launchModel = record.model
+    // Only with no provider at all: another provider (a custom one) has its own id format.
+    if (record.provider === undefined && modelNeedsOpenRouter(record.harness, record.model)) {
+      const model = record.model!
+      if (await openRouterKey()) {
+        record = this.store.update(record.id, { provider: 'openrouter' }) ?? record
+        warnings.push(
+          `${model} is an OpenRouter model id: ${record.name} now runs on OpenRouter (back to its own login: nsq set ${record.name} --provider none --model none)`
+        )
+      } else {
+        launchModel = undefined
+        warnings.push(
+          `${model} is an OpenRouter model id, but there is no OpenRouter key: ${record.name} runs on its own login and default model (nsq openrouter set-key, then nsq set ${record.name} --provider openrouter; or nsq set ${record.name} --model none)`
+        )
+      }
+    }
     const key = record.provider === 'openrouter' ? await openRouterKey() : undefined
     if (record.provider === 'openrouter' && !key) {
       warnings.push(
@@ -524,6 +568,12 @@ export class Daemon {
       record.sessionStarted === true &&
       record.harness !== 'command' &&
       (record.harness === 'claude-code' || record.harnessSessionId !== undefined)
+    if (resumed && record.provider === undefined && !launchModel) {
+      // Back from OpenRouter on the same session: the CLI would resume on the session's slug.
+      const own = ownModelOnResume(record.harness, record.harnessSessionId ?? record.id)
+      if (own.model) launchModel = own.model
+      if (own.warning) warnings.push(`${own.warning} (nsq set ${record.name} --model <id>)`)
+    }
     const rt = this.rt(record.id)
     const hookBase = this.hooks!.baseFor(record.id)
     const context = (resume: boolean): LaunchContext => ({
@@ -533,7 +583,7 @@ export class Daemon {
         ...(resume && record.harnessSessionId ? { harnessSessionId: record.harnessSessionId } : {}),
         ...(record.dangerousMode ? { dangerousMode: true } : {}),
         ...(record.provider ? { provider: record.provider } : {}),
-        ...(record.model ? { model: record.model } : {}),
+        ...(launchModel ? { model: launchModel } : {}),
         ...(record.command ? { command: record.command } : {})
       },
       executable,
@@ -645,7 +695,89 @@ export class Daemon {
     }
   }
 
+  /** Stop, a beat, start again — on the same session where the harness has one. */
+  private async restartAgent(id: string): Promise<string[]> {
+    this.store.update(id, { wantRunning: true })
+    await this.stopAgent(id, true)
+    await sleep(RESTART_PAUSE_MS)
+    // Stopped (or removed) during the pause: that stop wins, nothing starts.
+    const record = this.store.get(id)
+    if (!record?.wantRunning) return []
+    return this.startAgent(record)
+  }
+
+  /** Model switches in flight, per agent: a second request joins the first instead of racing it. */
+  private readonly switching = new Map<string, Promise<ModelSwitchResult>>()
+
+  /**
+   * Puts an agent's stored model/provider into effect: a restart on the same session, now if
+   * the agent is not mid-turn and the person is not typing into it, else once the turn ends.
+   * One at a time per agent; the restart reads the record when it happens, so a change made
+   * meanwhile is not lost (and a change during the restart restarts once more).
+   */
+  private applyModelSwitch(id: string): Promise<ModelSwitchResult> {
+    const inFlight = this.switching.get(id)
+    if (inFlight) return inFlight
+    const run = this.applyModelSwitchNow(id).finally(() => this.switching.delete(id))
+    this.switching.set(id, run)
+    return run
+  }
+
+  private async applyModelSwitchNow(id: string): Promise<ModelSwitchResult> {
+    const rt = this.rt(id)
+    if (!this.ptys.isRunning(id)) {
+      rt.switchPending = false
+      return { applied: 'next-start' }
+    }
+    const deadline = Date.now() + SWITCH_WAIT_MS
+    for (;;) {
+      if (rt.status === 'working' || rt.status === 'needs-input') {
+        rt.switchPending = true
+        return { applied: 'after-turn' }
+      }
+      if (Date.now() >= deadline) {
+        // Still typing, nothing submitted: no status event may come to pick the switch up.
+        rt.switchPending = true
+        setTimeout(() => {
+          if (rt.switchPending)
+            void this.applyModelSwitch(id).catch((error: unknown) =>
+              this.log(`model switch failed: ${String(error)}`)
+            )
+        }, SWITCH_QUIET_MS).unref?.()
+        return { applied: 'after-turn' }
+      }
+      const quietFor = Date.now() - (rt.lastInputAt ?? 0)
+      if (quietFor >= SWITCH_QUIET_MS) break
+      await sleep(Math.min(500, SWITCH_QUIET_MS - quietFor))
+    }
+    rt.switchPending = false
+    const warnings: string[] = []
+    for (;;) {
+      const record = this.store.get(id)
+      if (!record) return { applied: 'now' }
+      // Stopped (or exited) while waiting: the new model applies on the next start.
+      if (!record.wantRunning || !this.ptys.isRunning(id)) return { applied: 'next-start' }
+      const launched = `${record.provider ?? ''} ${record.model ?? ''}`
+      this.log(
+        `${record.name}: model ${record.model ?? 'default'}${record.provider === 'openrouter' ? ' on OpenRouter' : ''}: restarting on the same session`
+      )
+      warnings.splice(0, warnings.length, ...(await this.restartAgent(id)))
+      if (!this.ptys.isRunning(id)) return { applied: 'next-start' }
+      const now = this.store.get(id)
+      if (!now || `${now.provider ?? ''} ${now.model ?? ''}` === launched) break
+    }
+    // Prompts queued for the end of the turn go to the restarted harness once it is ready.
+    const next = rt.queue.shift()
+    if (next !== undefined) {
+      rt.pendingPrompt = next
+      this.deliverWhenReady(id)
+      this.pushAgent(id)
+    }
+    return { applied: 'now', ...(warnings.length ? { warnings } : {}) }
+  }
+
   private async createAgent(spec: RunSpec): Promise<{ agent: AgentView; warnings: string[] }> {
+    checkModelChoice(spec.harness, spec.provider, spec.model)
     const id = randomUUID()
     const workspace = spec.cwd
     if (!existsSync(workspace) || !statSync(workspace).isDirectory()) {
@@ -995,12 +1127,14 @@ export class Daemon {
         return this.createAgent(message.spec)
       case 'input': {
         const record = this.need(message.id)
+        this.rt(record.id).lastInputAt = Date.now()
         this.ptys.write(record.id, message.data)
         noteUserInput(record.id, message.data)
         return undefined
       }
       case 'paste': {
         const record = this.need(message.id)
+        this.rt(record.id).lastInputAt = Date.now()
         if (!this.ptys.paste(record.id, message.text))
           throw new Error(`${record.name} is not running`)
         return undefined
@@ -1040,9 +1174,7 @@ export class Daemon {
       }
       case 'restart': {
         const record = this.need(message.id)
-        await this.stopAgent(record.id, true)
-        await new Promise((resolve) => setTimeout(resolve, 800))
-        return { warnings: await this.startAgent(this.store.get(record.id)!) }
+        return { warnings: await this.restartAgent(record.id) }
       }
       case 'remove': {
         const record = this.need(message.id)
@@ -1063,8 +1195,20 @@ export class Daemon {
           patch.dangerousMode = message.dangerousMode || undefined
         if (message.model !== undefined) patch.model = message.model ?? undefined
         if (message.provider !== undefined) patch.provider = message.provider ?? undefined
+        const provider = 'provider' in patch ? patch.provider : record.provider
+        const model = 'model' in patch ? patch.model : record.model
+        checkModelChoice(record.harness, provider, model, message.provider === null)
         this.store.update(record.id, patch)
         this.pushAgent(record.id)
+        if (
+          record.harness !== 'command' &&
+          (provider !== record.provider || model !== record.model)
+        ) {
+          // The model and the provider are fixed when the harness starts (flags, env), and no
+          // harness has a safe in-session switch (docs/guide/agents.md, "Models"): restart it on the same
+          // session as soon as it is not mid-turn — the conversation is kept.
+          return { restartNeeded: false, ...(await this.applyModelSwitch(record.id)) }
+        }
         // Claude Code's dangerous mode is live; a model or provider applies on the next start.
         // (`patch.dangerousMode` is undefined for "off": test the request, not the patch.)
         const live =

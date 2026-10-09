@@ -85,7 +85,7 @@ Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/
 | c                      | start an agent (harness, name, prompt, folder, worktree, model…)   |
 | i · x · X              | interrupt · stop · remove                                          |
 | r · R · d              | restart (resumes the session) · rename · dangerous mode on/off     |
-| m                      | pick a model (OpenRouter's catalogue)                              |
+| m                      | pick a model on OpenRouter (switches the agent to it) or "default" |
 | v                      | dictate into the agent (also a global hotkey) — pasted, never sent |
 | p                      | phones: who is connected                                           |
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)        |
@@ -133,7 +133,9 @@ nsq openrouter models qwen             # search the catalogue
 
 The key only ever goes into the agent's environment — never argv, logs or files. Requests carry
 NeuroSquad's OpenRouter app attribution headers. Without a key, an agent runs on its CLI's own
-login. Details: [docs/guide/openrouter.md](docs/guide/openrouter.md).
+login. **m** in the dashboard picks a model and switches the agent to OpenRouter (restarted on the
+same session, the conversation kept); "default" goes back. Details:
+[docs/guide/openrouter.md](docs/guide/openrouter.md).
 
 ## Phone (experimental)
 
