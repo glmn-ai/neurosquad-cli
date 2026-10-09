@@ -72,7 +72,8 @@ export async function cmdCloud(verb: 'login' | 'logout' | 'whoami'): Promise<voi
     })
     out(`signed in as ${status.user.email}`)
   } catch (error) {
-    if (error instanceof LoginError) throw new Error(`sign-in failed: ${error.message}`)
+    if (error instanceof LoginError)
+      throw new Error(`sign-in failed: ${error.message}`, { cause: error })
     throw error
   } finally {
     process.off('SIGINT', onSigint)

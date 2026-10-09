@@ -614,7 +614,7 @@ export class Updater {
     this.set('installing')
     this.log(`installing ${target} (running ${this.options.version}): ${command.display}`)
     let exitCode: number | null = null
-    let output = ''
+    let output: string
     // While this process waits on the installer it keeps the lock fresh: only a lock nobody has
     // touched for longer than any install may take is treated as stale (see takeLock).
     const heartbeat = setInterval(() => {
@@ -673,7 +673,7 @@ export class Updater {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
         const pid = Number.parseInt(readFileSync(this.lockFile, 'utf8'), 10)
-        let age = 0
+        let age: number
         try {
           age = Date.now() - statSync(this.lockFile).mtimeMs
         } catch {

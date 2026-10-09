@@ -235,7 +235,7 @@ if (channel === 'homebrew' || channel === 'scoop') {
     execFileSync('winget', ['validate', '--manifest', out], { stdio: 'inherit' })
   } catch (error) {
     if (error.code === 'ENOENT') console.log('winget: `winget` not found — skipped validation')
-    else throw new Error('winget validate failed')
+    else throw new Error('winget validate failed', { cause: error })
   }
   console.log(
     'Next: open the PR to microsoft/winget-pkgs (manifests/n/NeuroSquad/CLI/<version>/) — RELEASING.md, "winget".'

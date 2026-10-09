@@ -550,7 +550,7 @@ export async function startFakeModel({
       requests.length = 0
       return json(res, 200, { ok: true })
     }
-    let body = {}
+    let body
     try {
       body = data ? JSON.parse(data) : {}
     } catch {
