@@ -1,6 +1,6 @@
 {
   "name": "@neurosquad/tui-theme",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "The NeuroSquad look for terminal UIs: palette with colour-depth downgrade, status glyphs, borders, the >S wordmark, harness logos (kitty / iTerm2 / sixel or glyphs) and frame-based animations.",
   "license": "MIT",
   "author": "NeuroSquad",
