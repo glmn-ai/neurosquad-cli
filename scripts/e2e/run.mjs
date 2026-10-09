@@ -26,7 +26,15 @@
 //   node scripts/e2e/run.mjs --harness claude|codex|opencode|all
 //        [--work <scratch dir>] [--bin <dir with the CLIs>] [--only hello,perm]
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startFakeModel, credentialFingerprint, PERM_DIR, STEP_USAGE } from './fake-model.mjs'
@@ -527,7 +535,7 @@ try {
           `${short}: the update was installed in the background (npm -g, same prefix)`,
           calls.length === 1 &&
             calls[0].includes('neurosquad@0.1.1') &&
-            calls[0].includes(copy.prefix),
+            calls[0].includes(realpathSync(copy.prefix)),
           calls
         )
         check(`${short}: the daemon restarted onto 0.1.1 by itself (agent idle)`, after !== null, {

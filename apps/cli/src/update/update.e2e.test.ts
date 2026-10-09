@@ -3,7 +3,7 @@
 // it in the background, does NOT restart while an agent would be lost, restarts onto it once
 // nothing is in the way, and comes back on the new version. Needs the built CLI (`npm run build`).
 import { spawn } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -143,7 +143,8 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
         'install',
         '--global',
         '--prefix',
-        fixture.prefix,
+        // The daemon sees its real path (macOS: /private/var/…).
+        realpathSync(fixture.prefix),
         'neurosquad@0.1.1'
       ])
     )
@@ -193,7 +194,11 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       cwd: work,
       env: env() as Record<string, string>
     })
-    dashboard.onData((data) => term.write(data))
+    let raw = ''
+    dashboard.onData((data) => {
+      raw = (raw + data).slice(-20_000)
+      term.write(data)
+    })
     const screen = (): string => {
       const lines: string[] = []
       for (let i = 0; i < term.rows; i++) {
@@ -205,20 +210,23 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       return lines.join('\n')
     }
     try {
-      expect(await until(() => screen().includes('keep'), 20_000)).toBe(true)
+      expect(await until(() => screen().includes('keep'), 20_000), screen()).toBe(true)
 
       // A new release, installed by hand while the dashboard is open: the header says so.
       registry.setLatest('0.1.2')
       const update = await nsq('update')
       expect(update.stdout).toMatch(/0\.1\.2 is installed/)
-      expect(await until(() => screen().includes('updated to 0.1.2 · U restart'), 20_000)).toBe(
-        true
-      )
+      expect(
+        await until(() => screen().includes('updated to 0.1.2 · U restart'), 20_000),
+        screen()
+      ).toBe(true)
       // The dashboard is open: no restart on its own.
       expect(daemonState()?.pid).toBe(before?.pid)
 
       dashboard.write('U')
-      expect(await until(() => screen().includes('Restart nsq on 0.1.2?'), 10_000)).toBe(true)
+      expect(await until(() => screen().includes('Restart nsq on 0.1.2?'), 10_000), screen()).toBe(
+        true
+      )
       expect(screen()).toMatch(/Commands start over: keep/)
       dashboard.write('y')
       expect(
@@ -228,9 +236,10 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
         }, 60_000)
       ).toBe(true)
       // Same dashboard process, reconnected to the new daemon.
-      expect(await until(() => screen().includes('nsq updated to 0.1.2 (was 0.1.1)'), 30_000)).toBe(
-        true
-      )
+      expect(
+        await until(() => screen().includes('nsq updated to 0.1.2 (was 0.1.1)'), 30_000),
+        `${screen()}\n--- raw tail ---\n${JSON.stringify(raw.slice(-3000))}`
+      ).toBe(true)
       expect(
         await until(() => {
           const agents = JSON.parse(readFileSync(join(home, 'agents.json'), 'utf8')) as unknown
