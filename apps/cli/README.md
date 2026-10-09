@@ -1,5 +1,8 @@
 # nsq — NeuroSquad CLI
 
+> **Preview (0.1).** Works day to day on Windows, macOS and Linux with Claude Code, Codex and
+> OpenCode; commands and the on-disk format may still change before 1.0.
+
 Run several AI coding agents in your terminal and stop babysitting them: `nsq` starts Claude Code,
 Codex, OpenCode or any command, keeps them running in a background daemon, and tells you — with
 the question — when one needs you.
