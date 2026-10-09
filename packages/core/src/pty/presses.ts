@@ -6,7 +6,8 @@ export const KEY_PRESS_GAP_MS = 250
 
 /**
  * Writes the first press now and each next one `gapMs` later, while `live()` still holds (the
- * agent may have exited or restarted meanwhile). A write that throws (a closing pty) ends it.
+ * agent may have exited or restarted meanwhile). The first write's error reaches the caller (no
+ * key was delivered); a later one that throws (a closing pty) just ends the sequence.
  */
 export function sendPresses(
   presses: readonly string[],
@@ -16,10 +17,13 @@ export function sendPresses(
 ): void {
   const next = (index: number): void => {
     if (index >= presses.length || (index > 0 && !live())) return
-    try {
-      write(presses[index])
-    } catch {
-      return
+    if (index === 0) write(presses[0])
+    else {
+      try {
+        write(presses[index])
+      } catch {
+        return
+      }
     }
     if (index + 1 < presses.length) {
       const timer = setTimeout(() => next(index + 1), gapMs)

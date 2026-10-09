@@ -35,18 +35,31 @@ describe('sendPresses', () => {
     expect(writes).toEqual(['a', 'b'])
   })
 
-  it('stops after a write that throws', () => {
+  it('reports a failed first press to the caller (nothing was delivered)', () => {
+    expect(() =>
+      sendPresses(
+        ['a', 'b'],
+        () => {
+          throw new Error('closed')
+        },
+        () => true
+      )
+    ).toThrow('closed')
+  })
+
+  it('stops after a later write that throws', () => {
     const writes: string[] = []
     sendPresses(
-      ['a', 'b'],
+      ['a', 'b', 'c'],
       (data) => {
         writes.push(data)
-        throw new Error('closed')
+        if (data === 'b') throw new Error('closed')
       },
-      () => true
+      () => true,
+      100
     )
     vi.advanceTimersByTime(1000)
-    expect(writes).toEqual(['a'])
+    expect(writes).toEqual(['a', 'b'])
   })
 })
 
