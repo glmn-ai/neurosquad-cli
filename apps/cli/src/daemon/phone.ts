@@ -53,6 +53,19 @@ export interface PhoneSettings {
   refreshCloudflared?: boolean
 }
 
+/**
+ * Why an automatic update must not restart the daemon now, as far as phone access goes: a quick
+ * tunnel does not come back after a restart (a new address nobody has), so someone away from home
+ * would silently lose the phone. A named tunnel comes back at the same address.
+ */
+export function quickTunnelBlocker(status: Pick<PhoneStatus, 'online'>): string | undefined {
+  const online = status.online
+  if (!online || online.mode === 'named' || online.state === 'error' || online.state === 'off') {
+    return undefined
+  }
+  return 'phone access is online through a quick tunnel (its address would be lost)'
+}
+
 /** A later phone request (or `off`) took over while this one was still going online. */
 export class PhoneSuperseded extends Error {
   constructor() {

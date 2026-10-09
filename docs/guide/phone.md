@@ -47,7 +47,7 @@ phone. **Anyone with this link and token can control your agents**, so treat it 
 
 - **The address changes every time the tunnel starts** — after `nsq phone on --online` again, a
   restart of the daemon or `nsq down`, pair the phone again (`nsq phone pair` prints the current
-  link and QR). A quick tunnel is never brought back on its own: going online is explicit, every time.
+  link and QR). A quick tunnel is never brought back on its own: going online is explicit, every time. For the same reason an automatic update waits while a quick tunnel is on ([updates](updates.md)).
 - **Turn it off** with `nsq phone off` (all phone access), or `nsq phone on` without `--online`
   (back to this machine / the Wi-Fi only). The tunnel also stops with `nsq down`. In the dashboard,
   **O** switches online on and off (with the same warning; it uses your named tunnel if you set one

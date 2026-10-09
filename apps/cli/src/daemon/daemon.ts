@@ -79,7 +79,7 @@ import {
 import { PACKAGE_DIR, PACKAGE_NAME, VERSION } from '../version.js'
 import { Updater, type UpdateView } from '../update/updater.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
-import { PhoneAccess, PhoneSuperseded } from './phone.js'
+import { PhoneAccess, PhoneSuperseded, quickTunnelBlocker } from './phone.js'
 import { NtfyPush } from './push.js'
 import { lanAddresses } from '@neurosquad/remote'
 
@@ -1405,6 +1405,8 @@ export class Daemon {
     const windows = [...this.clients].filter((client) => client.authed).length
     if (windows) blockers.push(`${windows} nsq window${windows === 1 ? ' is' : 's are'} open`)
     if (this.phone.status().connections) blockers.push('a phone is connected')
+    const tunnel = quickTunnelBlocker(this.phone.status())
+    if (tunnel) blockers.push(tunnel)
     if (this.lastInputAt && Date.now() - this.lastInputAt < UPDATE_QUIET_MS) {
       blockers.push('an agent got input in the last 5 minutes')
     }
