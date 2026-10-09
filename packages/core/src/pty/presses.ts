@@ -7,7 +7,8 @@ export const KEY_PRESS_GAP_MS = 250
 /**
  * Writes the first press now and each next one `gapMs` later, while `live()` still holds (the
  * agent may have exited or restarted meanwhile). The first write's error reaches the caller (no
- * key was delivered); a later one that throws (a closing pty) just ends the sequence.
+ * key was delivered); a later one that throws (a closing pty) just ends the sequence. `live()` is
+ * consulted only before the later presses: the caller makes sure the target is live for the first.
  */
 export function sendPresses(
   presses: readonly string[],
