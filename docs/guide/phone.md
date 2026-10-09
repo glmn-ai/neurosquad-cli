@@ -1,7 +1,7 @@
 # Phone (experimental)
 
-> **Experimental in 0.1.0.** Phone access is the newest part of nsq; its page and commands may
-> change in the next releases.
+> **Experimental in 0.1.0.** Phone access is the newest part of nsq; its page, commands and push
+> options may change in the next releases.
 
 From a phone you can see the agents, read their screens, send a prompt, answer a permission prompt
 and interrupt a turn.
@@ -18,8 +18,6 @@ their status and pending question. Tap an agent to read its screen, type a promp
 **yes / always / no**, or stop the current turn. A prompt sent to a busy agent is delivered when its
 turn ends.
 
-The page updates while it is open; nsq 0.1.0 sends no push notifications to the phone.
-
 The phone has to reach your computer: the same Wi-Fi, or a network you already have between them
 (a VPN such as Tailscale, an SSH tunnel). Without `--lan`, nsq listens on this machine only. The
 choice and the port are remembered: after one `nsq phone on --lan`, a plain `nsq phone on` stays
@@ -32,6 +30,33 @@ nsq phone off
 ```
 
 In the dashboard, **p** shows the connected phones — who is connected is always visible.
+
+## Push notifications (optional)
+
+The phone page only shows updates while it is open. To get a notification on the phone when an
+agent needs you, nsq can push through [ntfy](https://ntfy.sh), either the public ntfy.sh server or
+your own. Push is off by default.
+
+```sh
+nsq phone push ntfy                                   # a new random topic on ntfy.sh
+nsq phone push ntfy https://ntfy.example.com/my-topic --token tk_…   # your server / topic
+nsq phone push test                                   # send a test notification
+nsq phone push show                                   # print the topic URL
+nsq phone push                                        # status: on/off, which server
+nsq phone push off
+```
+
+`nsq phone push ntfy` prints the topic URL; subscribe to it in the ntfy app. Anyone who knows the
+topic URL can read it, so treat it like a password. The URL and the optional access token are kept
+in the OS keyring, not in `config.json` or the log (where there is no keyring, set `NSQ_NTFY_URL`
+and `NSQ_NTFY_TOKEN` in the daemon's environment). The URL must be https; plain http is accepted
+only for this machine or a local network address.
+
+What a push contains: the title `<agent> needs you` and the agent's question (cut to 300
+characters, control characters removed). Nothing else from the terminal is sent. Pushes only go out
+for "needs you", not for "finished". The same question from the same agent is pushed at most once
+per 30 seconds. Push works whether or not `nsq phone on` is set. When phone access is on with `--lan`, tapping the notification opens the phone page
+(the link does not include the token).
 
 ## Security
 

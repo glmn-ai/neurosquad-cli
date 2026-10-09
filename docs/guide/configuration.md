@@ -27,22 +27,23 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 
 ## Environment variables
 
-| Variable                  | What                                                                                                |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| `NSQ_HOME`                | where nsq keeps its data (default `~/.neurosquad-cli`); each home has its own daemon                |
-| `OPENROUTER_API_KEY`      | the OpenRouter key when there is no OS keyring ([OpenRouter](openrouter.md))                        |
-| `NSQ_NO_ANIMATION=1`      | no animations (`NSQ_ANIMATION=1` forces them on, e.g. over SSH)                                     |
-| `NSQ_LOGOS`               | `images`, `glyphs` or `none` — overrides the logo style                                             |
-| `NSQ_IMAGES=0`            | never draw images in the terminal                                                                   |
-| `NSQ_COLOR`               | `truecolor`, `256`, `16` or `none`; otherwise detected (`NO_COLOR` and `FORCE_COLOR` are respected) |
-| `NSQ_GLYPHS`              | `ascii` or `unicode` — the set used for borders and status glyphs                                   |
-| `NSQ_AMBIGUOUS_WIDE=1`    | for CJK terminals set to "ambiguous width = wide": switches to ASCII so borders line up             |
-| `NSQ_NO_NOTIFY=1`         | notifications off: no desktop notifications, and the dashboard does not ring its terminal either    |
-| `NSQ_OPENROUTER_BASE_URL` | another OpenRouter-compatible API base (`…/api/v1`)                                                 |
-| `NSQ_NO_BROWSER=1`        | `nsq login` prints the link instead of opening a browser                                            |
+| Variable                         | What                                                                                                |
+| -------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `NSQ_HOME`                       | where nsq keeps its data (default `~/.neurosquad-cli`); each home has its own daemon                |
+| `OPENROUTER_API_KEY`             | the OpenRouter key when there is no OS keyring ([OpenRouter](openrouter.md))                        |
+| `NSQ_NO_ANIMATION=1`             | no animations (`NSQ_ANIMATION=1` forces them on, e.g. over SSH)                                     |
+| `NSQ_LOGOS`                      | `images`, `glyphs` or `none` — overrides the logo style                                             |
+| `NSQ_IMAGES=0`                   | never draw images in the terminal                                                                   |
+| `NSQ_COLOR`                      | `truecolor`, `256`, `16` or `none`; otherwise detected (`NO_COLOR` and `FORCE_COLOR` are respected) |
+| `NSQ_GLYPHS`                     | `ascii` or `unicode` — the set used for borders and status glyphs                                   |
+| `NSQ_AMBIGUOUS_WIDE=1`           | for CJK terminals set to "ambiguous width = wide": switches to ASCII so borders line up             |
+| `NSQ_NO_NOTIFY=1`                | notifications off: no desktop notifications, and the dashboard does not ring its terminal either    |
+| `NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN` | the ntfy push topic URL and token when there is no OS keyring ([phone](phone.md))                   |
+| `NSQ_OPENROUTER_BASE_URL`        | another OpenRouter-compatible API base (`…/api/v1`)                                                 |
+| `NSQ_NO_BROWSER=1`               | `nsq login` prints the link instead of opening a browser                                            |
 
 Variables that affect the daemon (`OPENROUTER_API_KEY`, `NSQ_OPENROUTER_BASE_URL`, `NSQ_NO_NOTIFY`,
-`NSQ_HOME`) must be set
+`NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN`, `NSQ_HOME`) must be set
 where the daemon starts — the first `nsq` command that needs it — or restart it with `nsq down` /
 `nsq up`.
 
@@ -61,7 +62,7 @@ where the daemon starts — the first `nsq` command that needs it — or restart
 | `cloud.json`                     | account state when signed in (no tokens)                         |
 | `nsq.sock`                       | the daemon socket on macOS/Linux when `XDG_RUNTIME_DIR` is unset |
 
-Secrets (the OpenRouter key, the optional account session) are kept
+Secrets (the OpenRouter key, the ntfy push topic and token, the optional account session) are kept
 in the OS keyring, not in
 these files. The CLIs keep their own data (sessions, transcripts, logins) where they always do.
 
