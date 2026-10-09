@@ -620,11 +620,28 @@ export function readSecretLine(prompt: string): Promise<string> {
         else line += char
       }
     }
+    // Whatever ends the prompt — a line, Ctrl+C, a signal, the process exiting — the terminal
+    // leaves raw mode.
+    const restore = (): void => {
+      try {
+        stdin.setRawMode(false)
+      } catch {
+        // stdin already gone
+      }
+    }
+    const onSignal = (signal: NodeJS.Signals): void => {
+      cleanup()
+      process.kill(process.pid, signal)
+    }
     const cleanup = (): void => {
       stdin.off('data', onData)
-      stdin.setRawMode(false)
+      process.off('exit', restore)
+      for (const signal of ['SIGTERM', 'SIGHUP'] as const) process.off(signal, onSignal)
+      restore()
       stdin.pause()
     }
+    process.once('exit', restore)
+    for (const signal of ['SIGTERM', 'SIGHUP'] as const) process.once(signal, onSignal)
     stdin.on('data', onData)
   })
 }
