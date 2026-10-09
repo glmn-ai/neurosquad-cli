@@ -162,7 +162,7 @@ of, or affiliation with NeuroSquad or nsq.
 
 - **Claude Code** is shown with a neutral `CC` glyph (light grey on dark grey), at Anthropic's
   request: this package ships no Claude Code logo, image or brand colour.
-- The Codex and OpenCode icons shipped here are under review with their owners.
+- The Codex and OpenCode icons shipped here only identify those CLIs; we remove one if its owner asks.
 - The `command` icon and the `>S` mark are ours.
 
 Users and redistributors who prefer no third-party icons or brand colours can set

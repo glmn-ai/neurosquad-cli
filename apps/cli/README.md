@@ -89,4 +89,4 @@ Everything lives in `~/.neurosquad-cli` (`NSQ_HOME` to move it). No telemetry; t
 
 MIT licensed. Harness names are trademarks of their owners, used only to describe which CLI an
 agent runs. Claude Code is shown with a neutral `CC` glyph at Anthropic's request; the other CLIs'
-icons are under review with their owners.
+icons are shown only to identify them, and we remove one if its owner asks.
