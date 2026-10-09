@@ -1,5 +1,27 @@
 # neurosquad
 
+## 0.1.2
+
+### Patch Changes
+
+- [#44](https://github.com/glmn-ai/neurosquad-cli/pull/44) [`590ad8d`](https://github.com/glmn-ai/neurosquad-cli/commit/590ad8db4411b24bc2fb65cf04cc442a8f78a7d4) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - The Claude Code badge is a `CC` monogram on Claude's orange instead of grey: white on `#d97757` in truecolor, 231 on 173 at 256 colours, and bright white on red at 16 colours (the only badge filled at 16 colours, through a new optional `ansi16` pair on `HarnessLogo`). Still no Claude Code logo; `NSQ_LOGOS=none` stays neutral.
+
+- [#35](https://github.com/glmn-ai/neurosquad-cli/pull/35) [`0393c23`](https://github.com/glmn-ai/neurosquad-cli/commit/0393c23fcd1befc68c310da8e2bdc89bcff5b897) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Claude Code is shown with a `CC` monogram glyph in every logo mode, at Anthropic's request: the Claude Code logo images are no longer shipped, and `logoImage('claude-code', …)` returns `undefined` so the glyph badge stays. The trademark notes now say that harness names are used only to describe which CLI an agent runs.
+
+- [#41](https://github.com/glmn-ai/neurosquad-cli/pull/41) [`95095f9`](https://github.com/glmn-ai/neurosquad-cli/commit/95095f9709e042a238c6025a5016dff7e1b4b774) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Fix "model not found" with OpenRouter models. Picking a model with **m** now switches the agent
+  to OpenRouter with it (before, only the model changed, and the CLI got an OpenRouter slug on its
+  own login); the first row, "default", goes back to the CLI's own login. The switch restarts the
+  agent on the same session — at once when it is idle, after the turn when it is working — so the
+  conversation is kept. `nsq run`/`nsq set` refuse an OpenRouter slug without `--provider openrouter`
+  (and a native id on OpenRouter) with the fix; the New agent form switches OpenRouter on for a
+  typed `vendor/model` slug; agents saved with a slug and no provider move to OpenRouter at start
+  when a key is available. OpenCode on OpenRouter declares the model, so slugs newer than its
+  catalogue run. Back on the own login, Claude Code and Codex no longer resume on the session's
+  OpenRouter slug.
+- Updated dependencies [[`590ad8d`](https://github.com/glmn-ai/neurosquad-cli/commit/590ad8db4411b24bc2fb65cf04cc442a8f78a7d4), [`0393c23`](https://github.com/glmn-ai/neurosquad-cli/commit/0393c23fcd1befc68c310da8e2bdc89bcff5b897), [`95095f9`](https://github.com/glmn-ai/neurosquad-cli/commit/95095f9709e042a238c6025a5016dff7e1b4b774)]:
+  - @neurosquad/tui-theme@0.1.1
+  - @neurosquad/core@0.1.1
+
 ## 0.1.1
 
 ### Patch Changes
