@@ -16,6 +16,7 @@ import {
   compactMark,
   createTheme,
   detectGraphicsFromEnv,
+  queryGraphics,
   frame,
   glyphSet,
   isRemoteSession,
@@ -141,7 +142,7 @@ export class Dashboard {
   private readonly screens = new Map<string, AgentScreen>()
   private readonly detachKey: string
   private readonly motion: animations.MotionPolicy
-  private readonly graphics: ReturnType<typeof detectGraphicsFromEnv>
+  private graphics: ReturnType<typeof detectGraphicsFromEnv>
   private selected: string | null = null
   private expanded: string | null = null
   private page = 0
@@ -200,13 +201,41 @@ export class Dashboard {
   // ---- lifecycle --------------------------------------------------------------------
 
   async run(): Promise<void> {
+    // Image logos: known terminals come from the environment; the rest (Windows Terminal, VS Code,
+    // Konsole…) are asked once. The probe never holds the first frame back: it owns stdin for at
+    // most its timeout (150 ms), then our input handler takes over with whatever was typed meanwhile.
+    const probing =
+      this.graphics.source === 'unknown' && this.theme.logos === 'images' && this.stdin.isTTY
+        ? queryGraphics(this.stdin, this.stdout, { tmux: this.graphics.tmux })
+        : null
     this.stdout.write(
       '\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?1004h\x1b[2J'
     )
-    if (this.stdin.isTTY) this.stdin.setRawMode(true)
-    this.stdin.setEncoding('utf8')
-    this.stdin.resume()
-    this.stdin.on('data', this.onInput)
+    const takeInput = (typedMeanwhile: string): void => {
+      if (this.closed) return
+      if (this.stdin.isTTY) this.stdin.setRawMode(true)
+      this.stdin.setEncoding('utf8')
+      this.stdin.resume()
+      this.stdin.on('data', this.onInput)
+      if (typedMeanwhile) this.onInput(typedMeanwhile)
+    }
+    if (probing) {
+      void probing.then((probe) => {
+        if (!this.closed && probe.protocol !== 'none') {
+          this.graphics = {
+            protocol: probe.protocol,
+            source: 'query',
+            tmux: this.graphics.tmux,
+            reason: 'the terminal answered the graphics probe'
+          }
+          this.prev = undefined // repaint everything once, now with the logos
+          this.schedule()
+        }
+        takeInput(probe.rest)
+      })
+    } else {
+      takeInput('')
+    }
     this.stdout.on('resize', this.onResize)
     const off = this.client.on((event) => this.onEvent(event))
     this.client.onClose(() => this.quit('the daemon stopped'))

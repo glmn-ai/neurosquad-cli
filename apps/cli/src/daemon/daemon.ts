@@ -94,6 +94,8 @@ interface Runtime {
   costPico?: string
   unpriced?: number
   tokens?: number
+  /** OpenCode 2.x (its plugin asks nsq about dangerous mode on every permission). */
+  openCodeV2?: boolean
 }
 
 interface Client {
@@ -344,6 +346,10 @@ export class Daemon {
 
   // ---- status ------------------------------------------------------------------------
 
+  private notificationsOff(): boolean {
+    return this.config.notifications === false || process.env['NSQ_NO_NOTIFY'] === '1'
+  }
+
   private onStatus(event: AgentHookEvent): void {
     const record = this.store.get(event.agentId)
     if (!record) return
@@ -354,9 +360,10 @@ export class Daemon {
     this.pushAgent(event.agentId)
     const decision = decideNotification(event)
     if (decision?.action === 'close') this.notifier.close(event.agentId)
-    if (decision?.action === 'show') {
+    // The dashboard rings its terminal unless a desktop notification was actually shown;
+    // notifications switched off (config or NSQ_NO_NOTIFY=1) means no bell either.
+    if (decision?.action === 'show' && !this.notificationsOff()) {
       const text = notificationText(record.name, decision.kind, decision.detail)
-      // The dashboard rings its terminal unless a desktop notification was actually shown.
       void this.notifier
         .show(event.agentId, text.title, text.body, decision.kind, this.config.sound !== false)
         .then((via) =>
@@ -459,6 +466,7 @@ export class Daemon {
     let openCodeV2 = false
     if (record.harness === 'opencode') {
       openCodeV2 = isOpenCodeV2(await openCodeVersionOf(openCodeExecutable(executable)))
+      this.rt(record.id).openCodeV2 = openCodeV2
     }
     const key = record.provider === 'openrouter' ? await openRouterKey() : undefined
     if (record.provider === 'openrouter' && !key) {
@@ -873,7 +881,9 @@ export class Daemon {
           message.dangerousMode !== undefined &&
           message.model === undefined &&
           message.provider === undefined &&
-          record.harness === 'claude-code'
+          (record.harness === 'claude-code' ||
+            // OpenCode 2's plugin asks nsq on every permission (live); 1.x reads it at start.
+            (record.harness === 'opencode' && this.rt(record.id).openCodeV2 === true))
         return { restartNeeded: !live && this.ptys.isRunning(record.id) }
       }
       case 'cost': {
