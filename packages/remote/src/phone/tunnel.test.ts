@@ -308,9 +308,14 @@ describe('cloudflared download verification', () => {
         platform: 'linux',
         arch: 'x64',
         findOnPath: async () => null,
-        signal: controller.signal
+        signal: controller.signal,
+        // Never the network: like fetch, this rejects on an aborted signal.
+        fetch: (async (_input: string | URL | Request, init?: RequestInit) => {
+          if (init?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+          throw new Error('fetch called without an aborted signal')
+        }) as typeof fetch
       })
-    ).rejects.toThrow()
+    ).rejects.toThrow('aborted')
     expect(existsSync(join(dir, 'cloudflared'))).toBe(false)
   })
 

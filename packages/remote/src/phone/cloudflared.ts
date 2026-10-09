@@ -24,7 +24,6 @@ import {
   accessSync,
   chmodSync,
   constants,
-  existsSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -265,7 +264,7 @@ export async function ensureCloudflared(
   const platform = options.platform ?? process.platform
   const now = options.now ?? Date.now
   const target = join(options.binDir, cloudflaredBinaryName(platform))
-  if (existsSync(target)) {
+  if (runnable(target, platform)) {
     const stamp = readStamp(options.binDir)
     const due =
       options.refresh ||
