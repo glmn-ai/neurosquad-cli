@@ -144,3 +144,20 @@ describe('the own model on resume, back from OpenRouter', () => {
     expect(ownModelOnResume('codex-cli', session)).toEqual({ model: 'gpt-5.5-codex' })
   })
 })
+
+describe('a custom server’s ids are its own', () => {
+  it('an LM Studio id that looks like an OpenRouter slug is never taken for one', () => {
+    // `qwen/qwen3-coder-30b` on the user's own server: no refusal, no move to OpenRouter.
+    for (const harness of ['claude-code', 'codex-cli', 'opencode'] as const) {
+      expect(() => checkModelChoice(harness, 'custom', 'qwen/qwen3-coder-30b')).not.toThrow()
+    }
+    // The same id on the own login is still refused (it only exists on OpenRouter there).
+    expect(() => checkModelChoice('claude-code', undefined, 'qwen/qwen3-coder-30b')).toThrow()
+  })
+
+  it('the switch text names the server', () => {
+    expect(modelSwitchText('qwen/qwen3-coder-30b', 'custom', 'now', 'lmstudio')).toBe(
+      'switched to qwen/qwen3-coder-30b on lmstudio (session kept)'
+    )
+  })
+})

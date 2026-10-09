@@ -7,6 +7,8 @@
 // never written: every harness gets its settings from a per-agent layer that
 // the harness merges on top of the user's.
 
+import type { CustomProvider } from '../providers/custom.js'
+
 /** Harness ids, the same ones the desktop app stores. */
 export type HarnessId = 'claude-code' | 'codex-cli' | 'opencode' | 'command'
 
@@ -25,9 +27,17 @@ export interface AgentLaunchSpec {
   harnessSessionId?: string
   /** Approve the harness's permission prompts (live for Claude Code, a launch flag elsewhere). */
   dangerousMode?: boolean
-  /** `openrouter` routes the harness through OpenRouter (needs a key). */
-  provider?: 'openrouter'
-  /** Model id: an OpenRouter slug on the OpenRouter provider, the harness's own id otherwise. */
+  /**
+   * `openrouter` routes the harness through OpenRouter (needs a key);
+   * `custom` through one of the user's own servers (`LaunchContext.customProvider`).
+   */
+  provider?: 'openrouter' | 'custom'
+  /** `custom`: the id of the user's provider. */
+  customProviderId?: string
+  /**
+   * Model id: an OpenRouter slug on the OpenRouter provider, an id from the
+   * server's own list on a custom one, the harness's own id otherwise.
+   */
   model?: string
   /** `command` harness: the argv to run. */
   command?: readonly string[]
@@ -49,6 +59,16 @@ export interface LaunchContext {
   openRouterKey?: string
   /** Another OpenRouter-compatible API base (`…/api/v1`); the public API by default. */
   openRouterApiBase?: string
+  /**
+   * The agent's custom provider (`agent.provider === 'custom'`), its key (env
+   * only) and, for Codex on a server without `/v1/responses`, the host's
+   * Responses gateway for this agent.
+   */
+  customProvider?: {
+    provider: CustomProvider
+    key?: string
+    codexGateway?: { baseUrl: string; key: string }
+  }
   /** The environment the harness would inherit (for merging a user's own config variables). */
   env?: Readonly<Record<string, string | undefined>>
   platform?: NodeJS.Platform

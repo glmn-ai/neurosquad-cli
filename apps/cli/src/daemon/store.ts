@@ -11,7 +11,9 @@ export interface AgentRecord {
   cwd: string
   worktree?: { path: string; branch: string; repo: string }
   command?: string[]
-  provider?: 'openrouter'
+  provider?: 'openrouter' | 'custom'
+  /** `custom`: the id of the user's provider (providers.json). */
+  customProviderId?: string
   model?: string
   dangerousMode?: boolean
   createdAt: number

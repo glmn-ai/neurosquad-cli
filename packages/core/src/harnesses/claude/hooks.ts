@@ -208,7 +208,22 @@ export function buildClaudeSettings(
  * every host run) and returns the settings path with forward slashes
  * (node-pty on Windows mangles backslashes in arguments).
  */
-export function writeClaudeSettings(file: string, hookBase: string): string {
+/**
+ * Writes the agent's settings file. `env`: non-secret variables Claude Code must use whatever
+ * the user's own settings.json `env` says (a provider recipe's routing — the settings layers'
+ * `env` would otherwise override the process environment). Never a key.
+ */
+/** The variable a provider recipe's token reaches Claude Code's `apiKeyHelper` through. */
+export const CLAUDE_TOKEN_ENV = 'NEUROSQUAD_CLAUDE_TOKEN'
+
+/** The helper's script: prints the token from the environment (the file holds no secret). */
+const TOKEN_HELPER = `process.stdout.write(process.env.${CLAUDE_TOKEN_ENV} || '')\n`
+
+export function writeClaudeSettings(
+  file: string,
+  hookBase: string,
+  env?: Readonly<Record<string, string>>
+): string {
   const dir = dirname(file)
   mkdirSync(dir, { recursive: true })
   const stem = file.replace(/\.json$/i, '')
@@ -218,7 +233,19 @@ export function writeClaudeSettings(file: string, hookBase: string): string {
     writeFileSync(config, claudeCurlConfig(`${hookBase}/${event}`), { mode: 0o600 })
     curlConfigs[event] = config
   }
-  writeFileIfChanged(file, JSON.stringify(buildClaudeSettings(hookBase, curlConfigs), null, 2))
+  const settings = buildClaudeSettings(hookBase, curlConfigs)
+  if (env && Object.keys(env).length > 0) {
+    settings.env = { ...env }
+    if (env['ANTHROPIC_AUTH_TOKEN'] === '') {
+      // The recipe's token comes from `apiKeyHelper`, which reads it from the environment: an
+      // ANTHROPIC_AUTH_TOKEN in the user's own settings `env` is blanked above and can never be
+      // the credential sent to the provider. Double quotes read the same in sh, PowerShell, cmd.
+      const helper = `${stem}.token.cjs`
+      writeFileIfChanged(helper, TOKEN_HELPER)
+      settings.apiKeyHelper = `node "${helper.replaceAll('\\', '/')}"`
+    }
+  }
+  writeFileIfChanged(file, JSON.stringify(settings, null, 2))
   try {
     chmodSync(file, 0o600)
   } catch {

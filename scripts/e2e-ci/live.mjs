@@ -6,7 +6,7 @@
 //   claude | codex | opencode-1 | opencode-2
 //       run.mjs: hello, perm (needs you + inline answer), phone, resume after a
 //       daemon restart, cost vs the fake's log, OpenRouter attribution headers,
-//       worktree; extra.mjs: interrupt, question
+//       worktree, custom providers (your own servers); extra.mjs: interrupt, question
 //   dashboard
 //       tui-record.mjs (real pty, 3 agents, keys, BEL/OSC 9 ring, asciicast),
 //       dictation.mjs (synthesised speech → Whisper tiny.en → paste),
@@ -47,6 +47,7 @@ const { help } = makeNsq(root, process.env, root)
 const usage = help()
 const hasPhone = /nsq phone/.test(usage)
 const hasOnline = /--online/.test(usage)
+const hasProviders = /nsq provider add/.test(usage)
 
 const parts = []
 function part(name, script, scriptArgs, work) {
@@ -77,6 +78,7 @@ if (plan.harness) {
     'update',
     'cost',
     'openrouter',
+    ...(hasProviders ? ['custom'] : []),
     'worktree'
   ]
   const runWork = join(out, 'run')

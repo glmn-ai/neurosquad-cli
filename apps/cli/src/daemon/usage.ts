@@ -73,6 +73,15 @@ export class UsageTracker {
     const sessions = new Set(agent.sessionIds ?? [])
     if (agent.harness === 'claude-code') sessions.add(agent.id)
     if (agent.harnessSessionId) sessions.add(agent.harnessSessionId)
-    return agentCost(this.records, sessions, since === undefined ? {} : { since })
+    const options = since === undefined ? {} : { since }
+    if (agent.provider !== 'custom') return agentCost(this.records, sessions, options)
+    // On one of the user's own servers nsq knows no price. Claude Code records every request as
+    // `anthropic` (a server model named like an Anthropic one would get its list price), and the
+    // session may hold earlier requests whose provider is not told apart: every request of such
+    // an agent is unpriced — "no price", never $0 and never a guess.
+    const unpriced = this.records.map((record) =>
+      record.recordedPico === undefined ? record : { ...record, recordedPico: undefined }
+    )
+    return agentCost(unpriced, sessions, { ...options, price: () => undefined })
   }
 }

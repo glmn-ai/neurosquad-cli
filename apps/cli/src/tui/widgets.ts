@@ -10,7 +10,9 @@ export class TextField {
 
   constructor(
     value = '',
-    readonly placeholder = ''
+    readonly placeholder = '',
+    /** Shown as dots (a key). */
+    readonly masked = false
   ) {
     this.value = value
     this.cursor = value.length
@@ -81,7 +83,8 @@ export class TextField {
       return [seg(fitText(this.placeholder, width), { ...style, fg: 'faintText' })]
     // Keep the cursor in view.
     const start = Math.max(0, this.cursor - width + 1)
-    const visible = this.value.slice(start, start + width)
+    const shown = this.masked ? '•'.repeat(this.value.length) : this.value
+    const visible = shown.slice(start, start + width)
     const at = this.cursor - start
     const before = visible.slice(0, at)
     const under = visible[at] ?? ' '

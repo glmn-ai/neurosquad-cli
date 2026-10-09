@@ -24,30 +24,33 @@ and label (ASCII `! * + - x` where the terminal needs it).
 
 ## Keys
 
-| Key                    |                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| ↑ ↓ ← → / h j k l, Tab | select an agent (Tab walks all workspaces)                                                  |
-| Enter, double-click    | open the agent full screen — every key goes to it; **Ctrl+]** back to the grid              |
-| y / a / n              | answer the selected agent's permission prompt (yes / always / no)                           |
-| s / S                  | send a prompt (queued if the agent is busy) / send it when the current turn is done         |
-| c                      | start an agent (harness, name, prompt, folder, worktree, OpenRouter, model, dangerous mode) |
-| m                      | pick a model from OpenRouter's catalogue (switches the agent to OpenRouter) or "default"    |
-| i                      | interrupt the current turn (with each CLI's own interrupt key)                              |
-| x · X                  | stop · remove                                                                               |
-| r · R                  | restart (resumes the session) · rename                                                      |
-| d                      | dangerous mode on/off                                                                       |
-| v                      | dictate into the agent (also the global hotkey); the text is pasted, never sent             |
-| p                      | phones: who is connected; a new pairing token cuts them off                                 |
-| U                      | update: install a new release now, or restart onto an installed one ([updates](updates.md)) |
-| [ ]                    | previous / next page of tiles                                                               |
-| b                      | sidebar on/off                                                                              |
-| ?                      | help                                                                                        |
-| q                      | quit — agents keep running (`nsq down` stops them)                                          |
+| Key                    |                                                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| ↑ ↓ ← → / h j k l, Tab | select an agent (Tab walks all workspaces)                                                                                                 |
+| Enter, double-click    | open the agent full screen — every key goes to it; **Ctrl+]** back to the grid                                                             |
+| y / a / n              | answer the selected agent's permission prompt (yes / always / no)                                                                          |
+| s / S                  | send a prompt (queued if the agent is busy) / send it when the current turn is done                                                        |
+| c                      | start an agent (harness, name, prompt, folder, worktree, provider, model, dangerous mode)                                                  |
+| m                      | pick a model: OpenRouter's catalogue (switches the agent to OpenRouter), "default", or — on one of your own servers — that server's models |
+| P                      | providers: your own model servers — add, test, models, remove ([providers](providers.md))                                                  |
+| i                      | interrupt the current turn (with each CLI's own interrupt key)                                                                             |
+| x · X                  | stop · remove                                                                                                                              |
+| r · R                  | restart (resumes the session) · rename                                                                                                     |
+| d                      | dangerous mode on/off                                                                                                                      |
+| v                      | dictate into the agent (also the global hotkey); the text is pasted, never sent                                                            |
+| p                      | phones: who is connected; a new pairing token cuts them off                                                                                |
+| U                      | update: install a new release now, or restart onto an installed one ([updates](updates.md))                                                |
+| [ ]                    | previous / next page of tiles                                                                                                              |
+| b                      | sidebar on/off                                                                                                                             |
+| ?                      | help                                                                                                                                       |
+| q                      | quit — agents keep running (`nsq down` stops them)                                                                                         |
 
 Also: on an agent that is not waiting, **n** opens New agent. **Ctrl+C** quits like **q**, **+** works like **c**, **Shift+Tab** walks backwards, **Esc**
 closes a dialog. **Enter** on a stopped agent starts it. In the New agent form, **Tab** / **↑ ↓**
-move between fields, **← →** pick the harness, **Space** toggles a box, and **F2** or **Ctrl+O**
-picks an OpenRouter model (and switches OpenRouter on).
+move between fields, **← →** pick the harness and the provider (own login, OpenRouter, or one of
+[your own servers](providers.md) that fits the harness — the others are listed with the reason),
+**Space** toggles a box, and **F2** or **Ctrl+O** picks a model: the chosen server's own models, or
+an OpenRouter model (which switches OpenRouter on).
 
 The bottom line always shows the keys that matter right now (for an agent that needs you: y / a /
 n first).

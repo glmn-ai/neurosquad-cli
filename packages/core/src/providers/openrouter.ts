@@ -34,6 +34,20 @@ export interface ProviderLaunch {
 
 const NONE: ProviderLaunch = { args: [], env: {} }
 
+/**
+ * Claude Code's switches to another cloud backend (Bedrock, Vertex, Foundry), set explicitly
+ * empty by every provider recipe: inherited from the user's environment they would win over
+ * ANTHROPIC_BASE_URL and send the agent's requests to that cloud instead.
+ */
+export const CLAUDE_CLOUD_SWITCHES_OFF: Readonly<Record<string, string>> = {
+  CLAUDE_CODE_USE_BEDROCK: '',
+  CLAUDE_CODE_USE_VERTEX: '',
+  CLAUDE_CODE_USE_FOUNDRY: '',
+  CLAUDE_CODE_SKIP_BEDROCK_AUTH: '',
+  CLAUDE_CODE_SKIP_VERTEX_AUTH: '',
+  CLAUDE_CODE_SKIP_FOUNDRY_AUTH: ''
+}
+
 /** A model slug safe for argv and config (OpenRouter slugs: `vendor/model[:variant]`, `~` aliases). */
 export const MODEL_ID_PATTERN = /^~?[A-Za-z0-9][\w.\-/:@+]{0,199}$/
 
@@ -167,6 +181,7 @@ export function openRouterLaunch(
       return {
         args: [],
         env: {
+          ...CLAUDE_CLOUD_SWITCHES_OFF,
           ANTHROPIC_BASE_URL: anthropicBase,
           // Sent as `Authorization: Bearer`.
           ANTHROPIC_AUTH_TOKEN: key,

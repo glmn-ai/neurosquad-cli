@@ -19,6 +19,7 @@ import { readConfig, writeConfig, type NsqConfig } from './config.js'
 import { ensureDir, paths } from './paths.js'
 import type { AgentView, RunSpec } from './protocol.js'
 import { VERSION } from './version.js'
+import { providerNameProblem } from './providers.js'
 import { modelSwitchText, type ModelSwitchApplied } from './modelRules.js'
 
 const execFileAsync = promisify(execFile)
@@ -72,16 +73,19 @@ export async function cmdRun(args: ParsedArgs): Promise<void> {
     const harness = harnessFromAlias(alias)
     if (!harness)
       throw new UsageError(`unknown harness "${alias}" (claude, codex, opencode, or -- <command>)`)
-    const provider = flagString(args, 'provider')
-    if (provider && provider !== 'openrouter')
-      throw new UsageError('--provider: only "openrouter" is supported')
+    const provider = providerFlag(
+      flagString(args, 'provider') ?? (flagBool(args, 'openrouter') ? 'openrouter' : undefined)
+    )
     const prompt = args.positional.slice(1).join(' ').trim()
     spec = {
       harness,
       ...common,
       ...(prompt ? { prompt } : {}),
-      ...(provider === 'openrouter' || flagBool(args, 'openrouter')
-        ? { provider: 'openrouter' as const }
+      ...(provider?.provider
+        ? {
+            provider: provider.provider,
+            ...(provider.customProviderId ? { customProviderId: provider.customProviderId } : {})
+          }
         : {})
     }
   }
@@ -106,6 +110,22 @@ export async function cmdRun(args: ParsedArgs): Promise<void> {
       out(`nsq attach ${result.agent.name}   ·   nsq   (dashboard)`)
     }
   })
+}
+
+/**
+ * `--provider <value>`: `openrouter`, `none` (the harness's own login), or the
+ * name of one of the user's own providers (`nsq provider list`).
+ */
+export function providerFlag(
+  value: string | undefined
+): { provider: 'openrouter' | 'custom' | null; customProviderId?: string } | undefined {
+  if (value === undefined) return undefined
+  const name = value.trim().toLowerCase()
+  if (name === 'openrouter') return { provider: 'openrouter' }
+  if (name === 'none' || name === 'own' || name === '') return { provider: null }
+  const problem = providerNameProblem(name)
+  if (problem) throw new UsageError(`--provider: ${problem}`)
+  return { provider: 'custom', customProviderId: name }
 }
 
 export function formatTable(agents: AgentView[], now = Date.now()): string[] {
@@ -257,7 +277,7 @@ export async function cmdSet(args: ParsedArgs): Promise<void> {
   const provider = flagString(args, 'provider')
   if (dangerous === undefined && model === undefined && provider === undefined) {
     throw new UsageError(
-      'nsq set <agent> [--dangerous on|off] [--model <id>|none] [--provider openrouter|none]'
+      'nsq set <agent> [--dangerous on|off] [--model <id>|none] [--provider <name>|openrouter|none]'
     )
   }
   await withClient(async (client) => {
@@ -273,7 +293,7 @@ export async function cmdSet(args: ParsedArgs): Promise<void> {
         ? { dangerousMode: dangerous === 'on' || dangerous === 'true' }
         : {}),
       ...(model !== undefined ? { model: model === 'none' ? null : model } : {}),
-      ...(provider !== undefined ? { provider: provider === 'none' ? null : 'openrouter' } : {})
+      ...(provider !== undefined ? providerFlag(provider) : {})
     })
     for (const warning of result.warnings ?? [])
       process.stderr.write(`nsq: ${warning}
@@ -281,7 +301,9 @@ export async function cmdSet(args: ParsedArgs): Promise<void> {
     if (model !== undefined || provider !== undefined) {
       // The daemon has the agent's model/provider now (the request may have changed only one).
       const now = (await client.request<AgentView[]>({ t: 'list' })).find((a) => a.id === agent.id)
-      out(`${agent.name}: ${modelSwitchText(now?.model, now?.provider, result.applied)}`)
+      out(
+        `${agent.name}: ${modelSwitchText(now?.model, now?.provider, result.applied, now?.customProviderId)}`
+      )
       return
     }
     out(
@@ -443,6 +465,11 @@ export async function cmdDoctor(): Promise<void> {
   const [first, ...more] = await doctorUpdateLines()
   out(`update       ${first ?? ''}`)
   for (const line of more) out(`             ${line.trimStart()}`)
+  const { listProviders: providers } = await import('./providers.js')
+  const own = providers()
+  out(
+    `Providers    ${own.length ? own.map((p) => p.id).join(', ') : 'none (nsq provider add <name> --url <base>)'}`
+  )
   const term =
     process.env['TERM_PROGRAM'] ??
     process.env['TERM'] ??

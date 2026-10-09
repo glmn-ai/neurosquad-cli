@@ -17,6 +17,7 @@ nsq run --name web -- npm run dev               # any command
 | `--worktree`, `-w`      | its own git branch and checkout ([worktrees](worktrees.md))                                       |
 | `--model <id>`          | the model, in the harness's own format (or an OpenRouter slug)                                    |
 | `--provider openrouter` | run through OpenRouter ([OpenRouter](openrouter.md)); `--openrouter` is the same                  |
+| `--provider <name>`     | run on one of your own servers ([your own model servers](providers.md))                           |
 | `--dangerous`           | approve its permission prompts automatically (see below)                                          |
 | `--attach`, `-a`        | open it full screen right away                                                                    |
 | `--json`                | print the new agent as JSON                                                                       |
@@ -100,7 +101,10 @@ nsq set api-fix --dangerous off        # or press d in the dashboard
 
 `--model <id>` passes the harness's own model id (`claude-opus-5-5`, `gpt-5.5`,
 `anthropic/claude-sonnet-4-5` for OpenCode). With `--provider openrouter` it takes an OpenRouter
-slug (`vendor/model`) — see [OpenRouter](openrouter.md).
+slug (`vendor/model`) — see [OpenRouter](openrouter.md). With `--provider <name>` (one of
+[your own servers](providers.md)) it takes an id from that server's list — such ids often look like
+slugs (`qwen/qwen3-coder-30b`) but belong to the server: nsq never moves such an agent to
+OpenRouter.
 
 An OpenRouter slug only exists on OpenRouter: on Claude Code's or Codex's own login it is "model
 not found". So nsq refuses `nsq run claude --model openai/gpt-5` without `--provider openrouter`
@@ -109,7 +113,8 @@ does not guess.)
 
 ### Changing the model
 
-**m** in the dashboard opens OpenRouter's catalogue. Picking a model **puts the agent on
+**m** in the dashboard opens OpenRouter's catalogue (on an agent on one of your own servers: that
+server's models, and the agent stays on it). Picking a model **puts the agent on
 OpenRouter with it**; the first row, **default**, puts it back on the CLI's own login and its
 default model. From the command line:
 

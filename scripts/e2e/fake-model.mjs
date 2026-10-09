@@ -17,6 +17,13 @@
 // it was answered with and its headers (credentials reduced to their last 4
 // characters), so a test can check costs and attribution headers.
 //
+// Options make it stand in for a user's own server (`nsq provider add`):
+// `endpoints` (some of 'anthropic', 'responses', 'chat'; the rest answer 404
+// like a server without them), `key` (every request must carry it as Bearer
+// or x-api-key, else 401) and `models` (the `GET /v1/models` entries, e.g.
+// with llama.cpp's `meta.n_ctx`). A `POST {}` with no conversation answers
+// 400 like a real server (the connection test probes endpoints that way).
+//
 //   node scripts/e2e/fake-model.mjs [--port 0] [--log requests.jsonl]
 import { createServer } from 'node:http'
 import { appendFileSync } from 'node:fs'
@@ -508,7 +515,14 @@ function promptsIn(data) {
   return [...new Set(data.match(/\[nsq:[a-z0-9-]+\][^"\\]{0,60}/gi) ?? [])]
 }
 
-export async function startFakeModel({ port = 0, logFile, scenarios = SCENARIOS } = {}) {
+export async function startFakeModel({
+  port = 0,
+  logFile,
+  scenarios = SCENARIOS,
+  endpoints = ['anthropic', 'responses', 'chat'],
+  key,
+  models
+} = {}) {
   const requests = []
   const server = createServer((req, res) => {
     let data = ''
@@ -542,10 +556,20 @@ export async function startFakeModel({ port = 0, logFile, scenarios = SCENARIOS 
     } catch {
       body = {}
     }
+    if (key && req.headers.authorization !== `Bearer ${key}` && req.headers['x-api-key'] !== key) {
+      record({
+        at: Date.now(),
+        path: url.pathname,
+        method: req.method,
+        status: 401,
+        headers: headersOf(req)
+      })
+      return json(res, 401, { error: { message: 'Invalid API key' } })
+    }
     if (req.method === 'GET' && route === '/v1/models') {
       return json(res, 200, {
         object: 'list',
-        data: [{ id: MODEL, object: 'model', created: 1_700_000_000, owned_by: 'fake' }]
+        data: models ?? [{ id: MODEL, object: 'model', created: 1_700_000_000, owned_by: 'fake' }]
       })
     }
     if (route === '/v1/messages/count_tokens')
@@ -558,7 +582,7 @@ export async function startFakeModel({ port = 0, logFile, scenarios = SCENARIOS 
           : route === '/v1/chat/completions'
             ? 'chat'
             : null
-    if (req.method !== 'POST' || !protocol) {
+    if (req.method !== 'POST' || !protocol || !endpoints.includes(protocol)) {
       record({
         at: Date.now(),
         path: url.pathname,
@@ -568,6 +592,11 @@ export async function startFakeModel({ port = 0, logFile, scenarios = SCENARIOS 
       })
       res.writeHead(404).end()
       return
+    }
+    if (!body.messages && !body.input) {
+      // The connection test's probe (`POST {}`): an endpoint that is there, refusing it.
+      record({ at: Date.now(), path: url.pathname, protocol, probe: true, headers: headersOf(req) })
+      return json(res, 400, { error: { message: "'messages' is required" } })
     }
     const reply = plan(protocol, body, scenarios)
     record({

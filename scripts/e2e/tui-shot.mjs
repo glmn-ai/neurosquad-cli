@@ -3,8 +3,8 @@
 // screenshots (PNG) through packages/tui-theme's term-dump + render-frames.
 //
 //   node scripts/e2e/tui-shot.mjs --bin <dir with the CLIs> [--out dir] [--cols 150 --rows 42]
-//        [--steps "wait:6000,shot:grid,key:\r,wait:3000,shot:expanded,key:\u001d,wait:1500,shot:back"]
-import { execFileSync, spawnSync } from 'node:child_process'
+//        [--custom-provider <name>] [--steps "wait:6000,shot:grid,key:\r,wait:3000,shot:expanded,key:\u001d,wait:1500,shot:back"]
+import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +45,23 @@ const nsq = (...args) =>
     windowsHide: true
   })
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+
+// --custom-provider <name>: one of the user's own servers (the fake, every endpoint), for the
+// Providers screen and the new-agent form's provider choice.
+if (arg('custom-provider')) {
+  const added = await new Promise((resolveAdd) => {
+    const child = spawn(
+      process.execPath,
+      [BIN, 'provider', 'add', arg('custom-provider'), '--url', `${fake.base}/v1`],
+      { env, cwd: sandbox.project, windowsHide: true }
+    )
+    child.on('close', resolveAdd)
+  })
+  if (added !== 0) {
+    await fake.close()
+    throw new Error(`nsq provider add exited ${added}: no capture without the provider`)
+  }
+}
 
 const agents = arg(
   'agents',

@@ -76,6 +76,8 @@ You can also start agents from the dashboard: press **c**.
 
 - [Agents and harnesses](agents.md) — what each CLI supports, sessions, dangerous mode, cost.
 - [OpenRouter](openrouter.md) — any model through one key.
+- [Your own model servers](providers.md) — llama.cpp, Ollama, LM Studio, vLLM, SGLang, Unsloth
+  Studio, any OpenAI- or Anthropic-compatible API.
 - [Notifications](notifications.md), [Phone](phone.md), [Dictation](dictation.md).
 - [Configuration](configuration.md), [Updates](updates.md), [Troubleshooting](troubleshooting.md),
   [Uninstall](uninstall.md).

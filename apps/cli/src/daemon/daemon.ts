@@ -70,6 +70,7 @@ import { openRouterKey, setSecret, OPENROUTER_SECRET } from './secrets.js'
 import { UsageTracker } from './usage.js'
 import { KEY_GAP_MS, answerKeys, type AnswerKey } from './answers.js'
 import { fetchOpenRouterModels } from './models.js'
+import { CustomProviderRuntime, checkCustomChoice } from './customProviders.js'
 import {
   checkModelChoice,
   modelNeedsOpenRouter,
@@ -178,6 +179,10 @@ function resumable(record: AgentRecord): boolean {
 
 export class Daemon {
   private readonly store = new AgentStore()
+  private readonly custom = new CustomProviderRuntime(
+    (id) => this.store.get(id),
+    (line) => this.log(line)
+  )
   private readonly ptys = new PtyHost()
   // Terminal replies go straight to the pty: not the person typing, not a submit.
   private readonly screens = new Screens((id, data) => this.ptys.reply(id, data))
@@ -364,6 +369,7 @@ export class Daemon {
         : {}),
       ...(record.command ? { command: record.command } : {}),
       ...(record.provider ? { provider: record.provider } : {}),
+      ...(record.customProviderId ? { customProviderId: record.customProviderId } : {}),
       ...(record.model ? { model: record.model } : {}),
       ...(record.dangerousMode ? { dangerousMode: true } : {}),
       createdAt: record.createdAt,
@@ -587,10 +593,14 @@ export class Daemon {
       openCodeV2 = isOpenCodeV2(await openCodeVersionOf(openCodeExecutable(executable)))
       this.rt(record.id).openCodeV2 = openCodeV2
     }
+    // A custom provider that cannot serve this harness refuses the start (never the own login).
+    const customProvider =
+      record.provider === 'custom' ? await this.custom.launchContext(record) : undefined
     // A model only OpenRouter knows on an agent still on its own login (nsq 0.1.1's model
     // picker left agents like that): the harness would answer "model not found".
     let launchModel = record.model
-    // Only with no provider at all: another provider (a custom one) has its own id format.
+    // Only on the harness's own login: a custom server's ids (`qwen/qwen3-coder-30b`) look like
+    // OpenRouter slugs but belong to that server — never moved to OpenRouter (the cloud).
     if (record.provider === undefined && modelNeedsOpenRouter(record.harness, record.model)) {
       const model = record.model!
       if (await openRouterKey()) {
@@ -631,6 +641,7 @@ export class Daemon {
         ...(resume && record.harnessSessionId ? { harnessSessionId: record.harnessSessionId } : {}),
         ...(record.dangerousMode ? { dangerousMode: true } : {}),
         ...(record.provider ? { provider: record.provider } : {}),
+        ...(record.customProviderId ? { customProviderId: record.customProviderId } : {}),
         ...(launchModel ? { model: launchModel } : {}),
         ...(record.command ? { command: record.command } : {})
       },
@@ -640,6 +651,7 @@ export class Daemon {
       layerDir: paths.layers(record.harness),
       resumed: resume,
       ...(key ? { openRouterKey: key } : {}),
+      ...(customProvider ? { customProvider } : {}),
       ...(process.env['NSQ_OPENROUTER_BASE_URL']
         ? { openRouterApiBase: process.env['NSQ_OPENROUTER_BASE_URL'] }
         : {}),
@@ -825,6 +837,16 @@ export class Daemon {
   }
 
   private async createAgent(spec: RunSpec): Promise<{ agent: AgentView; warnings: string[] }> {
+    const custom =
+      spec.provider === 'custom'
+        ? checkCustomChoice(spec.harness, spec.customProviderId, spec.model)
+        : undefined
+    if (custom)
+      spec = {
+        ...spec,
+        customProviderId: custom.provider.id,
+        ...(custom.model ? { model: custom.model } : {})
+      }
     checkModelChoice(spec.harness, spec.provider, spec.model)
     const id = randomUUID()
     const workspace = spec.cwd
@@ -863,6 +885,9 @@ export class Daemon {
       ...(worktree ? { worktree } : {}),
       ...(spec.command ? { command: spec.command } : {}),
       ...(spec.provider ? { provider: spec.provider } : {}),
+      ...(spec.provider === 'custom' && spec.customProviderId
+        ? { customProviderId: spec.customProviderId }
+        : {}),
       ...(spec.model ? { model: spec.model } : {}),
       ...(spec.dangerousMode ? { dangerousMode: true } : {}),
       createdAt: Date.now(),
@@ -874,9 +899,12 @@ export class Daemon {
       rt.cols = spec.cols
       rt.rows = spec.rows
     }
-    let warnings: string[] = []
+    let warnings: string[] = [...(custom?.warnings ?? [])]
     try {
-      warnings = await this.startAgent(record, spec.prompt ? { prompt: spec.prompt } : {})
+      warnings = [
+        ...warnings,
+        ...(await this.startAgent(record, spec.prompt ? { prompt: spec.prompt } : {}))
+      ]
     } catch (error) {
       this.store.update(id, { wantRunning: false })
       this.pushAgent(id)
@@ -1287,9 +1315,35 @@ export class Daemon {
         if (message.dangerousMode !== undefined)
           patch.dangerousMode = message.dangerousMode || undefined
         if (message.model !== undefined) patch.model = message.model ?? undefined
-        if (message.provider !== undefined) patch.provider = message.provider ?? undefined
+        if (message.provider !== undefined) {
+          patch.provider = message.provider ?? undefined
+          patch.customProviderId =
+            message.provider === 'custom' ? message.customProviderId : undefined
+        }
+        let setWarnings: string[] = []
+        const touchesModel = message.provider !== undefined || message.model !== undefined
+        if (
+          touchesModel &&
+          (patch.provider ?? (message.provider === undefined ? record.provider : undefined)) ===
+            'custom'
+        ) {
+          // On a custom provider (now or still): the choice must fit, the model is the server's.
+          const providerId =
+            'customProviderId' in patch ? patch.customProviderId : record.customProviderId
+          // Another server: the previous one's model is not carried over (its only model, or ask).
+          const sameServer = record.provider === 'custom' && providerId === record.customProviderId
+          const choice = checkCustomChoice(
+            record.harness,
+            providerId,
+            'model' in patch ? patch.model : sameServer ? record.model : undefined
+          )
+          patch.customProviderId = choice.provider.id
+          if (choice.model) patch.model = choice.model
+          setWarnings = choice.warnings
+        }
         const provider = 'provider' in patch ? patch.provider : record.provider
         const model = 'model' in patch ? patch.model : record.model
+        // OpenRouter-slug checks are about OpenRouter and the own login; a custom server's ids are its own.
         checkModelChoice(record.harness, provider, model, message.provider === null)
         this.store.update(record.id, patch)
         this.pushAgent(record.id)
@@ -1311,7 +1365,10 @@ export class Daemon {
           (record.harness === 'claude-code' ||
             // OpenCode 2's plugin asks nsq on every permission (live); 1.x reads it at start.
             (record.harness === 'opencode' && this.rt(record.id).openCodeV2 === true))
-        return { restartNeeded: !live && this.ptys.isRunning(record.id) }
+        return {
+          restartNeeded: !live && this.ptys.isRunning(record.id),
+          ...(setWarnings.length ? { warnings: setWarnings } : {})
+        }
       }
       case 'cost': {
         await this.refreshCost()
@@ -1522,6 +1579,7 @@ export class Daemon {
       this.server ? this.server.close(() => resolve()) : resolve()
     )
     await this.hooks?.close()
+    await this.custom.close()
     rmSync(paths.daemonState(), { force: true })
     if (this.locked && ownsDaemonLock(lockPath())) rmSync(lockPath(), { force: true })
     process.exit(0)

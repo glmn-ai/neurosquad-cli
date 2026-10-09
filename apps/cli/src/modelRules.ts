@@ -65,11 +65,13 @@ export function ownModelOnResume(
  */
 export function checkModelChoice(
   harness: HarnessId,
-  provider: 'openrouter' | undefined,
+  provider: 'openrouter' | 'custom' | undefined,
   model: string | undefined,
   clearingProvider = false
 ): void {
-  if (model === undefined) return
+  // One of the user's own servers: its ids are its own (`qwen/qwen3-coder-30b` looks like a slug
+  // but is LM Studio's) — checked against that server by the daemon, never taken for OpenRouter's.
+  if (model === undefined || provider === 'custom') return
   if (!normalizeModelId(model)) throw new Error(`not a model id: ${JSON.stringify(model)}`)
   if (provider === 'openrouter') {
     // The other way round: a native id on OpenRouter. (OpenCode's recipe prefixes `openrouter/`
@@ -94,11 +96,19 @@ export type ModelSwitchApplied = 'now' | 'after-turn' | 'next-start'
 /** What the dashboard and `nsq set` say after a model/provider change. */
 export function modelSwitchText(
   model: string | undefined,
-  provider: 'openrouter' | undefined,
-  applied: ModelSwitchApplied | undefined
+  provider: 'openrouter' | 'custom' | undefined,
+  applied: ModelSwitchApplied | undefined,
+  /** The user's own server, with `provider: 'custom'`. */
+  customProviderId?: string
 ): string {
+  const where =
+    provider === 'openrouter'
+      ? ' on OpenRouter'
+      : provider === 'custom'
+        ? ` on ${customProviderId ?? 'your own server'}`
+        : ''
   const what = model
-    ? `${model}${provider === 'openrouter' ? ' on OpenRouter' : ''}`
+    ? `${model}${where}`
     : provider === 'openrouter'
       ? 'OpenRouter with its default model'
       : 'its own login and default model'

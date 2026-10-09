@@ -24,7 +24,8 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
 
   nsq                                   the dashboard (starts the daemon)
   nsq run <claude|codex|opencode> [prompt]
-        [--name n] [--worktree] [--model id] [--provider openrouter] [--dangerous] [--attach]
+        [--name n] [--worktree] [--model id] [--provider name|openrouter]
+        [--dangerous] [--attach]
   nsq run [--name n] -- <command…>      any command
   nsq ls [--json]                       agents and their status
   nsq attach <agent>                    full-screen terminal (Ctrl+] to detach)
@@ -32,11 +33,16 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq answer <agent> yes|always|no      answer a permission prompt
   nsq interrupt|stop|start|restart <agent>
   nsq rm <agent> [--worktree]           remove (and delete its worktree)
-  nsq set <agent> [--dangerous on|off] [--model id|none] [--provider openrouter|none]
+  nsq set <agent> [--dangerous on|off] [--model id|none]
+        [--provider name|openrouter|none]
   nsq diff <agent>                      git diff of the agent's folder
   nsq peek <agent> [-n 20]              the last lines of its screen
   nsq cost [--since 7d] [--json]        what each agent spent
   nsq openrouter set-key|clear-key|models [query]|status
+  nsq provider add <name> --url <base> [--key-stdin|--ask-key]
+                                        your own server: llama.cpp, Ollama, LM Studio,
+                                        vLLM, SGLang, Unsloth Studio, any compatible API
+  nsq provider test|models|remove <name> · nsq provider list
   nsq phone on [--lan]|off|pair|rotate|status   answer agents from a phone
   nsq phone on --online [--expire 12h]  from anywhere, through a Cloudflare tunnel (https)
   nsq phone tunnel-token set|clear      your own named tunnel (--online --tunnel-token --hostname h)
@@ -108,6 +114,12 @@ async function main(argv: string[]): Promise<number> {
     case 'openrouter':
       await cmdOpenRouter(args)
       return 0
+    case 'provider':
+    case 'providers': {
+      const { cmdProvider } = await import('./providerCommands.js')
+      await cmdProvider(args)
+      return 0
+    }
     case 'phone': {
       const { cmdPhone } = await import('./commands.js')
       await cmdPhone(args)
