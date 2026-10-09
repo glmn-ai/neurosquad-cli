@@ -10,6 +10,7 @@
 //              (fake) OpenRouter carries the attribution headers, no
 //              visibility header, the key never in argv
 //   worktree   an agent in its own git worktree
+//   push       ntfy push: a needs-you notification with the name and question only, once
 //   phone      through the phone API: the pending question in the state,
 //              answered from the phone → finished; a prompt from the phone
 //
@@ -21,6 +22,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startFakeModel, PERM_DIR, STEP_USAGE } from './fake-model.mjs'
 import { makeSandbox } from './sandbox.mjs'
+import { createServer } from 'node:http'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ROOT = resolve(HERE, '..', '..')
@@ -53,6 +55,25 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const fake = await startFakeModel({ logFile: join(WORK, 'fake-requests.jsonl') })
 log('fake model', fake.base)
 const sandbox = makeSandbox(WORK, fake.base, { binDirs })
+
+// A stand-in ntfy server: records what nsq publishes (push scenario).
+const ntfyPosts = []
+const ntfy = createServer((req, res) => {
+  let body = ''
+  req.on('data', (chunk) => (body += chunk))
+  req.on('end', () => {
+    try {
+      ntfyPosts.push({ path: req.url, auth: req.headers.authorization, body: JSON.parse(body) })
+    } catch {
+      ntfyPosts.push({ path: req.url, body })
+    }
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end('{}')
+  })
+})
+await new Promise((r) => ntfy.listen(0, '127.0.0.1', r))
+sandbox.env.NSQ_NTFY_URL = `http://127.0.0.1:${ntfy.address().port}/nsq-e2e-topic`
+sandbox.env.NSQ_NTFY_TOKEN = 'tk_e2e'
 // Only what the sandbox itself sets (never the rest of the outer environment).
 writeFileSync(join(WORK, 'env.json'), JSON.stringify(sandbox.set, null, 2))
 
@@ -138,6 +159,33 @@ try {
       check(`${short}: answered inline → finished`, done.agent?.status === 'finished', done.seen)
       check(`${short}: the approved command ran`, existsSync(join(sandbox.project, PERM_DIR)))
       if (done.agent?.status !== 'finished') log(nsq('peek', name, '-n', '40').stdout)
+    }
+
+    if (runs('push')) {
+      const name = `${short}-push`
+      rmSync(join(sandbox.project, PERM_DIR), { recursive: true, force: true })
+      const before = ntfyPosts.length
+      nsq('run', short, '--name', name, '[nsq:perm] make the folder')
+      await waitStatus(name, ['needs-input'], 120_000)
+      for (let i = 0; i < 20 && ntfyPosts.length === before; i++) await sleep(250)
+      const post = ntfyPosts[before]
+      check(
+        `${short}: needs you → one ntfy push with the name and the question only`,
+        post?.body?.topic === 'nsq-e2e-topic' &&
+          post.body.title === `${name} needs you` &&
+          /mkdir/.test(post.body.message) &&
+          post.auth === 'Bearer tk_e2e' &&
+          Object.keys(post.body).sort().join(',') === 'message,priority,tags,title,topic',
+        post
+      )
+      await sleep(1500)
+      nsq('answer', name, 'yes')
+      await waitStatus(name, ['finished'], 120_000)
+      check(
+        `${short}: no second push for the same question`,
+        ntfyPosts.length === before + 1,
+        ntfyPosts.length - before
+      )
     }
 
     if (runs('phone')) {
@@ -314,6 +362,7 @@ try {
       // stopped
     }
   await fake.close()
+  ntfy.close()
   const failed = checks.filter((c) => !c.ok)
   writeFileSync(join(WORK, 'checks.json'), JSON.stringify(checks, null, 2))
   log(`${checks.length - failed.length}/${checks.length} checks passed; work dir ${WORK}`)

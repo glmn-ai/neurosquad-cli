@@ -117,6 +117,9 @@ try {
 
   const on = nsq('phone', 'on', '--port', '0')
   const port = /port (\d+)/.exec(on.stdout)?.[1]
+  if (!port) {
+    throw new Error(`nsq phone on printed no port\nstdout: ${on.stdout}\nstderr: ${on.stderr}`)
+  }
   const token = readFileSync(join(sandbox.env.NSQ_HOME, 'phone-token'), 'utf8').trim()
   const origin = `http://127.0.0.1:${port}`
 
