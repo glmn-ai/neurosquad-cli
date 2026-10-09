@@ -9,6 +9,12 @@
 //   openrouter an agent on the OpenRouter recipe: every request to the
 //              (fake) OpenRouter carries the attribution headers, no
 //              visibility header, the key never in argv
+//   models     the model picker's path: an OpenRouter slug without OpenRouter is refused;
+//              picking one (model + provider together) switches a running agent at once,
+//              restarted on the same session; mid-turn it waits for the turn to end (a prompt
+//              queued meanwhile runs on the new model); an agent saved with a slug and no
+//              provider (nsq 0.1.1) moves to OpenRouter at start; "default" goes back to the
+//              harness's own login. Checked on the wire: path, key, slug, attribution
 //   worktree   an agent in its own git worktree
 //   push       ntfy push: a needs-you notification with the name and question only, once
 //   phone      through the phone API: the pending question in the state,
@@ -20,8 +26,13 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { startFakeModel, PERM_DIR, STEP_USAGE } from './fake-model.mjs'
-import { makeSandbox } from './sandbox.mjs'
+import { startFakeModel, credentialFingerprint, PERM_DIR, STEP_USAGE } from './fake-model.mjs'
+import {
+  makeSandbox,
+  FAKE_ANTHROPIC_KEY,
+  FAKE_OPENAI_KEY,
+  FAKE_OPENROUTER_KEY
+} from './sandbox.mjs'
 import { createServer } from 'node:http'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
@@ -38,7 +49,11 @@ const harnesses = wanted === 'all' ? Object.keys(HARNESSES) : wanted.split(',')
 const only = arg('only', '') ? new Set(arg('only').split(',')) : null
 // Outside this repository: harnesses treat a folder inside a git repository as part of it.
 const WORK = resolve(arg('work', join(ROOT, '..', '.nsq-e2e', `run-${Date.now()}`)))
-const binDirs = arg('bin') ? [resolve(arg('bin'))] : []
+const binDirs = arg('bin')
+  ? arg('bin')
+      .split(',')
+      .map((dir) => resolve(dir))
+  : []
 
 mkdirSync(WORK, { recursive: true })
 const t0 = Date.now()
@@ -123,6 +138,197 @@ async function waitStatus(name, kinds, timeoutMs = 120_000) {
 }
 
 const runs = (step) => !only || only.has(step)
+
+/**
+ * Real OpenRouter slugs (from `GET https://openrouter.ai/api/v1/models`, 2026-10-09) — what the
+ * picker hands over, passed through unchanged. OpenCode's first one is not in its catalog.
+ * (Codex: not `openai/gpt-6-*` — Codex takes those for its own code-mode-only models and sends
+ * their tools in a form the fake does not script; docs/guide/openrouter.md.)
+ */
+const SLUGS = {
+  claude: ['anthropic/claude-sonnet-5.5', 'openai/gpt-6-sol'],
+  codex: ['openai/gpt-5.5', 'anthropic/claude-sonnet-5.5'],
+  opencode: ['moonshotai/kimi-k3', 'openai/gpt-6-sol']
+}
+const OPENROUTER_AUTH = credentialFingerprint(`Bearer ${FAKE_OPENROUTER_KEY}`)
+const isAttributed = (h) =>
+  h['http-referer'] === 'https://neurosquad.ai/' &&
+  h['x-openrouter-title'] === 'NeuroSquad' &&
+  h['x-title'] === 'NeuroSquad' &&
+  h['x-openrouter-categories'] === 'cli-agent,programming-app' &&
+  !('x-openrouter-app-visibility' in h)
+/** The scripted (not side) request answering the prompt marked `text`, after index `from`. */
+const turnRequest = (from, text) =>
+  fake.requests
+    .slice(from)
+    .find((r) => r.protocol && !r.side && r.prompts?.some((p) => p.includes(text)))
+/** Waits for that request, then for the turn to finish. */
+async function waitTurn(name, from, text) {
+  for (let i = 0; i < 180 && !turnRequest(from, text); i++) await sleep(500)
+  await waitStatus(name, ['finished'], 60_000)
+  return turnRequest(from, text)
+}
+
+/** After a restart: the agent is running and its resumed screen is up; then a beat for input. */
+async function waitResumed(name, text = 'NSQ_HELLO_DONE') {
+  for (let i = 0; i < 60; i++) {
+    const agent = agentNamed(name)
+    if (agent?.running && new RegExp(text).test(nsq('peek', name, '-n', '80').stdout)) {
+      await sleep(2500)
+      return true
+    }
+    await sleep(500)
+  }
+  return false
+}
+
+/**
+ * Codex on its own provider (`openai`, as most users have it — the sandbox's default config
+ * names its own `fake` provider, on which `vendor/model` ids are native), pointed at the fake.
+ */
+function codexOnOwnProvider() {
+  const configFile = join(sandbox.codexHome, 'config.toml')
+  const authFile = join(sandbox.codexHome, 'auth.json')
+  const saved = readFileSync(configFile, 'utf8')
+  writeFileSync(
+    configFile,
+    [
+      'model = "fake-model"',
+      'approval_policy = "on-request"',
+      'sandbox_mode = "read-only"',
+      'check_for_update_on_startup = false',
+      `openai_base_url = "${fake.base}/v1"`,
+      ''
+    ].join('\n')
+  )
+  writeFileSync(authFile, JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: FAKE_OPENAI_KEY }))
+  return () => {
+    writeFileSync(configFile, saved)
+    rmSync(authFile, { force: true })
+  }
+}
+
+async function modelsScenario(short) {
+  const [slug, slug2] = SLUGS[short]
+  const name = `${short}-model`
+  const restore = short === 'codex' ? codexOnOwnProvider() : undefined
+  // The daemon re-reads the Codex config at most every 10 s.
+  if (restore) await sleep(10_500)
+  try {
+    // 1. A slug only OpenRouter knows, without OpenRouter: refused with the fix (OpenCode's own
+    //    ids are provider/model too, so there it is not refused).
+    if (short !== 'opencode') {
+      const refused = nsq('run', short, '--name', `${name}-x`, '--model', slug, 'hi')
+      check(
+        `${short}: --model ${slug} without --provider openrouter is refused with the fix`,
+        refused.status !== 0 &&
+          refused.stderr.includes(
+            `${slug} is an OpenRouter model id — add --provider openrouter`
+          ) &&
+          !agentNamed(`${name}-x`),
+        refused.stderr.trim()
+      )
+    }
+
+    // 2. An agent on the harness's own login, one turn.
+    let from = fake.requests.length
+    nsq('run', short, '--name', name, '[nsq:hello] on the own login')
+    await waitTurn(name, from, 'on the own login')
+
+    // 3. The picker (dashboard `m`, the same request): model and provider together; the agent
+    //    is idle → restarted at once on the same session.
+    from = fake.requests.length
+    const set = nsq('set', name, '--model', slug, '--provider', 'openrouter')
+    const view = agentNamed(name)
+    check(
+      `${short}: picking ${slug} switches the idle agent now, session kept`,
+      /switched to .* on OpenRouter \(session kept\)/.test(set.stdout) &&
+        view?.provider === 'openrouter' &&
+        view?.model === slug,
+      set.stdout.trim() || set.stderr.trim()
+    )
+    await waitResumed(name)
+    nsq('send', name, '[nsq:hello] after the switch')
+    let turn = await waitTurn(name, from, 'after the switch')
+    check(
+      `${short}: the next turn goes to OpenRouter with ${slug}, the key, attribution — and the earlier turn`,
+      turn?.path?.startsWith('/api/v1/') &&
+        turn.model === slug &&
+        turn.credentials?.authorization === OPENROUTER_AUTH &&
+        isAttributed(turn.headers) &&
+        turn.prompts.some((p) => p.includes('on the own login')),
+      turn && { path: turn.path, model: turn.model, prompts: turn.prompts }
+    )
+
+    // 4. Mid-turn: the switch waits for the end of the turn; a prompt queued meanwhile runs on
+    //    the new model after the restart.
+    from = fake.requests.length
+    nsq('send', name, '[nsq:slow] a long turn')
+    for (let i = 0; i < 60 && !turnRequest(from, 'a long turn'); i++) await sleep(250)
+    await waitStatus(name, ['working'], 30_000)
+    const later = nsq('set', name, '--model', slug2, '--provider', 'openrouter')
+    nsq('send', name, '--when-done', '[nsq:hello] queued for after the switch')
+    check(
+      `${short}: mid-turn, the switch waits for the turn to end`,
+      /switches to .* when this turn ends \(session kept\)/.test(later.stdout),
+      later.stdout.trim() || later.stderr.trim()
+    )
+    turn = await waitTurn(name, from, 'queued for after the switch')
+    check(
+      `${short}: the queued prompt ran after the restart, on ${slug2}`,
+      turn?.model === slug2 &&
+        turn.credentials?.authorization === OPENROUTER_AUTH &&
+        turnRequest(from, 'a long turn')?.model === slug,
+      turn && { model: turn.model, prompts: turn.prompts }
+    )
+
+    // 5. nsq 0.1.1 left agents with a slug and no provider: at start they move to OpenRouter
+    //    (with a key). Not OpenCode: its own ids look the same and are left alone.
+    if (short !== 'opencode') {
+      nsq('down')
+      const agentsFile = join(sandbox.env.NSQ_HOME, 'agents.json')
+      const saved = JSON.parse(readFileSync(agentsFile, 'utf8'))
+      const record = saved.agents.find((a) => a.name === name)
+      delete record.provider
+      writeFileSync(agentsFile, JSON.stringify(saved, null, 2))
+      nsq('up')
+      await waitResumed(name)
+      check(
+        `${short}: an agent saved with an OpenRouter slug and no provider is moved to OpenRouter`,
+        agentNamed(name)?.provider === 'openrouter',
+        agentNamed(name)?.provider ?? 'none'
+      )
+    }
+
+    // 6. "default": back to the harness's own login, its own model — the conversation kept.
+    from = fake.requests.length
+    const back = nsq('set', name, '--model', 'none', '--provider', 'none')
+    await waitResumed(name)
+    nsq('send', name, '[nsq:hello] back on the own login')
+    turn = await waitTurn(name, from, 'back on the own login')
+    const own =
+      short === 'claude'
+        ? turn?.path === '/v1/messages' &&
+          turn.credentials?.['x-api-key'] === credentialFingerprint(FAKE_ANTHROPIC_KEY) &&
+          !turn.model?.includes('/')
+        : short === 'codex'
+          ? // Codex resumes on the session's last model unless told: nsq passes its own back.
+            turn?.path === '/v1/responses' && turn.model === 'fake-model'
+          : // The sandbox's own OpenCode config reaches the fake as its `openrouter` provider
+            // with its configured model.
+            turn?.model === 'fake-model'
+    check(
+      `${short}: "default" puts it back on its own login and model, the conversation kept`,
+      /switched to its own login and default model/.test(back.stdout) &&
+        own &&
+        turn.prompts.some((p) => p.includes('queued for after the switch')),
+      turn && { path: turn.path, model: turn.model, out: back.stdout.trim() }
+    )
+    nsq('rm', name)
+  } finally {
+    restore?.()
+  }
+}
 
 try {
   for (const short of harnesses) {
@@ -326,6 +532,8 @@ try {
         }
       )
     }
+
+    if (runs('models')) await modelsScenario(short)
 
     if (runs('worktree')) {
       const git = (...args) => execFileSync('git', args, { cwd: sandbox.project, stdio: 'ignore' })

@@ -13,7 +13,7 @@ full screen and goes back to the grid.
 | y / a / n              | answer the selected agent's permission prompt (yes / always / no)                           |
 | s / S                  | send a prompt / send it when the current turn is done                                       |
 | c                      | start an agent (harness, name, prompt, folder, worktree, OpenRouter, model, dangerous mode) |
-| m                      | pick a model (OpenRouter's catalogue)                                                       |
+| m                      | pick a model from OpenRouter's catalogue (switches the agent to OpenRouter) or "default"    |
 | i · x · X · r · R · d  | interrupt · stop · remove · restart · rename · dangerous mode                               |
 | v                      | dictate into the agent (also the global hotkey); the text is pasted, never sent             |
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)                                 |

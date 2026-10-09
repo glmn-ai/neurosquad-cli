@@ -89,8 +89,17 @@ function parseJsonObject(text: string | undefined): Json {
   }
 }
 
-/** OPENCODE_CONFIG_CONTENT: the user's own (if any) plus the attribution headers on the openrouter provider. */
-export function openCodeConfigWithAttribution(userContent?: string, apiBase?: string): string {
+/**
+ * OPENCODE_CONFIG_CONTENT: the user's own (if any) plus the attribution headers on the openrouter
+ * provider. With `slug`, the model is declared on the provider too: OpenCode only runs models it
+ * knows, and its catalog (models.dev) lags OpenRouter's list — a new slug was "model not found".
+ * A declared model that the catalog has keeps the catalog's details (the entry only adds).
+ */
+export function openCodeConfigWithAttribution(
+  userContent?: string,
+  apiBase?: string,
+  slug?: string
+): string {
   return JSON.stringify(
     mergeJson(parseJsonObject(userContent), {
       provider: {
@@ -98,7 +107,8 @@ export function openCodeConfigWithAttribution(userContent?: string, apiBase?: st
           options: {
             headers: { ...OPENROUTER_ATTRIBUTION },
             ...(apiBase ? { baseURL: apiBase } : {})
-          }
+          },
+          ...(slug ? { models: { [slug]: {} } } : {})
         }
       }
     })
@@ -195,7 +205,8 @@ export function openRouterLaunch(
           [OPENROUTER_KEY_ENV]: key,
           OPENCODE_CONFIG_CONTENT: openCodeConfigWithAttribution(
             options.openCodeConfigContent,
-            apiBase
+            apiBase,
+            slug
           )
         }
       }
@@ -216,6 +227,43 @@ export function nativeModelLaunch(harness: string, model: string | undefined): P
     default:
       return NONE
   }
+}
+
+/**
+ * True when `model` can only be an OpenRouter model id for this harness — on the harness's own
+ * login it is "model not found". Launching it without the OpenRouter recipe is the bug this
+ * guards against (a slug picked from OpenRouter's list on an agent still on its own login).
+ *
+ * - `~vendor/model` (OpenRouter's "latest" aliases): OpenRouter only, every harness.
+ * - Claude Code: native ids have no `/` (`claude-sonnet-4-5`, `opus`, `sonnet[1m]`); the one
+ *   native shape with a slash is a Bedrock ARN (`arn:aws:bedrock:…/…`).
+ * - Codex: its own models have no `/` — unless the user's Codex config selects another
+ *   `model_provider` (Ollama, LM Studio, their own OpenRouter entry…), whose ids may.
+ * - OpenCode: native ids ARE `provider/model` (`anthropic/claude-sonnet-4-5`), so a slash says
+ *   nothing; only the `~` alias is OpenRouter's.
+ */
+export function openRouterOnlyModel(
+  harness: string,
+  model: string | undefined,
+  options: { codexModelProvider?: string } = {}
+): boolean {
+  const id = normalizeModelId(model)
+  if (!id || !OPENROUTER_HARNESSES.includes(harness)) return false
+  if (id.startsWith('~')) return true
+  if (!id.includes('/')) return false
+  switch (harness) {
+    case 'claude-code':
+      return !/^arn:/i.test(id)
+    case 'codex-cli':
+      return !options.codexModelProvider || options.codexModelProvider === 'openai'
+    default:
+      return false
+  }
+}
+
+/** Why a launch with `model` but without OpenRouter would fail, and the fix. */
+export function openRouterOnlyMessage(model: string): string {
+  return `${model} is an OpenRouter model id — add --provider openrouter`
 }
 
 /** Harnesses the OpenRouter recipe supports. */

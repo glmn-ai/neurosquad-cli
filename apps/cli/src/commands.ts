@@ -19,6 +19,7 @@ import { readConfig } from './config.js'
 import { paths } from './paths.js'
 import type { AgentView, RunSpec } from './protocol.js'
 import { VERSION } from './version.js'
+import { modelSwitchText, type ModelSwitchApplied } from './modelRules.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -261,7 +262,11 @@ export async function cmdSet(args: ParsedArgs): Promise<void> {
   }
   await withClient(async (client) => {
     const agent = await find(client, ref)
-    const result = await client.request<{ restartNeeded: boolean }>({
+    const result = await client.request<{
+      restartNeeded: boolean
+      applied?: ModelSwitchApplied
+      warnings?: string[]
+    }>({
       t: 'set',
       id: agent.id,
       ...(dangerous !== undefined
@@ -270,6 +275,15 @@ export async function cmdSet(args: ParsedArgs): Promise<void> {
       ...(model !== undefined ? { model: model === 'none' ? null : model } : {}),
       ...(provider !== undefined ? { provider: provider === 'none' ? null : 'openrouter' } : {})
     })
+    for (const warning of result.warnings ?? [])
+      process.stderr.write(`nsq: ${warning}
+`)
+    if (model !== undefined || provider !== undefined) {
+      // The daemon has the agent's model/provider now (the request may have changed only one).
+      const now = (await client.request<AgentView[]>({ t: 'list' })).find((a) => a.id === agent.id)
+      out(`${agent.name}: ${modelSwitchText(now?.model, now?.provider, result.applied)}`)
+      return
+    }
     out(
       result.restartNeeded
         ? `updated ${agent.name}; applies after nsq restart ${agent.name}`

@@ -83,6 +83,13 @@ Windows 11.
 
 ## OpenRouter
 
+- **"model not found" / "model does not exist" with an OpenRouter model:** the agent ran the slug
+  on the CLI's own login, not on OpenRouter. nsq 0.1.1's **m** picker set the model without
+  switching the agent to OpenRouter. Since 0.1.2 a pick from **m** switches it, and at start an
+  agent left with a `vendor/model` slug and no provider is moved to OpenRouter when a key is
+  available (without a key it starts on the CLI's own model, with a warning). By hand:
+  `nsq set <agent> --provider openrouter --model <slug>`. For OpenCode, nsq 0.1.2 also declares
+  the slug on OpenCode's `openrouter` provider, so models newer than OpenCode's catalogue run.
 - `nsq openrouter status` says whether a key is available. On a server without a keyring, set
   `OPENROUTER_API_KEY` before the daemon starts (`nsq down`, then `nsq up`).
 - Claude Code needs 2.1.227 or newer for the attribution headers.
