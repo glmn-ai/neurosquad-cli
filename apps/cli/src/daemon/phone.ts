@@ -49,6 +49,15 @@ export interface PhoneSettings {
   tunnelPort?: number
   /** The pairing token is replaced (every phone signed out) once it is this many hours old. */
   expireHours?: number
+  /** Look up the latest cloudflared now and replace the downloaded copy when it is newer. */
+  refreshCloudflared?: boolean
+}
+
+/** A later phone request (or `off`) took over while this one was still going online. */
+export class PhoneSuperseded extends Error {
+  constructor() {
+    super('phone access was changed by a later request while this one was in progress')
+  }
 }
 
 export interface PhoneStatus {
@@ -129,6 +138,9 @@ export class PhoneAccess {
   private sweep: ReturnType<typeof setInterval> | null = null
   private readonly listeners = new Set<(event: PhoneHostEvent) => void>()
   private readonly tunnel: CloudflareTunnel
+  /** Bumped by every start/stop/cancel: an older start that wakes up after an await gives way. */
+  private generation = 0
+  private download: AbortController | null = null
 
   constructor(
     private readonly host: Omit<PhoneHost, 'subscribe'>,
@@ -164,21 +176,41 @@ export class PhoneAccess {
    * resolves once the tunnel has its address or failed (status().online says which).
    */
   async start(settings: PhoneSettings): Promise<PhoneStatus> {
+    this.cancelPending()
+    const generation = this.generation
+    const live = (): boolean => generation === this.generation
     const lan = settings.lan === true
     const port = settings.port ?? DEFAULT_PHONE_PORT
     const reuse = this.server && this.lan === lan && this.port === port && port !== 0
-    if (!reuse) await this.startServer(lan, port)
+    if (!reuse) {
+      await this.startServer(lan, port)
+      if (!live()) throw new PhoneSuperseded()
+    }
     this.expireHours =
       settings.expireHours && settings.expireHours > 0 ? settings.expireHours : undefined
     this.expireIfDue()
-    if (settings.online) await this.goOnline(settings)
+    if (settings.online) await this.goOnline(settings, live)
     else await this.goOffline()
+    if (!live()) throw new PhoneSuperseded()
     this.changed()
     return this.status()
   }
 
+  /**
+   * A newer request is coming: a start still downloading cloudflared or waiting for its address
+   * gives way (the download is aborted, a starting connector stopped). A running tunnel is left
+   * alone — the newer request keeps or stops it.
+   */
+  cancelPending(): void {
+    this.generation += 1
+    this.download?.abort()
+    this.download = null
+    const state = this.tunnel.status().state
+    if (state === 'installing' || state === 'starting') this.tunnel.stop()
+  }
+
   private async startServer(lan: boolean, port: number): Promise<void> {
-    await this.stop()
+    await this.closeServer()
     let token = readPhoneToken()
     if (!token) {
       token = generatePairingToken()
@@ -221,7 +253,7 @@ export class PhoneAccess {
   }
 
   /** Starts the tunnel (downloading cloudflared on first use), or keeps the one that runs. */
-  private async goOnline(settings: PhoneSettings): Promise<void> {
+  private async goOnline(settings: PhoneSettings, live: () => boolean): Promise<void> {
     const server = this.server
     if (!server) return
     const mode: TunnelMode = settings.tunnel === 'named' ? 'named' : 'quick'
@@ -241,6 +273,7 @@ export class PhoneAccess {
     let hostname: string | undefined
     if (mode === 'named') {
       token = await namedTunnelToken()
+      if (!live()) return
       hostname = settings.tunnelHostname
       if (!token || !hostname) {
         this.tunnel.fail(
@@ -253,27 +286,42 @@ export class PhoneAccess {
       }
     }
     let binary: string
+    let downloaded = false
+    const controller = new AbortController()
+    this.download = controller
     try {
       const override = process.env['NSQ_CLOUDFLARED']
-      binary = override?.trim()
-        ? override.trim()
-        : (
-            await ensureCloudflared({
-              binDir: join(paths.home(), 'bin'),
-              onProgress: (fraction) => this.tunnel.installing(mode, fraction)
-            })
-          ).path
+      if (override?.trim()) {
+        binary = override.trim()
+      } else {
+        const found = await ensureCloudflared({
+          binDir: join(paths.home(), 'bin'),
+          onProgress: (fraction) => {
+            if (live()) this.tunnel.installing(mode, fraction)
+          },
+          signal: controller.signal,
+          ...(settings.refreshCloudflared ? { refresh: true } : {})
+        })
+        binary = found.path
+        downloaded = found.source !== 'path'
+        if (found.source === 'fresh-download') {
+          this.log(`phone: cloudflared ${found.version ?? ''} downloaded and verified`.trim())
+        }
+      }
     } catch (error) {
-      this.tunnel.fail(mode, error instanceof Error ? error.message : String(error))
+      if (live()) this.tunnel.fail(mode, error instanceof Error ? error.message : String(error))
       return
+    } finally {
+      if (this.download === controller) this.download = null
     }
-    if (this.server !== server) return
+    if (!live() || this.server !== server) return
     // A listener left from another mode or port is not the one this tunnel forwards to.
     const open = server.tunnelOriginPort()
     if (open !== undefined && wantedPort !== 0 && open !== wantedPort) {
       await server.closeTunnelOrigin()
     }
     const originPort = await server.openTunnelOrigin(wantedPort)
+    if (!live()) return
     const status = await this.tunnel.start({
       binary,
       origin: `http://127.0.0.1:${originPort}`,
@@ -282,6 +330,14 @@ export class PhoneAccess {
       ...(hostname ? { hostname } : {}),
       stateDir: join(paths.home(), 'cloudflared')
     })
+    if (!live()) return
+    if (status.state === 'error' && downloaded) {
+      // Cloudflare stops serving connectors older than about a year; ours runs --no-autoupdate.
+      this.tunnel.fail(
+        mode,
+        `${status.error ?? 'cloudflared failed'} If this keeps happening, cloudflared may be too old: nsq phone on --online --refresh`
+      )
+    }
     if (status.state !== 'running' && this.server === server) await server.closeTunnelOrigin()
   }
 
@@ -291,6 +347,11 @@ export class PhoneAccess {
   }
 
   async stop(): Promise<void> {
+    this.cancelPending()
+    await this.closeServer()
+  }
+
+  private async closeServer(): Promise<void> {
     this.tunnel.stop()
     const server = this.server
     this.server = null

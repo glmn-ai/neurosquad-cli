@@ -14,11 +14,19 @@
 //     after the notes are written, so their line describes a different archive and is not used.)
 //   - Only `https://github.com/cloudflare/cloudflared/releases/download/…` is fetched.
 // A `cloudflared` the user installed themselves (on PATH) is used as is: that one is their choice.
+//
+// Kept current: cloudflared runs with --no-autoupdate, and Cloudflare stops supporting connectors
+// older than about a year. The downloaded copy's version is recorded next to it
+// (`cloudflared.json`); every 30 days (or on `refresh`) the latest release is looked up and, when
+// it is newer, downloaded and verified the same way. A failed check keeps the copy that works.
 import { createHash } from 'node:crypto'
 import {
+  accessSync,
   chmodSync,
+  constants,
   existsSync,
   mkdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   statSync,
@@ -158,6 +166,57 @@ export interface EnsureCloudflaredOptions {
   platform?: NodeJS.Platform
   arch?: string
   releaseApi?: string
+  /** Look up the latest release now and replace the downloaded copy if it is newer. */
+  refresh?: boolean
+  /** How often the downloaded copy is checked against the latest release. Default 30 days. */
+  checkEveryMs?: number
+  /** Cancels the lookup and the download. */
+  signal?: AbortSignal
+  now?: () => number
+}
+
+export const CLOUDFLARED_CHECK_EVERY_MS = 30 * 24 * 3_600_000
+
+interface Stamp {
+  version?: string
+  checkedAt: number
+}
+
+function stampFile(binDir: string): string {
+  return join(binDir, 'cloudflared.json')
+}
+
+function readStamp(binDir: string): Stamp | undefined {
+  try {
+    const value = JSON.parse(readFileSync(stampFile(binDir), 'utf8')) as Partial<Stamp>
+    return typeof value.checkedAt === 'number'
+      ? {
+          checkedAt: value.checkedAt,
+          ...(typeof value.version === 'string' ? { version: value.version } : {})
+        }
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeStamp(binDir: string, stamp: Stamp): void {
+  try {
+    writeFileSync(stampFile(binDir), `${JSON.stringify(stamp)}\n`, { mode: 0o600 })
+  } catch {
+    // Only means another check next time.
+  }
+}
+
+/** Runnable by this user: a regular file, and (off Windows) with execute permission. */
+function runnable(file: string, platform: NodeJS.Platform): boolean {
+  try {
+    if (!statSync(file).isFile()) return false
+    if (platform !== 'win32') accessSync(file, constants.X_OK)
+    return true
+  } catch {
+    return false
+  }
 }
 
 export interface CloudflaredBinary {
@@ -189,57 +248,96 @@ export function cloudflaredOnPath(
     if (!folder || !isAbsolute(folder)) continue
     for (const ext of extensions) {
       const candidate = join(folder, `cloudflared${ext}`)
-      try {
-        if (statSync(candidate).isFile()) return Promise.resolve(candidate)
-      } catch {
-        // Not here.
-      }
+      // Not executable (off Windows): skipped, a later entry or the download is used instead.
+      if (runnable(candidate, platform)) return Promise.resolve(candidate)
     }
   }
   return Promise.resolve(null)
 }
 
 /**
- * A runnable `cloudflared`: the copy downloaded earlier, else one on PATH, else a verified
- * download of the latest release.
+ * A runnable `cloudflared`: the copy downloaded earlier (re-checked against the latest release
+ * every `checkEveryMs`), else one on PATH, else a verified download of the latest release.
  */
 export async function ensureCloudflared(
   options: EnsureCloudflaredOptions
 ): Promise<CloudflaredBinary> {
   const platform = options.platform ?? process.platform
+  const now = options.now ?? Date.now
   const target = join(options.binDir, cloudflaredBinaryName(platform))
-  if (existsSync(target)) return { path: target, source: 'downloaded' }
+  if (existsSync(target)) {
+    const stamp = readStamp(options.binDir)
+    const due =
+      options.refresh ||
+      !stamp ||
+      now() - stamp.checkedAt >= (options.checkEveryMs ?? CLOUDFLARED_CHECK_EVERY_MS)
+    const current: CloudflaredBinary = {
+      path: target,
+      source: 'downloaded',
+      ...(stamp?.version ? { version: stamp.version } : {})
+    }
+    if (!due) return current
+    try {
+      const release = await latestRelease(options)
+      if (!options.refresh && stamp?.version && release.tag_name === stamp.version) {
+        writeStamp(options.binDir, { version: stamp.version, checkedAt: now() })
+        return current
+      }
+      return await download(options, release, target, platform, now)
+    } catch (error) {
+      // Asked for: say why. On the periodic check: the copy that works is kept.
+      if (options.refresh || options.signal?.aborted) throw error
+      return current
+    }
+  }
   const installed = await (options.findOnPath ?? cloudflaredOnPath)()
   if (installed) return { path: installed, source: 'path' }
+  return download(options, await latestRelease(options), target, platform, now)
+}
 
+function withTimeout(signal: AbortSignal | undefined, ms: number): AbortSignal {
+  return signal ? AbortSignal.any([signal, AbortSignal.timeout(ms)]) : AbortSignal.timeout(ms)
+}
+
+async function latestRelease(options: EnsureCloudflaredOptions): Promise<ReleaseInfo> {
+  const doFetch = options.fetch ?? fetch
+  const response = await doFetch(options.releaseApi ?? CLOUDFLARED_RELEASE_API, {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'nsq' },
+    signal: withTimeout(options.signal, 30_000)
+  })
+  if (!response.ok) {
+    throw new Error(`Could not look up the latest cloudflared (HTTP ${response.status}).`)
+  }
+  return (await response.json()) as ReleaseInfo
+}
+
+async function download(
+  options: EnsureCloudflaredOptions,
+  release: ReleaseInfo,
+  target: string,
+  platform: NodeJS.Platform,
+  now: () => number
+): Promise<CloudflaredBinary> {
   const name = cloudflaredAssetName(platform, options.arch ?? process.arch)
   if (!name) {
     throw new Error(
       `Cloudflare builds no cloudflared for ${platform}/${options.arch ?? process.arch}. Install it yourself (it is used from PATH).`
     )
   }
+  const asset = verifiedAsset(release, name)
   const doFetch = options.fetch ?? fetch
-  const response = await doFetch(options.releaseApi ?? CLOUDFLARED_RELEASE_API, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'nsq' },
-    signal: AbortSignal.timeout(30_000)
-  })
-  if (!response.ok) {
-    throw new Error(`Could not look up the latest cloudflared (HTTP ${response.status}).`)
-  }
-  const asset = verifiedAsset((await response.json()) as ReleaseInfo, name)
-
   mkdirSync(options.binDir, { recursive: true, mode: 0o700 })
-  const download = await doFetch(asset.url, {
+  const response = await doFetch(asset.url, {
     headers: { 'User-Agent': 'nsq' },
-    signal: AbortSignal.timeout(10 * 60_000)
+    signal: withTimeout(options.signal, 10 * 60_000)
   })
-  if (!download.ok || !download.body) {
-    throw new Error(`Could not download cloudflared (HTTP ${download.status}).`)
+  if (!response.ok || !response.body) {
+    throw new Error(`Could not download cloudflared (HTTP ${response.status}).`)
   }
   const hash = createHash('sha256')
   const chunks: Buffer[] = []
   let received = 0
-  const reader = download.body.getReader()
+  const reader = response.body.getReader()
   for (;;) {
     const { done, value } = await reader.read()
     if (done) break
@@ -271,6 +369,10 @@ export async function ensureCloudflared(
     rmSync(staging, { force: true })
     throw error
   }
+  writeStamp(options.binDir, {
+    ...(asset.version ? { version: asset.version } : {}),
+    checkedAt: now()
+  })
   return {
     path: target,
     source: 'fresh-download',

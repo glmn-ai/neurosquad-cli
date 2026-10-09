@@ -101,6 +101,8 @@ export type Request =
       tunnelPort?: number
       /** Phones pair again after this many hours; null = never. */
       expireHours?: number | null
+      /** `on --online`: re-check cloudflared against the latest release now. */
+      refresh?: boolean
     }
   | { t: 'shutdown'; stopAgents?: boolean }
   /** Updates: the state, a check now, install now, or restart onto an installed one (when idle). */

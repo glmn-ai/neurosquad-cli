@@ -50,14 +50,19 @@ phone. **Anyone with this link and token can control your agents**, so treat it 
   link and QR). A quick tunnel is never brought back on its own: going online is explicit, every time.
 - **Turn it off** with `nsq phone off` (all phone access), or `nsq phone on` without `--online`
   (back to this machine / the Wi-Fi only). The tunnel also stops with `nsq down`. In the dashboard,
-  **O** switches online on and off (with the same warning), and the header shows a red **ONLINE**
-  badge while it is.
+  **O** switches online on and off (with the same warning; it uses your named tunnel if you set one
+  up), and the header shows a red **ONLINE** badge while it is. A later `nsq phone on`/`off` (or
+  **O**) also cuts short an `--online` that is still downloading or starting.
 - **cloudflared** is Cloudflare's connector. If it is on your `PATH`, that one is used. Otherwise,
   the first time, nsq downloads the official release binary from
   [Cloudflare's GitHub releases](https://github.com/cloudflare/cloudflared/releases) into
   `~/.neurosquad-cli/bin` — never system-wide, no install script — and checks it against the sha256
   digest GitHub publishes (and Cloudflare's own checksum list where it covers the file). Without a
   published checksum, or on a mismatch, nothing is run. Delete `~/.neurosquad-cli/bin` to remove it.
+  It runs with `--no-autoupdate`, and Cloudflare stops serving connectors older than about a year, so
+  nsq checks the downloaded copy against the latest release every 30 days when going online and
+  replaces it (verified the same way) when there is a newer one; `nsq phone on --online --refresh`
+  checks right away. A `cloudflared` on your `PATH` is yours to keep up to date.
 - Quick tunnels are a free Cloudflare service for testing, with no uptime guarantee; if Cloudflare
   stops the tunnel, `nsq phone status` and the dashboard say so (it is not restarted silently, since
   a new address would need a new pairing).

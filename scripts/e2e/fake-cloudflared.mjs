@@ -6,7 +6,7 @@
 // loopback port and writes { port, pid, argv } to `fake-cloudflared.state.json` next to itself.
 // A test picks the visitor's address with `x-fake-client-ip` and plain http with
 // `x-fake-proto: http`. Nothing leaves the machine.
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { createServer, request } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,10 +42,21 @@ const server = createServer((req, res) => {
   req.pipe(upstream)
 })
 
-server.listen(0, '127.0.0.1', () => {
+// `fake-cloudflared.delay` next to this file: milliseconds before the address is printed (a slow
+// start, for tests of a request that takes over meanwhile).
+const here = dirname(fileURLToPath(import.meta.url))
+let delay = 0
+try {
+  delay = Number(readFileSync(join(here, 'fake-cloudflared.delay'), 'utf8')) || 0
+} catch {
+  // no delay
+}
+
+server.listen(0, '127.0.0.1', async () => {
   const { port } = server.address()
-  const state = join(dirname(fileURLToPath(import.meta.url)), 'fake-cloudflared.state.json')
+  const state = join(here, 'fake-cloudflared.state.json')
   writeFileSync(state, JSON.stringify({ port, pid: process.pid, argv }))
+  if (delay) await new Promise((resolve) => setTimeout(resolve, delay))
   console.error('INF Requesting new quick Tunnel on https://api.trycloudflare.com...')
   console.error(
     'INF +--------------------------------------------------------------------------------------------+'

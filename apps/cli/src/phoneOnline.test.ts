@@ -3,8 +3,8 @@
 // edge does. The token guard through the "internet", the lockout, plain http refused, who is
 // connected, and the connector stopped by `phone on` (no --online), `phone off` and `nsq down`.
 // Needs the built CLI.
-import { spawnSync } from 'node:child_process'
-import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { spawn, spawnSync } from 'node:child_process'
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -154,6 +154,74 @@ describe.skipIf(!built)('online phone access (fake cloudflared)', () => {
     nsq('down')
     expect(await gone(third)).toBe(true)
   }, 120_000)
+
+  it('a later on / off takes over from an --online still starting, and writes the config', async () => {
+    // The connector takes 4 s to report its address: long enough to change our mind meanwhile.
+    writeFileSync(join(fakeDir, 'fake-cloudflared.delay'), '4000')
+    rmSync(join(fakeDir, 'fake-cloudflared.state.json'), { force: true })
+    try {
+      const nsqAsync = (...args: string[]): Promise<{ status: number | null; out: string }> =>
+        new Promise((resolveRun) => {
+          const child = spawn(process.execPath, [BIN, ...args], {
+            cwd: work,
+            windowsHide: true,
+            env: {
+              ...process.env,
+              NSQ_HOME: home,
+              NSQ_NO_NOTIFY: '1',
+              NSQ_CLOUDFLARED: join(fakeDir, 'fake-cloudflared.mjs')
+            }
+          })
+          let out = ''
+          child.stdout.on('data', (chunk: Buffer) => (out += chunk.toString()))
+          child.stderr.on('data', (chunk: Buffer) => (out += chunk.toString()))
+          child.on('exit', (status) => resolveRun({ status, out }))
+        })
+      const waitForFake = async (): Promise<number> => {
+        const deadline = Date.now() + 20_000
+        while (Date.now() < deadline) {
+          try {
+            return fakeState().pid
+          } catch {
+            await new Promise((resolveWait) => setTimeout(resolveWait, 100))
+          }
+        }
+        throw new Error('the fake connector never started')
+      }
+      const config = (): { phone?: { enabled?: boolean; online?: boolean } } =>
+        JSON.parse(readFileSync(join(home, 'config.json'), 'utf8')) as {
+          phone?: { enabled?: boolean; online?: boolean }
+        }
+
+      // on --online, then off while it starts.
+      const going = nsqAsync('phone', 'on', '--online', '--port', '0')
+      const pid = await waitForFake()
+      const off = nsq('phone', 'off')
+      expect(off.status, off.stderr).toBe(0)
+      const first = await going
+      expect(first.status).not.toBe(0)
+      expect(first.out).toContain('changed by a later request')
+      expect(await gone(pid)).toBe(true)
+      expect(nsq('phone', 'status').stdout).toContain('phone access: off')
+      expect(config().phone).toMatchObject({ enabled: false })
+
+      // on --online, then on (local only) while it starts.
+      rmSync(join(fakeDir, 'fake-cloudflared.state.json'), { force: true })
+      const again = nsqAsync('phone', 'on', '--online', '--port', '0')
+      const second = await waitForFake()
+      const local = nsq('phone', 'on', '--port', '0')
+      expect(local.status, local.stderr).toBe(0)
+      expect((await again).status).not.toBe(0)
+      expect(await gone(second)).toBe(true)
+      const status = nsq('phone', 'status').stdout
+      expect(status).toContain('phone access: on')
+      expect(status).not.toContain('online')
+      expect(config().phone).toMatchObject({ enabled: true, online: false })
+      nsq('phone', 'off')
+    } finally {
+      rmSync(join(fakeDir, 'fake-cloudflared.delay'), { force: true })
+    }
+  }, 90_000)
 
   it('refuses a tunnel token on the command line and --tunnel-token without --online', () => {
     const inline = nsq('phone', 'on', '--online', '--tunnel-token=abc')

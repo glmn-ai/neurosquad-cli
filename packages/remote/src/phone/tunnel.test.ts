@@ -230,6 +230,90 @@ describe('cloudflared download verification', () => {
     }
   })
 
+  it('skips a cloudflared on PATH that is not executable', async () => {
+    if (process.platform === 'win32') return
+    const bin = join(dir, 'noexec')
+    mkdirSync(bin)
+    writeFileSync(join(bin, 'cloudflared'), 'not runnable', { mode: 0o644 })
+    expect(await cloudflaredOnPath({ PATH: bin })).toBeNull()
+  })
+
+  it('checks the downloaded copy against the latest release now and then', async () => {
+    let now = 1_000
+    let lookups = 0
+    let downloads = 0
+    const newer = Buffer.from('cloudflared 2026.11.0')
+    const counting = (info: ReleaseInfo, served: Buffer): typeof fetch =>
+      (async (input: string | URL | Request) => {
+        if (String(input).includes('api.github.com')) {
+          lookups += 1
+          return new Response(JSON.stringify(info))
+        }
+        downloads += 1
+        return new Response(new Uint8Array(served))
+      }) as typeof fetch
+    const base = {
+      binDir: dir,
+      platform: 'linux' as const,
+      arch: 'x64',
+      findOnPath: async () => null,
+      checkEveryMs: 10_000,
+      now: () => now
+    }
+    await ensureCloudflared({ ...base, fetch: counting(release(), binary) })
+    expect([lookups, downloads]).toEqual([1, 1])
+    // Within the period: no network at all.
+    now = 5_000
+    expect((await ensureCloudflared({ ...base, fetch: counting(release(), binary) })).source).toBe(
+      'downloaded'
+    )
+    expect([lookups, downloads]).toEqual([1, 1])
+    // Period over, same release: looked up, not downloaded.
+    now = 20_000
+    await ensureCloudflared({ ...base, fetch: counting(release(), binary) })
+    expect([lookups, downloads]).toEqual([2, 1])
+    // A newer release: downloaded and verified, replaces the copy.
+    now = 40_000
+    const next: ReleaseInfo = {
+      tag_name: '2026.11.0',
+      assets: [
+        {
+          name: 'cloudflared-linux-amd64',
+          size: newer.length,
+          browser_download_url: `${DL.replace('2026.10.0', '2026.11.0')}cloudflared-linux-amd64`,
+          digest: `sha256:${sha(newer)}`
+        }
+      ]
+    }
+    const updated = await ensureCloudflared({ ...base, fetch: counting(next, newer) })
+    expect(updated).toMatchObject({ source: 'fresh-download', version: '2026.11.0' })
+    expect(readFileSync(updated.path)).toEqual(newer)
+    // A failed periodic check keeps the copy that works; an asked-for refresh says why.
+    now = 80_000
+    const offline = (async () => {
+      throw new Error('offline')
+    }) as typeof fetch
+    expect((await ensureCloudflared({ ...base, fetch: offline })).source).toBe('downloaded')
+    await expect(ensureCloudflared({ ...base, fetch: offline, refresh: true })).rejects.toThrow(
+      'offline'
+    )
+  })
+
+  it('a cancelled download is not installed', async () => {
+    const controller = new AbortController()
+    controller.abort()
+    await expect(
+      ensureCloudflared({
+        binDir: dir,
+        platform: 'linux',
+        arch: 'x64',
+        findOnPath: async () => null,
+        signal: controller.signal
+      })
+    ).rejects.toThrow()
+    expect(existsSync(join(dir, 'cloudflared'))).toBe(false)
+  })
+
   it('prefers a cloudflared the user installed', async () => {
     const got = await ensureCloudflared({
       binDir: dir,

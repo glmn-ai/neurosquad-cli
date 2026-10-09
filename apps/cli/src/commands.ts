@@ -660,7 +660,7 @@ interface PhoneReply {
 }
 
 const PHONE_USAGE =
-  'nsq phone on [--lan] [--port n] [--online [--tunnel-token --hostname h]] [--expire 12h|off] | off | pair | rotate | status | tunnel-token set|clear | push ntfy [--url] [--token]|off|test|show|status'
+  'nsq phone on [--lan] [--port n] [--online [--tunnel-token --hostname h] [--refresh]] [--expire 12h|off] | off | pair | rotate | status | tunnel-token set|clear | push ntfy [--url] [--token]|off|test|show|status'
 
 /** The warning that goes with every online address. */
 export const ONLINE_WARNING =
@@ -725,6 +725,8 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
   const online = args.flags.has('online') ? flagBool(args, 'online') : false
   const named = flagBool(args, 'tunnel-token')
   if (named && !online) throw new UsageError('--tunnel-token goes with --online')
+  const refresh = flagBool(args, 'refresh')
+  if (refresh && !online) throw new UsageError('--refresh goes with --online')
   const hostnameFlag = flagString(args, 'hostname')
   let hostname: string | undefined
   if (hostnameFlag !== undefined) {
@@ -751,7 +753,9 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
       ...(args.flags.has('lan') ? { lan: flagBool(args, 'lan') } : {}),
       ...(port !== undefined ? { port: Number(port) } : {}),
       ...(verb === 'on' ? { online } : {}),
-      ...(named ? { named } : {}),
+      // From the command line the tunnel is what the flags say (quick unless --tunnel-token).
+      ...(online ? { named } : {}),
+      ...(refresh ? { refresh } : {}),
       ...(hostname ? { hostname } : {}),
       ...(tunnelPort !== undefined ? { tunnelPort: Number(tunnelPort) } : {}),
       ...(expireHours !== undefined ? { expireHours } : {})

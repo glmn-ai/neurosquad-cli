@@ -79,7 +79,7 @@ import {
 import { PACKAGE_DIR, PACKAGE_NAME, VERSION } from '../version.js'
 import { Updater, type UpdateView } from '../update/updater.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
-import { PhoneAccess } from './phone.js'
+import { PhoneAccess, PhoneSuperseded } from './phone.js'
 import { NtfyPush } from './push.js'
 import { lanAddresses } from '@neurosquad/remote'
 
@@ -999,6 +999,21 @@ export class Daemon {
   }
 
   private lastPhones = ''
+  /** Phone requests run one after another (an on that downloads cloudflared vs an off). */
+  private phoneQueue: Promise<unknown> = Promise.resolve()
+
+  /**
+   * A new on/off first cuts short whatever is still going online (so `off` does not wait for a
+   * download), then waits its turn: the config is always written by the last request.
+   */
+  private queuePhoneRequest(message: Request & { t: 'phone' }): Promise<unknown> {
+    // status / pair / rotate answer at once, never behind a download.
+    if (message.action !== 'on' && message.action !== 'off') return this.phoneRequest(message)
+    this.phone.cancelPending()
+    const run = this.phoneQueue.then(() => this.phoneRequest(message))
+    this.phoneQueue = run.catch(() => {})
+    return run
+  }
 
   private phoneView(): PhoneView {
     const status = this.phone.status()
@@ -1049,15 +1064,16 @@ export class Daemon {
         // server that was running keeps running).
         const previous = this.config.phone
         const wasRunning = this.phone.status().running
-        // Online is explicit every time: `on` without it goes back to local only.
+        // Online is explicit every time: `on` without it goes back to local only. Which tunnel:
+        // as asked, else the one set up before (the dashboard's O keeps a named tunnel named).
+        const named =
+          message.online === true && (message.named ?? readConfig().phone?.tunnel === 'named')
         const change = {
           enabled: true,
           ...(message.lan !== undefined ? { lan: message.lan } : {}),
           ...(message.port !== undefined ? { port: message.port } : {}),
           online: message.online === true,
-          ...(message.online
-            ? { tunnel: message.named ? ('named' as const) : ('quick' as const) }
-            : {}),
+          ...(message.online ? { tunnel: named ? ('named' as const) : ('quick' as const) } : {}),
           ...(message.hostname !== undefined ? { tunnelHostname: message.hostname } : {}),
           ...(message.tunnelPort !== undefined ? { tunnelPort: message.tunnelPort } : {}),
           ...(message.expireHours !== undefined
@@ -1066,8 +1082,14 @@ export class Daemon {
         }
         let status: Awaited<ReturnType<PhoneAccess['start']>>
         try {
-          status = await this.phone.start({ ...readConfig().phone, ...change })
+          status = await this.phone.start({
+            ...readConfig().phone,
+            ...change,
+            ...(message.refresh ? { refreshCloudflared: true } : {})
+          })
         } catch (error) {
+          // Taken over by a later request: that one decides (and writes the config).
+          if (error instanceof PhoneSuperseded) throw error
           if (wasRunning && previous) {
             await this.phone.start(previous).catch((again: unknown) => {
               this.log(
@@ -1221,7 +1243,7 @@ export class Daemon {
         return undefined
       }
       case 'phone':
-        return this.phoneRequest(message)
+        return this.queuePhoneRequest(message)
       case 'resize': {
         const record = this.need(message.id)
         const cols = Math.max(20, Math.min(1000, Math.floor(message.cols)))

@@ -863,9 +863,10 @@ export class Dashboard {
       kind: 'confirm',
       title: 'Go online?',
       body: [
-        'Phone access from anywhere, through a Cloudflare quick tunnel (https).',
+        'Phone access from anywhere through a Cloudflare tunnel (https): your named',
+        'tunnel if you set one up, else a quick tunnel.',
         'Anyone with this link and the pairing token can control your agents.',
-        'The address changes every time it starts: pair with nsq phone pair.',
+        "A quick tunnel's address changes every time it starts: pair with nsq phone pair.",
         'The first time, cloudflared is downloaded (sha256-checked) into the nsq home.',
         'Turn it off: O again, or nsq phone off.'
       ].join('\n'),
