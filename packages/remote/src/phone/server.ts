@@ -467,7 +467,6 @@ export class PhoneServer {
       return
     }
     const client = this.seen(req)
-    if (path === '/api/events' || path === '/api/poll') this.hold(client, res)
     if (method !== 'GET') {
       bucket.writes += 1
       if (bucket.writes > this.limits.writes) {
@@ -476,7 +475,8 @@ export class PhoneServer {
       }
     }
     try {
-      await this.route(req, res, method, path, url.searchParams)
+      // Counted as open only while a stream or a held poll actually keeps the response.
+      await this.route(req, res, method, path, url.searchParams, () => this.hold(client, res))
     } catch (error) {
       if (res.headersSent) {
         res.end()
@@ -501,18 +501,19 @@ export class PhoneServer {
     res: ServerResponse,
     method: string,
     path: string,
-    query: URLSearchParams
+    query: URLSearchParams,
+    hold: () => void
   ): Promise<void> {
     if (method === 'GET' && path === '/api/state') {
       this.json(res, 200, await this.currentState())
       return
     }
     if (method === 'GET' && path === '/api/events') {
-      await this.openStream(req, res)
+      await this.openStream(req, res, hold)
       return
     }
     if (method === 'GET' && path === '/api/poll') {
-      await this.handlePoll(req, res, query)
+      await this.handlePoll(req, res, query, hold)
       return
     }
     if (method === 'GET' && path === '/api/capabilities') {
@@ -748,7 +749,11 @@ export class PhoneServer {
     this.keepAliveTimer = null
   }
 
-  private async openStream(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async openStream(
+    _req: IncomingMessage,
+    res: ServerResponse,
+    hold: () => void
+  ): Promise<void> {
     // Anyone already listening hears about a pending change first: the new client's snapshot is
     // about to become the reference the state timer compares against.
     if (this.lastSignature) await this.pollState()
@@ -764,6 +769,7 @@ export class PhoneServer {
     res.write(`data: ${JSON.stringify({ type: 'state', state } satisfies PhoneEvent)}\n\n`)
     this.lastSignature = stateSignature(state)
     this.streams.add(res)
+    hold()
     this.ensureTimers()
     res.on('close', () => {
       this.streams.delete(res)
@@ -794,7 +800,8 @@ export class PhoneServer {
   private async handlePoll(
     _req: IncomingMessage,
     res: ServerResponse,
-    query: URLSearchParams
+    query: URLSearchParams,
+    hold: () => void
   ): Promise<void> {
     this.lastPollAt = this.now()
     this.ensureTimers()
@@ -821,6 +828,7 @@ export class PhoneServer {
       timer: setTimeout(() => this.answerWaiter(waiter), this.options.pollHoldMs ?? 25_000)
     }
     this.waiters.add(waiter)
+    hold()
     res.on('close', () => {
       if (!this.waiters.has(waiter)) return
       this.waiters.delete(waiter)

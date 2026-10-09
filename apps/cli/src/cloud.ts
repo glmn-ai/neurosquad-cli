@@ -63,6 +63,8 @@ export async function cmdCloud(verb: 'login' | 'logout' | 'whoami'): Promise<voi
     const status = await session.login({
       signal: abort.signal,
       onCode: (code) => {
+        // Ctrl+C while the code was being fetched: no code, no browser.
+        if (abort.signal.aborted) return
         out(`Confirm the code ${code.userCode} in your browser:`)
         out(`  ${code.verifyUrl}`)
         openInBrowser(code.verifyUrl)

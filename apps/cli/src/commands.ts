@@ -555,7 +555,8 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
     throw new UsageError('nsq phone on [--lan] [--port n] | off | pair | rotate | status')
   }
   const port = flagString(args, 'port')
-  if (port !== undefined && !/^\d{1,5}$/.test(port)) throw new UsageError('--port takes a number')
+  if (port !== undefined && (!/^\d{1,5}$/.test(port) || Number(port) > 65535))
+    throw new UsageError('--port takes a number from 0 to 65535')
   const client = await DaemonClient.open('phone')
   try {
     const reply = (await client.request({

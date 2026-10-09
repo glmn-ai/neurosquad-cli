@@ -846,12 +846,24 @@ export class Daemon {
     }
     switch (message.action) {
       case 'on': {
-        const settings = saved({
+        // Saved only once the server listens: a port in use leaves the old settings (and a
+        // server that was running keeps running).
+        const previous = this.config.phone
+        const wasRunning = this.phone.status().running
+        const change = {
           enabled: true,
           ...(message.lan !== undefined ? { lan: message.lan } : {}),
           ...(message.port !== undefined ? { port: message.port } : {})
-        })
-        return { status: await this.phone.start(settings), links: this.phone.pairingLinks() }
+        }
+        let status: Awaited<ReturnType<PhoneAccess['start']>>
+        try {
+          status = await this.phone.start({ ...readConfig().phone, ...change })
+        } catch (error) {
+          if (wasRunning && previous) await this.phone.start(previous).catch(() => undefined)
+          throw error
+        }
+        saved(change)
+        return { status, links: this.phone.pairingLinks() }
       }
       case 'off':
         saved({ enabled: false })

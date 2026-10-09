@@ -6,7 +6,7 @@
 // The pairing token is a credential: it lives in a 0600 file in the nsq home
 // (as the daemon's own token does), is shown only by `nsq phone pair`, and
 // `nsq phone rotate` replaces it, cutting off every paired phone.
-import { chmodSync, readFileSync, rmSync } from 'node:fs'
+import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { writeFileAtomic } from '@neurosquad/core'
 import {
@@ -53,8 +53,21 @@ export function readPhoneToken(): string | undefined {
 }
 
 function writePhoneToken(token: string): void {
-  writeFileAtomic(tokenFile(), token)
-  if (process.platform !== 'win32') chmodSync(tokenFile(), 0o600)
+  const file = tokenFile()
+  if (process.platform === 'win32') {
+    writeFileAtomic(file, token)
+    return
+  }
+  // Created 0600 from the first byte (never readable by others, even briefly), then renamed in.
+  const temp = `${file}.${process.pid}.tmp`
+  try {
+    writeFileSync(temp, token, { mode: 0o600 })
+    chmodSync(temp, 0o600)
+    renameSync(temp, file)
+  } catch (error) {
+    rmSync(temp, { force: true })
+    throw error
+  }
 }
 
 export function forgetPhoneToken(): void {
