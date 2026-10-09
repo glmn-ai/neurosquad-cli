@@ -172,15 +172,45 @@ describe('authentication', () => {
     expect((await call('/api/state')).status).toBe(200)
   })
 
-  it('sends protective headers and no CORS, and serves nothing outside /api', async () => {
+  it('sends protective headers and no CORS, and serves only the page outside /api', async () => {
     const answer = await call('/api/state')
     expect(answer.headers['referrer-policy']).toBe('no-referrer')
     expect(answer.headers['cache-control']).toBe('no-store')
     expect(answer.headers['x-content-type-options']).toBe('nosniff')
     expect(answer.headers['access-control-allow-origin']).toBeUndefined()
-    expect((await call('/')).status).toBe(404)
+    expect(answer.headers['content-security-policy']).toContain("default-src 'none'")
     expect((await call('/index.html')).status).toBe(404)
     expect((await call('/../../etc/passwd')).status).toBe(404)
+    expect((await call('/web/app.js')).status).toBe(404)
+    expect((await call('/constructor')).status).toBe(404)
+    expect((await call('/app.js', { method: 'POST', body: {} })).status).toBe(405)
+  })
+
+  it('serves the phone page without the token, locked down by its CSP', async () => {
+    const page = await call('/', { token: null })
+    expect(page.status).toBe(200)
+    expect(page.headers['content-type']).toContain('text/html')
+    const csp = String(page.headers['content-security-policy'])
+    expect(csp).toContain("script-src 'self'")
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(csp).not.toContain('unsafe')
+    expect(String(page.body)).not.toMatch(/<script>|\son[a-z]+=|\sstyle=/i)
+    const script = await call('/app.js', { token: null })
+    expect(script.headers['content-type']).toContain('text/javascript')
+    // Everything from the server goes in as text.
+    expect(String(script.body)).not.toMatch(
+      /innerHTML|outerHTML|insertAdjacentHTML|eval\(|new Function/
+    )
+    for (const path of ['/app.css', '/manifest.webmanifest', '/icon.svg']) {
+      expect((await call(path, { token: null })).status).toBe(200)
+    }
+  })
+
+  it('can leave the page out', async () => {
+    const bare = new PhoneServer({ host, token, port: 0, page: false })
+    const { port } = await bare.start()
+    expect((await fetch(`http://127.0.0.1:${port}/`)).status).toBe(404)
+    await bare.stop()
   })
 
   it('compares tokens in constant time and only accepts well-formed ones', () => {
