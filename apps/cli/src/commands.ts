@@ -528,3 +528,74 @@ export async function cmdRawInput(args: ParsedArgs): Promise<void> {
     await client.request({ t: 'input', id: agent.id, data })
   })
 }
+
+interface PhoneReply {
+  status: {
+    running: boolean
+    lan: boolean
+    port?: number
+    address?: string
+    connections: number
+    phones: { address: string; device: string; firstSeen: number; open: number }[]
+  }
+  links?: string[]
+}
+
+function describePhone(status: PhoneReply['status']): string {
+  if (!status.running) return 'phone access: off (nsq phone on [--lan])'
+  const where = status.lan
+    ? `the local network, port ${status.port}`
+    : `this machine only, port ${status.port}`
+  return `phone access: on — ${where}; ${status.phones.length} connected`
+}
+
+export async function cmdPhone(args: ParsedArgs): Promise<void> {
+  const verb = args.positional[0] ?? 'status'
+  if (!['status', 'on', 'off', 'pair', 'rotate'].includes(verb)) {
+    throw new UsageError('nsq phone on [--lan] [--port n] | off | pair | rotate | status')
+  }
+  const port = flagString(args, 'port')
+  if (port !== undefined && (!/^\d{1,5}$/.test(port) || Number(port) > 65535))
+    throw new UsageError('--port takes a number from 0 to 65535')
+  const client = await DaemonClient.open('phone')
+  try {
+    const reply = (await client.request({
+      t: 'phone',
+      action: verb as 'status' | 'on' | 'off' | 'pair' | 'rotate',
+      ...(args.flags.has('lan') ? { lan: flagBool(args, 'lan') } : {}),
+      ...(port !== undefined ? { port: Number(port) } : {})
+    })) as PhoneReply
+    out(describePhone(reply.status))
+    for (const phone of reply.status.phones) {
+      out(
+        `  ${phone.device}  ${phone.address}  since ${new Date(phone.firstSeen).toLocaleTimeString()}${phone.open ? '  (live)' : ''}`
+      )
+    }
+    if (verb === 'rotate')
+      out('new pairing token: every paired phone is signed out (nsq phone pair)')
+    if (verb === 'on' && !reply.status.lan) {
+      out('a phone cannot reach 127.0.0.1; for the Wi-Fi: nsq phone on --lan')
+    }
+    if (verb === 'pair') {
+      const links = reply.links ?? []
+      if (!links.length) {
+        out(
+          reply.status.running ? 'no network address found' : 'turn it on first: nsq phone on --lan'
+        )
+        return
+      }
+      // The link is the credential: shown only here, on request.
+      const { renderUnicodeCompact } = await import('uqr')
+      out('Scan with the phone (it carries the pairing token — do not share it):')
+      out(renderUnicodeCompact(links[0]!))
+      for (const link of links) out(`  ${link}`)
+    }
+  } finally {
+    client.close()
+  }
+}
+
+export async function cmdLogin(verb: 'login' | 'logout' | 'whoami'): Promise<void> {
+  const { cmdCloud } = await import('./cloud.js')
+  await cmdCloud(verb)
+}

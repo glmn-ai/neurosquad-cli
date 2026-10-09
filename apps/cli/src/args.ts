@@ -19,7 +19,8 @@ const VALUED = new Set([
   'key',
   'hotkey',
   'language',
-  'mode'
+  'mode',
+  'port'
 ])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {

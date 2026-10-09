@@ -16,6 +16,7 @@ import {
   compactMark,
   createTheme,
   detectGraphicsFromEnv,
+  queryGraphics,
   frame,
   glyphSet,
   isRemoteSession,
@@ -45,7 +46,7 @@ import { DaemonClient } from '../client/client.js'
 import { readConfig } from '../config.js'
 import { findDetachKey, parseDetachKey } from '../attach.js'
 import { HARNESS_LABEL, elapsed } from '../format.js'
-import type { AgentView, DaemonEvent } from '../protocol.js'
+import type { AgentView, DaemonEvent, PhoneView } from '../protocol.js'
 import { Canvas } from './canvas.js'
 import {
   InputParser,
@@ -141,7 +142,7 @@ export class Dashboard {
   private readonly screens = new Map<string, AgentScreen>()
   private readonly detachKey: string
   private readonly motion: animations.MotionPolicy
-  private readonly graphics: ReturnType<typeof detectGraphicsFromEnv>
+  private graphics: ReturnType<typeof detectGraphicsFromEnv>
   private selected: string | null = null
   private expanded: string | null = null
   private page = 0
@@ -200,13 +201,41 @@ export class Dashboard {
   // ---- lifecycle --------------------------------------------------------------------
 
   async run(): Promise<void> {
+    // Image logos: known terminals come from the environment; the rest (Windows Terminal, VS Code,
+    // Konsole…) are asked once. The probe never holds the first frame back: it owns stdin for at
+    // most its timeout (150 ms), then our input handler takes over with whatever was typed meanwhile.
+    const probing =
+      this.graphics.source === 'unknown' && this.theme.logos === 'images' && this.stdin.isTTY
+        ? queryGraphics(this.stdin, this.stdout, { tmux: this.graphics.tmux })
+        : null
     this.stdout.write(
       '\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2004h\x1b[?1004h\x1b[2J'
     )
-    if (this.stdin.isTTY) this.stdin.setRawMode(true)
-    this.stdin.setEncoding('utf8')
-    this.stdin.resume()
-    this.stdin.on('data', this.onInput)
+    const takeInput = (typedMeanwhile: string): void => {
+      if (this.closed) return
+      if (this.stdin.isTTY) this.stdin.setRawMode(true)
+      this.stdin.setEncoding('utf8')
+      this.stdin.resume()
+      this.stdin.on('data', this.onInput)
+      if (typedMeanwhile) this.onInput(typedMeanwhile)
+    }
+    if (probing) {
+      void probing.then((probe) => {
+        if (!this.closed && probe.protocol !== 'none') {
+          this.graphics = {
+            protocol: probe.protocol,
+            source: 'query',
+            tmux: this.graphics.tmux,
+            reason: 'the terminal answered the graphics probe'
+          }
+          this.prev = undefined // repaint everything once, now with the logos
+          this.schedule()
+        }
+        takeInput(probe.rest)
+      })
+    } else {
+      takeInput('')
+    }
     this.stdout.on('resize', this.onResize)
     const off = this.client.on((event) => this.onEvent(event))
     this.client.onClose(() => this.quit('the daemon stopped'))
@@ -373,6 +402,9 @@ export class Dashboard {
       }
       case 'resized':
         this.screens.get(event.id)?.view.resize(event.cols, event.rows)
+        break
+      case 'phones':
+        this.phone = event.phone
         break
       case 'notify':
         // No desktop notification (switched off, none here, or over SSH where it would show on
@@ -587,11 +619,63 @@ export class Dashboard {
         bg: 'headerBg'
       }),
       ...this.dictationBadge(),
+      ...this.phoneBadge(),
       seg('? help ', { fg: 'faintText', bg: 'headerBg' })
     ]
     const rightWidth = right.reduce((w, s) => w + [...s.text].length, 0)
     canvas.put(0, 0, left, width - rightWidth - 1)
     canvas.put(width - rightWidth, 0, right)
+  }
+
+  private phone: PhoneView | null = null
+
+  /**
+   * Who is connected from a phone — always in the header while anyone is: the count and the
+   * first device. Phone access on with nobody connected shows a quiet "phone on".
+   */
+  private phoneBadge(): Seg[] {
+    const phone = this.phone
+    if (!phone) return []
+    const phones = phone.phones
+    if (!phones.length) {
+      return phone.running ? [seg('phone on  ', { fg: 'faintText', bg: 'headerBg' })] : []
+    }
+    const first = phones[0]!
+    const who = `${first.device} ${first.address}${phones.length > 1 ? ` +${phones.length - 1}` : ''}`
+    return [
+      seg(` ${phones.length} phone${phones.length > 1 ? 's' : ''} `, {
+        fg: 'accentFg',
+        bg: 'accent',
+        bold: true
+      }),
+      seg(` ${fitText(who, 34)}  `, { fg: 'accentText', bg: 'headerBg' })
+    ]
+  }
+
+  /** p: who is connected, with the way to cut everyone off. */
+  private showPhones(): void {
+    const phone = this.phone
+    if (!phone?.running && !phone?.phones.length) {
+      this.modal = {
+        kind: 'message',
+        title: 'Phone access',
+        body: 'Off. Turn it on with: nsq phone on --lan'
+      }
+      return
+    }
+    const lines = phone.phones.length
+      ? phone.phones.map(
+          (p) =>
+            `${p.device}  ${p.address}  since ${new Date(p.firstSeen).toLocaleTimeString()}${p.open ? '  live' : ''}`
+        )
+      : ['Nobody is connected.']
+    this.modal = {
+      kind: 'confirm',
+      title: `Phone access — ${phone.lan ? 'local network' : 'this machine only'}, port ${phone.port ?? '?'}`,
+      body: `${lines.join('\n')}\n\nNew pairing token? Every connected phone is cut off (nsq phone pair shows the new link).`,
+      yes: () =>
+        this.request(this.client.request({ t: 'phone', action: 'rotate' }), 'new pairing token')
+    }
   }
 
   private dictationBadge(): Seg[] {
@@ -965,6 +1049,7 @@ export class Dashboard {
           ['[ ]', 'previous / next page of tiles'],
           ['b', 'sidebar on/off'],
           ['v', 'dictate into the agent (also the global hotkey) — pasted, never sent'],
+          ['p', 'phones: who is connected; a new pairing token cuts them off'],
           ['q', 'quit — agents keep running (nsq down stops them)']
         ]
         const r = this.box(canvas, 90, rows.length + 4, 'Keys')
@@ -983,9 +1068,15 @@ export class Dashboard {
         return
       }
       case 'confirm': {
-        const r = this.box(canvas, 64, 7, modal.title)
-        text(r, 1, [seg(modal.body, { fg: 'bodyText', bg: 'tileBg' })])
-        text(r, 3, [
+        const lines = modal.body.split('\n')
+        const r = this.box(
+          canvas,
+          Math.max(64, Math.min(96, Math.max(...lines.map((l) => l.length)) + 6)),
+          lines.length + 6,
+          modal.title
+        )
+        lines.forEach((line, i) => text(r, 1 + i, [seg(line, { fg: 'bodyText', bg: 'tileBg' })]))
+        text(r, lines.length + 2, [
           seg('y', { fg: 'accentText', bg: 'tileBg', bold: true }),
           seg(' yes   ', { fg: 'mutedText', bg: 'tileBg' }),
           seg('n / Esc', { fg: 'accentText', bg: 'tileBg', bold: true }),
@@ -1315,6 +1406,9 @@ export class Dashboard {
         return
       case 'v':
         this.toggleDictation()
+        return
+      case 'p':
+        this.showPhones()
         return
       case 'b':
         this.sidebarMode = this.layout.sidebar ? 'hidden' : 'shown'

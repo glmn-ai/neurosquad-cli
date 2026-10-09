@@ -37,6 +37,8 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq peek <agent> [-n 20]              the last lines of its screen
   nsq cost [--since 7d] [--json]        what each agent spent
   nsq openrouter set-key|clear-key|models [query]|status
+  nsq phone on [--lan]|off|pair|rotate|status   answer agents from a phone
+  nsq login | logout | whoami           the optional NeuroSquad account
   nsq dictation setup|status|test <wav> [--model id]
   nsq up | down                         start / stop the daemon (and its agents)
   nsq doctor                            check harnesses, hooks, terminal
@@ -100,6 +102,18 @@ async function main(argv: string[]): Promise<number> {
     case 'openrouter':
       await cmdOpenRouter(args)
       return 0
+    case 'phone': {
+      const { cmdPhone } = await import('./commands.js')
+      await cmdPhone(args)
+      return 0
+    }
+    case 'login':
+    case 'logout':
+    case 'whoami': {
+      const { cmdLogin } = await import('./commands.js')
+      await cmdLogin(command)
+      return 0
+    }
     case 'dictation': {
       const { cmdDictation } = await import('./dictation.js')
       await cmdDictation(args)

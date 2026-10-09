@@ -71,16 +71,19 @@ export function attach(
     let done = false
     let started = false
     let lastOthers = -1
+    let phones = 0
+    let lastPhones = -1
     // Rewritten only when the count changes: a title between two chunks of the
     // agent's output could land inside one of its escape sequences.
     const title = (): void => {
       const others = [...agents.values()].filter(
         (a) => a.id !== agent.id && a.status === 'needs-input'
       )
-      if (others.length === lastOthers) return
+      if (others.length === lastOthers && phones === lastPhones) return
       lastOthers = others.length
+      lastPhones = phones
       stdout.write(
-        `\x1b]0;nsq · ${agent.name}${others.length ? ` · ${others.length} other${others.length > 1 ? 's' : ''} need${others.length > 1 ? '' : 's'} you` : ''}\x07`
+        `\x1b]0;nsq · ${agent.name}${others.length ? ` · ${others.length} other${others.length > 1 ? 's' : ''} need${others.length > 1 ? '' : 's'} you` : ''}${phones ? ` · ${phones} phone${phones > 1 ? 's' : ''} connected` : ''}\x07`
       )
     }
     const resize = (): void => {
@@ -132,6 +135,10 @@ export function attach(
           return
         case 'agent':
           agents.set(event.agent.id, event.agent)
+          title()
+          return
+        case 'phones':
+          phones = event.phone.phones.length
           title()
           return
         case 'notify':

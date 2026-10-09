@@ -79,7 +79,68 @@ export interface PhoneServerOptions {
   keepAliveMs?: number
   /** Diagnostics; lines never contain the token or request bodies. */
   log?: (line: string) => void
+  /**
+   * Called when the set of connected phones may have changed (a phone appeared, opened or closed
+   * its event stream or poll, the token was rotated, the server stopped). A phone that only goes
+   * quiet drops out of `connections()` after a minute without a call; re-read on a timer for that.
+   */
+  onConnectionsChange?: () => void
   now?: () => number
+}
+
+/** A paired phone (or another client holding the token) seen recently. */
+export interface PhoneConnection {
+  /** The remote address as the socket reports it. */
+  address: string
+  /** A short label from the User-Agent ("iPhone · Safari"), or "unknown device". */
+  device: string
+  firstSeen: number
+  lastSeen: number
+  /** Event streams and held polls open right now. */
+  open: number
+}
+
+/** How long a client counts as connected after its last call when it holds nothing open. */
+export const PHONE_CONNECTION_IDLE_MS = 60_000
+
+/** "iPhone · Safari", "Android · Chrome", "Windows · Firefox", "curl"… — never the raw string. */
+export function deviceLabel(userAgent: string | undefined): string {
+  const ua = userAgent ?? ''
+  if (!ua.trim()) return 'unknown device'
+  const os = /iPhone/.test(ua)
+    ? 'iPhone'
+    : /iPad/.test(ua)
+      ? 'iPad'
+      : /Android/.test(ua)
+        ? 'Android'
+        : /Windows/.test(ua)
+          ? 'Windows'
+          : /Mac OS X|Macintosh/.test(ua)
+            ? 'Mac'
+            : /Linux/.test(ua)
+              ? 'Linux'
+              : ''
+  const browser = /EdgA?\//.test(ua)
+    ? 'Edge'
+    : /FxiOS|Firefox\//.test(ua)
+      ? 'Firefox'
+      : /CriOS|Chrome\//.test(ua)
+        ? 'Chrome'
+        : /Safari\//.test(ua)
+          ? 'Safari'
+          : ''
+  if (os || browser) return [os, browser].filter(Boolean).join(' · ')
+  // A tool (curl/8.4, okhttp/4.12): its name only, printable, short.
+  const tool = /^([A-Za-z][\w.-]{0,23})/.exec(ua)?.[1]
+  return tool ?? 'unknown device'
+}
+
+interface Client {
+  address: string
+  device: string
+  firstSeen: number
+  lastSeen: number
+  open: number
 }
 
 interface Bucket {
@@ -170,6 +231,7 @@ export class PhoneServer {
   private lastSweep = 0
   private readonly streams = new Set<ServerResponse>()
   private readonly waiters = new Set<Waiter>()
+  private readonly clients = new Map<string, Client>()
   private readonly eventLog: { seq: number; event: PhoneEvent }[] = []
   private lastSeq = 0
   private lastPollAt = 0
@@ -235,6 +297,60 @@ export class PhoneServer {
     return this.streams.size + this.waiters.size
   }
 
+  /**
+   * Who is connected: every client that passed the token and holds a stream or poll open, or made
+   * a call in the last minute. One entry per address and device, oldest first.
+   */
+  connections(): PhoneConnection[] {
+    const now = this.now()
+    const live: PhoneConnection[] = []
+    for (const [key, client] of this.clients) {
+      if (client.open > 0 || now - client.lastSeen < PHONE_CONNECTION_IDLE_MS) {
+        live.push({ ...client })
+      } else {
+        this.clients.delete(key)
+      }
+    }
+    return live.sort((a, b) => a.firstSeen - b.firstSeen)
+  }
+
+  private connectionsChanged(): void {
+    try {
+      this.options.onConnectionsChange?.()
+    } catch {
+      // The host's listener is its own business.
+    }
+  }
+
+  /** Records an authorized request; returns the client so a stream or poll can hold it open. */
+  private seen(req: IncomingMessage): Client {
+    const address = req.socket.remoteAddress ?? 'unknown'
+    const device = deviceLabel(req.headers['user-agent'])
+    const key = `${address}|${device}`
+    const now = this.now()
+    let client = this.clients.get(key)
+    const fresh =
+      !client || (client.open === 0 && now - client.lastSeen >= PHONE_CONNECTION_IDLE_MS)
+    if (!client) {
+      client = { address, device, firstSeen: now, lastSeen: now, open: 0 }
+      this.clients.set(key, client)
+    }
+    if (fresh) client.firstSeen = now
+    client.lastSeen = now
+    if (fresh) this.connectionsChanged()
+    return client
+  }
+
+  private hold(client: Client, res: ServerResponse): void {
+    client.open += 1
+    if (client.open === 1) this.connectionsChanged()
+    res.once('close', () => {
+      client.open = Math.max(0, client.open - 1)
+      client.lastSeen = this.now()
+      if (client.open === 0) this.connectionsChanged()
+    })
+  }
+
   async stop(): Promise<void> {
     const server = this.server
     if (!server) return
@@ -243,6 +359,8 @@ export class PhoneServer {
     this.unsubscribe = null
     this.closeClients()
     this.stopTimers()
+    this.clients.clear()
+    this.connectionsChanged()
     await new Promise<void>((resolve) => {
       server.closeAllConnections()
       server.close(() => resolve())
@@ -255,6 +373,8 @@ export class PhoneServer {
     this.token = token
     this.buckets.clear()
     this.closeClients()
+    this.clients.clear()
+    this.connectionsChanged()
   }
 
   private closeClients(): void {
@@ -346,6 +466,7 @@ export class PhoneServer {
       this.json(res, 401, { error: 'Unauthorized' })
       return
     }
+    const client = this.seen(req)
     if (method !== 'GET') {
       bucket.writes += 1
       if (bucket.writes > this.limits.writes) {
@@ -354,7 +475,8 @@ export class PhoneServer {
       }
     }
     try {
-      await this.route(req, res, method, path, url.searchParams)
+      // Counted as open only while a stream or a held poll actually keeps the response.
+      await this.route(req, res, method, path, url.searchParams, () => this.hold(client, res))
     } catch (error) {
       if (res.headersSent) {
         res.end()
@@ -379,18 +501,19 @@ export class PhoneServer {
     res: ServerResponse,
     method: string,
     path: string,
-    query: URLSearchParams
+    query: URLSearchParams,
+    hold: () => void
   ): Promise<void> {
     if (method === 'GET' && path === '/api/state') {
       this.json(res, 200, await this.currentState())
       return
     }
     if (method === 'GET' && path === '/api/events') {
-      await this.openStream(req, res)
+      await this.openStream(req, res, hold)
       return
     }
     if (method === 'GET' && path === '/api/poll') {
-      await this.handlePoll(req, res, query)
+      await this.handlePoll(req, res, query, hold)
       return
     }
     if (method === 'GET' && path === '/api/capabilities') {
@@ -626,7 +749,11 @@ export class PhoneServer {
     this.keepAliveTimer = null
   }
 
-  private async openStream(_req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async openStream(
+    _req: IncomingMessage,
+    res: ServerResponse,
+    hold: () => void
+  ): Promise<void> {
     // Anyone already listening hears about a pending change first: the new client's snapshot is
     // about to become the reference the state timer compares against.
     if (this.lastSignature) await this.pollState()
@@ -642,6 +769,7 @@ export class PhoneServer {
     res.write(`data: ${JSON.stringify({ type: 'state', state } satisfies PhoneEvent)}\n\n`)
     this.lastSignature = stateSignature(state)
     this.streams.add(res)
+    hold()
     this.ensureTimers()
     res.on('close', () => {
       this.streams.delete(res)
@@ -672,7 +800,8 @@ export class PhoneServer {
   private async handlePoll(
     _req: IncomingMessage,
     res: ServerResponse,
-    query: URLSearchParams
+    query: URLSearchParams,
+    hold: () => void
   ): Promise<void> {
     this.lastPollAt = this.now()
     this.ensureTimers()
@@ -699,6 +828,7 @@ export class PhoneServer {
       timer: setTimeout(() => this.answerWaiter(waiter), this.options.pollHoldMs ?? 25_000)
     }
     this.waiters.add(waiter)
+    hold()
     res.on('close', () => {
       if (!this.waiters.has(waiter)) return
       this.waiters.delete(waiter)

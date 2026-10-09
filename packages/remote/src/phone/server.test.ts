@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FakePhoneHost } from '../testing/fakeHost.js'
 import { PHONE_BLOCKED, PHONE_CAPABILITIES } from './capabilities.js'
 import { lanAddresses, pairingUrl } from './pairing.js'
-import { PhoneServer, workspaceIdFor } from './server.js'
+import { PhoneServer, deviceLabel, workspaceIdFor } from './server.js'
 import { generatePairingToken, isPairingToken, tokenMatches } from './token.js'
 import type { PhoneEvent } from './types.js'
 
@@ -393,5 +393,63 @@ describe('pairing', () => {
 
   it('binds to loopback unless told otherwise', () => {
     expect(server.address().address).toBe('127.0.0.1')
+  })
+})
+
+describe('connections', () => {
+  it('lists who passed the token, with a device label, and forgets them on rotate', async () => {
+    expect(server.connections()).toEqual([])
+    await call('/api/state', { token: null })
+    expect(server.connections()).toEqual([])
+    await call('/api/state')
+    const [phone] = server.connections()
+    expect(phone?.address).toMatch(/127\.0\.0\.1/)
+    expect(phone?.device).toBe('node')
+    expect(phone?.open).toBe(0)
+
+    const stream = readEvents(`/api/events?t=${token}`, 1)
+    await untilConnected()
+    expect(server.connections().find((c) => c.device === 'unknown device')?.open).toBe(1)
+    await stream
+    server.rotateToken(generatePairingToken())
+    expect(server.connections()).toEqual([])
+  })
+
+  it('tells the host when the set changes', async () => {
+    let changes = 0
+    const watched = new PhoneServer({
+      host,
+      token,
+      port: 0,
+      onConnectionsChange: () => (changes += 1)
+    })
+    const { port } = await watched.start()
+    const response = await fetch(`http://127.0.0.1:${port}/api/state`, {
+      headers: { authorization: `Bearer ${token}` }
+    })
+    await response.text()
+    expect(changes).toBe(1)
+    await fetch(`http://127.0.0.1:${port}/api/state`, {
+      headers: { authorization: `Bearer ${token}` }
+    }).then((r) => r.text())
+    expect(changes).toBe(1)
+    await watched.stop()
+    expect(changes).toBe(2)
+  })
+
+  it('labels devices without echoing the raw user agent', () => {
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+      )
+    ).toBe('iPhone · Safari')
+    expect(
+      deviceLabel(
+        'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36'
+      )
+    ).toBe('Android · Chrome')
+    expect(deviceLabel('curl/8.4.0')).toBe('curl')
+    expect(deviceLabel(undefined)).toBe('unknown device')
+    expect(deviceLabel('\u001b[31mevil')).toBe('unknown device')
   })
 })

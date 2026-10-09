@@ -57,6 +57,28 @@ for (const spec of agents.filter(Boolean)) {
 }
 await sleep(Number(arg('settle', '12000')))
 
+// --phone: phone access on and one phone (an iPhone user agent) holding the event stream open,
+// so the shots show who is connected.
+const phoneStream = new AbortController()
+if (argv.includes('--phone')) {
+  const on = nsq('phone', 'on', '--port', '0')
+  const port = /port (\d+)/.exec(on.stdout)?.[1]
+  const token = (await import('node:fs'))
+    .readFileSync(join(sandbox.env.NSQ_HOME, 'phone-token'), 'utf8')
+    .trim()
+  void fetch(`http://127.0.0.1:${port}/api/events`, {
+    signal: phoneStream.signal,
+    headers: {
+      authorization: `Bearer ${token}`,
+      'user-agent':
+        'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1'
+    }
+  })
+    .then((response) => response.body?.getReader().read())
+    .catch(() => {})
+  await sleep(500)
+}
+
 const raw = join(out, 'session.ansi')
 writeFileSync(raw, '')
 const term = pty.spawn(process.execPath, [BIN], {
@@ -90,6 +112,7 @@ try {
     }
   }
 } finally {
+  phoneStream.abort()
   term.write('q')
   await sleep(1000)
   try {
@@ -111,22 +134,32 @@ for (const name of shots) {
     ],
     { stdio: 'inherit', cwd: join(ROOT, 'packages', 'tui-theme') }
   )
-  // python3 first (macOS and many Linux distributions have no `python`), then python.
+  // python3 first (macOS and many Linux distributions have no `python`), then python. Each is
+  // tried in turn: on Windows `python3` may be the Store's placeholder, which only fails.
   let rendered = false
+  const failures = []
   for (const python of [arg('python'), 'python3', 'python'].filter(Boolean)) {
     try {
       execFileSync(python, [join(THEME, 'render-frames.py'), json, join(out, `${name}.png`)], {
-        stdio: 'inherit'
+        stdio: ['ignore', 'inherit', 'pipe']
       })
       rendered = true
       break
     } catch (error) {
-      if (error.code !== 'ENOENT') {
-        console.error(`render failed with ${python} (is Pillow installed?)`, String(error))
-        break
-      }
+      const reason =
+        error.code === 'ENOENT'
+          ? 'not found'
+          : String(error.stderr || error.message)
+              .trim()
+              .split('\n')
+              .at(-1)
+      failures.push(`${python}: ${reason}`)
     }
   }
-  if (!rendered) console.error('no PNG: Python 3 with Pillow is needed (--python <path>)')
+  if (!rendered) {
+    console.error(
+      `no PNG: Python 3 with Pillow is needed (--python <path>); tried ${failures.join('; ')}`
+    )
+  }
 }
 console.log(`shots in ${out}`)

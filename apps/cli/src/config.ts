@@ -9,7 +9,7 @@ export interface NsqConfig {
   logos?: 'auto' | 'images' | 'glyphs' | 'neutral'
   /** Colours: truecolor, 256 colours, or follow the terminal (`auto`). */
   color?: 'auto' | 'truecolor' | '256' | '16'
-  /** Native OS notifications (the terminal bell / OSC 9 always ring in the TUI). */
+  /** Notifications: native OS ones, or the terminal bell / OSC 9 in the TUI when none can show. `false` (or NSQ_NO_NOTIFY=1) silences both. */
   notifications?: boolean
   /** A sound with each notification. */
   sound?: boolean
@@ -17,6 +17,13 @@ export interface NsqConfig {
   detachKey?: string
   /** Default layout of the dashboard. */
   layout?: 'grid' | 'focus'
+  /** Phone access (`nsq phone on`). */
+  phone?: {
+    enabled?: boolean
+    /** Listen on the local network, not only this machine. */
+    lan?: boolean
+    port?: number
+  }
   dictation?: {
     enabled?: boolean
     /** A global hotkey, e.g. `F9`, `Ctrl+Alt+Space`. */
