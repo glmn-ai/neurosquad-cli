@@ -61,7 +61,9 @@ printf '%s
 The URL and the optional access token are kept in the OS keyring, not in `config.json` or the log
 (where there is no keyring, set `NSQ_NTFY_URL` and `NSQ_NTFY_TOKEN` in the daemon's environment).
 The URL must be https; plain http is accepted only for this machine or a local network address,
-and an access token is sent only over https (or plain http to this machine). The URL takes no
+and an access token is sent only over https (or plain http to this machine). Over plain http on
+the local network, anyone who can watch that network can read the agent's name and question — use
+https for anything sensitive. The URL takes no
 `user:password`, `?query` or `#fragment` — give a token with `--token` instead. `nsq phone push off`
 stores "off" in the keyring, so push stays off even when `NSQ_NTFY_URL` is set. Without an OS
 keyring, `off` cannot be stored: remove `NSQ_NTFY_URL` (and `NSQ_NTFY_TOKEN`) from the environment
