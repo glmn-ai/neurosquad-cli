@@ -30,3 +30,16 @@ for debugging a harness's start-up.
 The work folder (default: `../.nsq-e2e/` next to the repository — outside it, because harnesses
 treat a folder inside a git repository as part of that repository) holds the fake's request log
 (`fake-requests.jsonl`, credentials reduced to their last 4 characters) and `checks.json`.
+
+## In CI, on every OS
+
+`.github/workflows/e2e-live.yml` runs the same checks with the real CLIs on macOS arm64 and x64,
+Linux and Windows (`scripts/e2e-ci/`): pull requests that touch the CLI run the pinned CLI versions
+of `scripts/e2e-ci/clis.json`, the nightly run the newest of each line, and a manual run can test
+any ref. Per OS it runs `run.mjs` for Claude Code, Codex, OpenCode 1.x and 2.x plus `extra.mjs`
+(interrupt, a question as "needs you"), records the dashboard in a real pty with three agents
+(`tui-record.mjs`: grid, full screen and back, BEL + OSC 9 ring, answering from the dashboard; on
+Linux first without any X display) and runs dictation from OS-synthesised speech through Whisper
+tiny.en (`dictation.mjs`). The run summary has a check × OS table; the `tui-recordings` artifact
+has a GIF, an MP4 and PNG screenshots per OS. Checks failing because of an open nsq issue are
+listed in `scripts/e2e-ci/known.json` and shown as ⚠️ with the issue instead of failing the job.

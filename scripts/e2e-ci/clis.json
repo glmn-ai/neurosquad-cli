@@ -1,0 +1,21 @@
+{
+  "$comment": "Harness CLIs the live e2e installs, each set into its own prefix (both OpenCode lines ship an `opencode` binary). `pinned` is what pull requests run; the nightly run takes `latest` of the same line to catch upstream changes early.",
+  "sets": {
+    "main": {
+      "pinned": {
+        "@anthropic-ai/claude-code": "2.1.295",
+        "@openai/codex": "0.162.0",
+        "opencode-ai": "1.18.35"
+      },
+      "latest": {
+        "@anthropic-ai/claude-code": "latest",
+        "@openai/codex": "latest",
+        "opencode-ai": "1"
+      }
+    },
+    "oc2": {
+      "pinned": { "@opencode/cli": "2.0.26" },
+      "latest": { "@opencode/cli": "2" }
+    }
+  }
+}
