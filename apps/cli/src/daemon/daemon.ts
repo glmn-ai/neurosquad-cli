@@ -747,6 +747,8 @@ export class Daemon {
     for (;;) {
       const record = this.store.get(id)
       if (!record) return { applied: 'now' }
+      // Stopped (or exited) while waiting: the new model applies on the next start.
+      if (!record.wantRunning || !this.ptys.isRunning(id)) return { applied: 'next-start' }
       const launched = `${record.provider ?? ''} ${record.model ?? ''}`
       this.log(
         `${record.name}: model ${record.model ?? 'default'}${record.provider === 'openrouter' ? ' on OpenRouter' : ''}: restarting on the same session`
