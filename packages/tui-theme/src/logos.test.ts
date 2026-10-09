@@ -12,7 +12,8 @@ import {
   placeAt,
   sixelImage
 } from './logos.js'
-import { lineText, lineWidth } from './text.js'
+import { contrast } from './color.js'
+import { lineText, lineWidth, renderLine } from './text.js'
 import { createTheme } from './theme.js'
 
 const theme = createTheme({ env: {}, isTTY: true, platform: 'linux', colorLevel: 3, unicode: true })
@@ -35,19 +36,36 @@ describe('registry', () => {
     }
   })
 
-  it('Claude Code: no image in any protocol, a neutral grey CC badge in every mode', () => {
+  it("Claude Code: no image in any protocol, a CC badge on Claude's orange in every colour mode", () => {
     expect(logoPng('claude-code', 16)).toBeUndefined()
     expect(logoPng('claude-code', 32)).toBeUndefined()
     for (const protocol of ['kitty', 'iterm2', 'sixel'] as const)
       expect(logoImage('claude-code', { protocol })).toBeUndefined()
     const logo = HARNESS_LOGOS['claude-code']
     expect(logo.monogram).toBe('CC')
-    expect(logo.brand).toEqual({ r: 0x3f, g: 0x3f, b: 0x46 })
-    expect(logo.ink).toEqual({ r: 0xe4, g: 0xe4, b: 0xe7 })
+    expect(logo.brand).toEqual({ r: 0xd9, g: 0x77, b: 0x57 })
+    expect(logo.ink).toEqual({ r: 0xff, g: 0xff, b: 0xff })
+    expect(contrast(logo.brand, logo.ink)).toBeGreaterThanOrEqual(3)
     for (const mode of ['images', 'glyphs', 'none'] as const)
       expect(lineText(logoBadge(theme, 'claude-code', mode))).toBe('CC')
+    const at = (colorLevel: 0 | 1 | 2 | 3, mode: 'glyphs' | 'none' = 'glyphs'): string => {
+      const t = createTheme({ env: {}, isTTY: true, platform: 'linux', colorLevel })
+      return renderLine(t, logoBadge(t, 'claude-code', mode))
+    }
+    expect(at(3)).toContain('\x1b[38;2;255;255;255m\x1b[48;2;217;119;87m')
+    expect(at(2)).toContain('\x1b[38;5;231m\x1b[48;5;173m')
+    expect(at(1)).toContain('\x1b[97m\x1b[41m')
+    // NSQ_LOGOS=none stays neutral at every level.
+    for (const level of [1, 2, 3] as const)
+      expect(at(level, 'none')).not.toMatch(/48;2;217|48;5;173|\[41m/)
     const ascii = createTheme({ env: {}, isTTY: true, platform: 'linux', colorLevel: 0 })
     expect(logoBadge(ascii, 'claude-code')).toEqual([expect.objectContaining({ text: 'CC' })])
+    expect(at(0)).not.toContain('\x1b[4') // no background at all without colour
+  })
+
+  it('16 colours: only logos with an ansi16 pair are filled', () => {
+    const t16 = createTheme({ env: {}, isTTY: true, platform: 'linux', colorLevel: 1 })
+    expect(logoBadge(t16, 'codex')).toEqual([{ text: 'Cx', bold: true, fg: 'text' }])
   })
 
   it('unknown harnesses get the generic command logo', () => {

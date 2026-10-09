@@ -100,7 +100,8 @@ there — the theme switches to the ASCII set. `NSQ_GLYPHS=ascii|unicode` forces
 - `images` — the real logo through a terminal graphics protocol when the terminal has one, else
   the glyph badge (Claude Code has no image: it always gets its glyph badge);
 - `glyphs` — a two-cell badge: the monogram (`Cx`, `Oc`, `>_`) on the brand colour; Claude Code is
-  a neutral `CC` (light grey on dark grey, no brand colour);
+  a `CC` monogram on Claude's orange (white on `#d97757`; 256 colours: 231 on 173; 16 colours:
+  bright white on red) — no Claude Code logo;
 - `none` — the same badge on a neutral chip, no brand marks or colours at all.
 
 Image support: `detectGraphicsFromEnv(env)` knows kitty and Ghostty (kitty protocol), iTerm2 and
@@ -160,8 +161,8 @@ Claude Code, Codex and OpenCode are trademarks of their respective owners. Their
 only to describe which CLI an agent runs; this does not imply any partnership with, endorsement
 of, or affiliation with NeuroSquad or nsq.
 
-- **Claude Code** is shown with a neutral `CC` glyph (light grey on dark grey), at Anthropic's
-  request: this package ships no Claude Code logo, image or brand colour.
+- **Claude Code** is shown as a `CC` monogram on Claude's orange, at Anthropic's request: this
+  package ships no Claude Code logo, image or mark.
 - The Codex and OpenCode icons shipped here only identify those CLIs; we remove one if its owner asks.
 - The `command` icon and the `>S` mark are ours.
 

@@ -4,14 +4,15 @@
  * badge fallback.
  *
  * Trademarks: each logo identifies the CLI it belongs to and is the property of its owner; see
- * the package README. Claude Code has no image and only a neutral "CC" badge, at Anthropic's
- * request. `logos: 'none'` draws neutral badges with no brand marks or colours.
+ * the package README. Claude Code has no image, only a "CC" monogram badge on Claude's orange — no
+ * Claude Code logo, at Anthropic's request. `logos: 'none'` draws neutral badges with no brand marks
+ * or colours.
  *
  * Adding a harness: an entry in `HARNESS_LOGOS` (+ its PNGs via `scripts/gen-logos.py`). Without
  * PNGs it still gets a glyph badge, and `logoImage` returns undefined (callers keep the badge).
  */
 import { inflateSync } from 'node:zlib'
-import { contrast, hex, type Rgb } from './color.js'
+import { contrast, hex, type Ansi16, type Rgb } from './color.js'
 import { wrapForTmux, type GraphicsProtocol } from './capabilities.js'
 import { LOGO_PNG_BASE64 } from './logos.generated.js'
 import { seg, type Line } from './text.js'
@@ -21,23 +22,33 @@ import { ROLE_SOURCES } from './tokens.js'
 export interface HarnessLogo {
   readonly id: string
   readonly name: string
-  /** The colour the badge is filled with (the brand's own primary colour, or a neutral grey). */
+  /** The colour the badge is filled with (the brand's own primary colour). */
   readonly brand: Rgb
   /** Two ASCII characters drawn on the badge. ASCII on purpose: always exactly 2 cells. */
   readonly monogram: string
   /** Text colour on the badge; default = whichever of near-black / white contrasts more. */
   readonly ink?: Rgb
+  /**
+   * The badge at 16 colours: the ANSI background and ink. Optional — without it the 16-colour badge
+   * is the bold monogram on the default background, because terminal themes re-paint the 16
+   * colours and only a pair checked by hand is safe to fill with.
+   */
+  readonly ansi16?: { readonly bg: Exclude<Ansi16, -1>; readonly ink: Exclude<Ansi16, -1> }
 }
 
 export const HARNESS_LOGOS = {
-  // Claude Code: a neutral "CC" monogram only — no image, no brand colour or mark (Anthropic asked
-  // us not to use the Claude Code logo). `logos: 'images'` falls back to this glyph badge.
+  // Claude Code: a plain "CC" monogram on Claude's orange — no image, no Claude Code logo or mark
+  // (Anthropic asked us not to use the Claude Code logo). `logos: 'images'` falls back to this
+  // glyph badge. White ink: 3.1:1 on #d97757 (WCAG >= 3:1 for bold text; cream falls short).
+  // 256 colours: 173 on 231. 16 colours: red (the hue bucket `rgbToAnsi16` puts #d97757 in) with
+  // bright white.
   'claude-code': {
     id: 'claude-code',
     name: 'Claude Code',
-    brand: hex('#3f3f46'),
+    brand: hex('#d97757'),
     monogram: 'CC',
-    ink: hex('#e4e4e7')
+    ink: hex('#ffffff'),
+    ansi16: { bg: 1, ink: 15 }
   },
   codex: { id: 'codex', name: 'Codex', brand: hex('#0080f7'), monogram: 'Cx' },
   opencode: {
@@ -73,11 +84,18 @@ function inkFor(logo: HarnessLogo): Rgb {
 
 /**
  * The two-cell glyph badge: the monogram on the brand colour (`logos: 'glyphs'`, and the fallback
- * for `'images'`), or on a neutral chip (`'none'`). At 16 colours or with colour off, the monogram
- * is bold on the default background — still two cells, still readable.
+ * for `'images'`), or on a neutral chip (`'none'`). At 16 colours a logo with an `ansi16` pair is
+ * filled with it; otherwise (and with colour off) the monogram is bold on the default background —
+ * still two cells, still readable.
  */
 export function logoBadge(theme: Theme, id: string, mode: LogoMode = theme.logos): Line {
   const logo = harnessLogo(id)
+  if (theme.level === 1 && logo.ansi16 && mode !== 'none') {
+    // An Rgb with an `ansi16` field: `resolveColor` takes the given ANSI colour as is.
+    const fg = { ...inkFor(logo), ansi16: logo.ansi16.ink }
+    const bg = { ...logo.brand, ansi16: logo.ansi16.bg }
+    return [seg(logo.monogram, { fg, bg, bold: true })]
+  }
   if (theme.level <= 1)
     return [seg(logo.monogram, { bold: true, fg: theme.level === 1 ? 'text' : undefined })]
   if (mode === 'none') return [seg(logo.monogram, { fg: 'mutedText', bg: 'chipBg', bold: true })]
