@@ -1,7 +1,7 @@
 # Phone (experimental)
 
-> **Experimental in 0.1.0.** Phone access is the newest part of nsq; its page, commands and push
-> options may change in the next releases.
+> **Experimental.** Phone access is the newest part of nsq; its page, commands and push options
+> may change in the next releases.
 
 From a phone you can see the agents, read their screens, send a prompt, answer a permission prompt
 and interrupt a turn.
@@ -38,25 +38,38 @@ agent needs you, nsq can push through [ntfy](https://ntfy.sh), either the public
 your own. Push is off by default.
 
 ```sh
-nsq phone push ntfy                                   # a new random topic on ntfy.sh
-nsq phone push ntfy https://ntfy.example.com/my-topic --token tk_…   # your server / topic
-nsq phone push test                                   # send a test notification
-nsq phone push show                                   # print the topic URL
-nsq phone push                                        # status: on/off, which server
+nsq phone push ntfy                  # a new random topic on ntfy.sh
+nsq phone push ntfy --url            # your own server or topic: asks for the topic URL
+nsq phone push ntfy --url --token    # … and an access token
+nsq phone push test                  # send a test notification
+nsq phone push show                  # print the topic URL
+nsq phone push status                # on/off, which server (also plain `nsq phone push`)
 nsq phone push off
 ```
 
 `nsq phone push ntfy` prints the topic URL; subscribe to it in the ntfy app. Anyone who knows the
-topic URL can read it, so treat it like a password. The URL and the optional access token are kept
-in the OS keyring, not in `config.json` or the log (where there is no keyring, set `NSQ_NTFY_URL`
-and `NSQ_NTFY_TOKEN` in the daemon's environment). The URL must be https; plain http is accepted
-only for this machine or a local network address.
+topic URL can read it, so treat it like a password. That is why the URL and the token never go on
+the command line (process list, shell history): `--url` and `--token` take no value — nsq asks for
+them without echoing what you type, or reads them from stdin, one per line, in that order:
+
+```sh
+printf '%s
+%s
+' "$NTFY_TOPIC_URL" "$NTFY_TOKEN" | nsq phone push ntfy --url --token
+```
+
+The URL and the optional access token are kept in the OS keyring, not in `config.json` or the log
+(where there is no keyring, set `NSQ_NTFY_URL` and `NSQ_NTFY_TOKEN` in the daemon's environment).
+The URL must be https; plain http is accepted only for this machine or a local network address,
+and an access token is sent only over https (or plain http to this machine). The URL takes no
+`user:password`, `?query` or `#fragment` — give a token with `--token` instead. `nsq phone push off`
+stays off even when `NSQ_NTFY_URL` is set.
 
 What a push contains: the title `<agent> needs you` and the agent's question (cut to 300
 characters, control characters removed). Nothing else from the terminal is sent. Pushes only go out
 for "needs you", not for "finished". The same question from the same agent is pushed at most once
-per 30 seconds. Push works whether or not `nsq phone on` is set. When phone access is on with `--lan`, tapping the notification opens the phone page
-(the link does not include the token).
+per 30 seconds. Push works whether or not `nsq phone on` is set. When phone access is on with
+`--lan`, tapping the notification opens the phone page (the link does not include the token).
 
 ## Security
 

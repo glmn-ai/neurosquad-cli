@@ -112,7 +112,7 @@ nsq cost [--since 7d] [--json]        what each agent spent
 nsq openrouter set-key|clear-key|models [query]|status
 nsq phone on [--lan] [--port n]|off|pair|rotate|status
                                       answer agents from a phone
-nsq phone push ntfy [url] [--token t]|off|test|show|status
+nsq phone push ntfy [--url] [--token]|off|test|show|status
                                       push "needs you" to the phone
 nsq login | logout | whoami           the optional NeuroSquad account
 nsq dictation setup|status|test <wav> [--model id]
@@ -146,8 +146,9 @@ nsq phone push ntfy    # optional: a push via ntfy when an agent needs you
 From the phone you can see the agents and their screens, send a prompt, answer a permission
 prompt and interrupt. A phone cannot start agents, change settings or type arbitrary keys. The
 link carries the pairing token — treat it like a password; `nsq phone rotate` signs every phone
-out. Pushes through [ntfy](https://ntfy.sh) carry only the agent's name and its question. This
-part is the newest and most likely to change: [docs/guide/phone.md](docs/guide/phone.md).
+out. Pushes through [ntfy](https://ntfy.sh) carry only the agent's name and its question; your
+own topic URL and token are asked for (or piped in), never put on the command line. This part is
+the newest and most likely to change: [docs/guide/phone.md](docs/guide/phone.md).
 
 ## Voice dictation
 
