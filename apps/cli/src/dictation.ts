@@ -49,6 +49,8 @@ export async function bindDictation(options: {
   target: () => string | null
   paste: (agentId: string, text: string) => void
   changed: () => void
+  /** A one-line notice for the status bar (e.g. the global hotkey cannot run here). */
+  notice?: (text: string) => void
 }): Promise<DictationBinding | null> {
   const config = readConfig().dictation ?? {}
   if (config.enabled === false) return null
@@ -90,6 +92,14 @@ export async function bindDictation(options: {
       if (id && text) options.paste(id, text)
     },
     onState: (state, info) => {
+      if (info?.error?.code === 'hotkey-unavailable') {
+        // Optional: no global hotkey here (no X display over SSH…); the dashboard's key still works.
+        binding.state = 'idle'
+        binding.detail = undefined
+        options.notice?.(`${info.error.message} — press v in the dashboard to dictate`)
+        options.changed()
+        return
+      }
       binding.state = state
       binding.detail = info?.error?.message
       const download = info?.download

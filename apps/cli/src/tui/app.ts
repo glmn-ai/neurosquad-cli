@@ -227,7 +227,8 @@ export class Dashboard {
     void bindDictation({
       target: () => this.expanded ?? this.selected,
       paste: (id, text) => this.client.post({ t: 'paste', id, text }),
-      changed: () => this.schedule()
+      changed: () => this.schedule(),
+      notice: (text) => this.toastMessage(text)
     }).then(
       (binding) => {
         // Quit meanwhile: release the hotkey and the microphone at once.
