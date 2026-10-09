@@ -46,7 +46,9 @@ import { DaemonClient } from '../client/client.js'
 import { readConfig } from '../config.js'
 import { findDetachKey, parseDetachKey } from '../attach.js'
 import { HARNESS_LABEL, elapsed } from '../format.js'
-import type { AgentView, DaemonEvent, PhoneView } from '../protocol.js'
+import type { AgentView, DaemonEvent, PhoneView, UpdateView } from '../protocol.js'
+import { updateBadge } from '../update/describe.js'
+import { paths } from '../paths.js'
 import { Canvas } from './canvas.js'
 import {
   InputParser,
@@ -165,6 +167,10 @@ export class Dashboard {
   private toast: { text: string; until: number } | null = null
   private closed = false
   private resolveClosed: () => void = () => {}
+  /** How the dashboard ended: closed by the person, or handed over to an updated daemon. */
+  private outcome: 'quit' | 'restart' = 'quit'
+  private update: UpdateView | null = null
+  private announcedUpdate = false
   private logoSlots: { row: number; col: number; harness: string }[] = []
   private readonly launchCwd = process.cwd()
   private dictation: DictationBinding | null = null
@@ -202,7 +208,7 @@ export class Dashboard {
 
   // ---- lifecycle --------------------------------------------------------------------
 
-  async run(): Promise<void> {
+  async run(): Promise<'quit' | 'restart'> {
     // Image logos: known terminals come from the environment; the rest (Windows Terminal, VS Code,
     // Konsole…) are asked once. The probe never holds the first frame back: it owns stdin for at
     // most its timeout (150 ms), then our input handler takes over with whatever was typed meanwhile.
@@ -240,7 +246,15 @@ export class Dashboard {
     }
     this.stdout.on('resize', this.onResize)
     const off = this.client.on((event) => this.onEvent(event))
-    this.client.onClose(() => this.quit('the daemon stopped'))
+    this.client.onClose(() => {
+      // The daemon hands over to its updated version: reconnect instead of leaving.
+      if (this.update?.state === 'restarting') {
+        this.outcome = 'restart'
+        this.quit()
+      } else {
+        this.quit('the daemon stopped')
+      }
+    })
     process.on('SIGINT', this.onSignal)
     process.on('SIGTERM', this.onSignal)
     process.on('SIGHUP', this.onSignal)
@@ -282,6 +296,7 @@ export class Dashboard {
     })
     off()
     await this.dictation?.dispose()
+    return this.outcome
   }
 
   private readonly onSignal = (): void => this.quit()
@@ -407,6 +422,20 @@ export class Dashboard {
         break
       case 'phones':
         this.phone = event.phone
+        break
+      case 'update':
+        this.update = event.update
+        if (
+          !this.announcedUpdate &&
+          event.update.updatedFrom &&
+          event.update.updatedAt &&
+          Date.now() - event.update.updatedAt < 10 * 60_000
+        ) {
+          this.announcedUpdate = true
+          this.toastMessage(
+            `nsq updated to ${event.update.current} (was ${event.update.updatedFrom})`
+          )
+        }
         break
       case 'notify':
         // No desktop notification (switched off, none here, or over SSH where it would show on
@@ -621,6 +650,7 @@ export class Dashboard {
         bg: 'headerBg'
       }),
       ...this.dictationBadge(),
+      ...this.updateSegments(),
       ...this.phoneBadge(),
       seg('? help ', { fg: 'faintText', bg: 'headerBg' })
     ]
@@ -630,6 +660,98 @@ export class Dashboard {
   }
 
   private phone: PhoneView | null = null
+
+  /** The update, while there is something to say: found, installing, installed (U), failed. */
+  private updateSegments(): Seg[] {
+    const badge = updateBadge(this.update)
+    if (!badge) return []
+    return [
+      seg(`${fitText(badge.text, Math.max(16, Math.floor(this.width / 3)))}  `, {
+        fg: badge.tone === 'warn' ? 'warning' : 'accentText',
+        bg: 'headerBg'
+      })
+    ]
+  }
+
+  /** U: what the update is doing, and the way to apply or install it now. */
+  private showUpdate(): void {
+    const update = this.update
+    if (!update) return
+    const agents = [...this.agents.values()].filter((agent) => agent.running)
+    switch (update.state) {
+      case 'installed': {
+        const busy = agents.filter((agent) => {
+          const status = statusOf(agent)
+          return status === 'working' || status === 'needs-input' || (agent.queued ?? 0) > 0
+        })
+        const commands = agents.filter((agent) => agent.harness === 'command')
+        const lines = [
+          `The daemon restarts on ${update.installed}; this dashboard reconnects.`,
+          ...(agents.length
+            ? ['Running agents stop and come back on their sessions (like nsq down / nsq up).']
+            : []),
+          ...(commands.length
+            ? [`Commands start over: ${commands.map((agent) => agent.name).join(', ')}.`]
+            : []),
+          ...(busy.length
+            ? [
+                `Busy now: ${busy.map((agent) => agent.name).join(', ')} — the restart waits until they are done.`
+              ]
+            : []),
+          'Other nsq windows (nsq attach) close; open them again after.'
+        ]
+        this.modal = {
+          kind: 'confirm',
+          title: `Restart nsq on ${update.installed}?`,
+          body: lines.join('\n'),
+          yes: () =>
+            this.request(
+              this.client
+                .request<{ waitingFor?: string[] }>({ t: 'update', action: 'apply' })
+                .then((result) => ({
+                  warnings: result.waitingFor?.length
+                    ? [`restarts when done: ${result.waitingFor.join('; ')}`]
+                    : []
+                }))
+            )
+        }
+        return
+      }
+      case 'available':
+        if (update.canInstall && !update.reason) {
+          this.modal = {
+            kind: 'confirm',
+            title: `Install nsq ${update.latest}?`,
+            body: `With ${update.manager}, in the background (log: ${paths.updateLog()}).\nThe agents keep running; the daemon restarts on it once they are idle.`,
+            yes: () => this.request(this.client.request({ t: 'update', action: 'install' }))
+          }
+        } else {
+          this.modal = {
+            kind: 'message',
+            title: `nsq ${update.latest} is out`,
+            body: `${update.reason ? `${update.reason}. ` : ''}Run: ${update.command ?? 'nsq update'}`
+          }
+        }
+        return
+      case 'failed':
+      case 'waiting':
+        this.modal = {
+          kind: 'message',
+          title: update.state === 'failed' ? 'The update failed' : `nsq ${update.latest} is out`,
+          body: `${update.reason ?? ''}${update.command ? ` — run: ${update.command}` : ''} (log: ${paths.updateLog()})`
+        }
+        return
+      case 'installing':
+        this.toastMessage(`installing nsq ${update.latest} with ${update.manager}…`)
+        return
+      default:
+        this.toastMessage(
+          update.auto === 'off'
+            ? `nsq ${update.current}; automatic updates are off (${update.offReason ?? 'off'}) — nsq update checks by hand`
+            : `nsq ${update.current} is up to date`
+        )
+    }
+  }
 
   /**
    * Who is connected from a phone — always in the header while anyone is: the count and the
@@ -1052,6 +1174,7 @@ export class Dashboard {
           ['b', 'sidebar on/off'],
           ['v', 'dictate into the agent (also the global hotkey) — pasted, never sent'],
           ['p', 'phones: who is connected; a new pairing token cuts them off'],
+          ['U', 'update: install it now, or restart onto an installed one'],
           ['q', 'quit — agents keep running (nsq down stops them)']
         ]
         const r = this.box(canvas, 90, rows.length + 4, 'Keys')
@@ -1416,6 +1539,9 @@ export class Dashboard {
       case 'p':
         this.showPhones()
         return
+      case 'U':
+        this.showUpdate()
+        return
       case 'b':
         this.sidebarMode = this.layout.sidebar ? 'hidden' : 'shown'
         this.prev = undefined
@@ -1758,6 +1884,25 @@ export async function runDashboard(): Promise<void> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     throw new Error('the dashboard needs an interactive terminal (try `nsq ls`)')
   }
-  const client = await DaemonClient.open('dashboard')
-  await new Dashboard(client).run()
+  let client = await DaemonClient.open('dashboard')
+  for (;;) {
+    const outcome = await new Dashboard(client).run()
+    if (outcome !== 'restart') return
+    process.stdout.write('nsq: the daemon is restarting on the new version…\n')
+    client = await reconnect()
+  }
+}
+
+/** The updated daemon comes up after the old one exits: connect to it (never start another). */
+async function reconnect(): Promise<DaemonClient> {
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    try {
+      return await DaemonClient.open('dashboard', { autostart: false })
+    } catch {
+      // not up yet
+    }
+  }
+  throw new Error(`the daemon did not come back within a minute (see ${paths.daemonLog()})`)
 }

@@ -15,6 +15,11 @@ export interface NsqConfig {
   sound?: boolean
   /** The detach key in full-screen attach (default Ctrl+]). */
   detachKey?: string
+  /**
+   * Updates: `true` (default) checks the npm registry and installs a new release by itself;
+   * `"notify"` only shows that one exists; `false` never checks (NSQ_NO_UPDATE=1 does the same).
+   */
+  autoUpdate?: boolean | 'notify'
   /** Default layout of the dashboard. */
   layout?: 'grid' | 'focus'
   /** Phone access (`nsq phone on`). */

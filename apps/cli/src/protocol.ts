@@ -2,6 +2,9 @@
 // local socket. Requests carry an `rid` and get exactly one `reply`; events
 // are pushed to clients that subscribed.
 import type { AgentStatusKind, HarnessId, SubagentInfo } from '@neurosquad/core'
+import type { UpdateView } from './update/updater.js'
+
+export type { UpdateView }
 
 export const PROTOCOL_VERSION = 1
 
@@ -92,6 +95,8 @@ export type Request =
       port?: number
     }
   | { t: 'shutdown'; stopAgents?: boolean }
+  /** Updates: the state, a check now, install now, or restart onto an installed one (when idle). */
+  | { t: 'update'; action: 'status' | 'check' | 'install' | 'apply' }
 
 export type RequestWithId = Request & { rid: number }
 
@@ -108,6 +113,8 @@ export type DaemonEvent =
   | { t: 'exit'; id: string; generation: number }
   /** Phone access changed (turned on/off, a phone connected or left). Sent on subscribe too. */
   | { t: 'phones'; phone: PhoneView }
+  /** The update state changed (sent on subscribe too). */
+  | { t: 'update'; update: UpdateView }
   /** A status change that should notify (the TUI rings the terminal bell / OSC 9). */
   | {
       t: 'notify'

@@ -17,7 +17,7 @@ import {
   writeFileSync,
   writeSync
 } from 'node:fs'
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -76,7 +76,8 @@ import {
   ownModelOnResume,
   type ModelSwitchApplied
 } from '../modelRules.js'
-import { VERSION } from '../version.js'
+import { PACKAGE_DIR, PACKAGE_NAME, VERSION } from '../version.js'
+import { Updater, type UpdateView } from '../update/updater.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
 import { PhoneAccess } from './phone.js'
 import { NtfyPush } from './push.js'
@@ -162,6 +163,19 @@ const RESTART_PAUSE_MS = Number(process.env['NSQ_RESTART_PAUSE_MS']) || 800
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+/** No automatic restart onto an update this soon after someone typed into an agent. */
+const UPDATE_QUIET_MS = 5 * 60 * 1000
+/** How often a pending update looks for a moment to restart in. */
+const UPDATE_POLL_MS = 15_000
+
+/** An agent that comes back on its own session after a daemon restart (not a plain command). */
+function resumable(record: AgentRecord): boolean {
+  if (record.harness === 'command') return false
+  return record.harness === 'claude-code'
+    ? record.sessionStarted === true
+    : record.harnessSessionId !== undefined
+}
+
 export class Daemon {
   private readonly store = new AgentStore()
   private readonly ptys = new PtyHost()
@@ -181,6 +195,24 @@ export class Daemon {
 
   private readonly phone: PhoneAccess
   private readonly push = new NtfyPush((line) => this.log(line))
+  private readonly updater = new Updater({
+    version: VERSION,
+    name: PACKAGE_NAME,
+    packageDir: PACKAGE_DIR,
+    home: paths.home(),
+    config: () => readConfig(),
+    log: (line) => this.log(line),
+    onChange: (view) => {
+      this.broadcast({ t: 'update', update: view })
+      this.considerRestart()
+    }
+  })
+  /** The last time someone typed into, sent to or answered an agent. */
+  private lastInputAt = 0
+  /** Restart onto the installed update as soon as nothing is busy (asked for: U, nsq update). */
+  private applyWhenIdle: 'forced' | 'safe' | null = null
+  private restarting = false
+  private updatePoll: ReturnType<typeof setInterval> | null = null
 
   constructor() {
     this.phone = new PhoneAccess(
@@ -240,6 +272,7 @@ export class Daemon {
         this.notifier.close(id)
         this.broadcast({ t: 'exit', id, generation })
         this.pushAgent(id)
+        this.considerRestart()
       }
     })
     const ipc = ipcPath()
@@ -282,6 +315,10 @@ export class Daemon {
       }
     }
     this.scheduleCost(2000)
+    this.updater.noteStarted()
+    this.updater.start(() => this.considerRestart())
+    this.updatePoll = setInterval(() => this.considerRestart(), UPDATE_POLL_MS)
+    this.updatePoll.unref()
     if (this.config.phone?.enabled) {
       void this.phone
         .start(this.config.phone)
@@ -451,6 +488,7 @@ export class Daemon {
         this.log(`${record.name}: model switch failed: ${String(error)}`)
       )
     } else if (event.kind === 'finished' && !event.error) this.drainQueue(event.agentId)
+    this.considerRestart()
   }
 
   private adoptSession(id: string, sessionId: string): void {
@@ -1055,7 +1093,10 @@ export class Daemon {
     })
     socket.on('data', (chunk: string) => decoder.push(chunk))
     socket.on('error', () => {})
-    socket.on('close', () => this.clients.delete(client))
+    socket.on('close', () => {
+      this.clients.delete(client)
+      this.considerRestart()
+    })
   }
 
   private reply(
@@ -1106,7 +1147,8 @@ export class Daemon {
           agents: this.store.all().length,
           running: this.store.all().filter((record) => this.ptys.isRunning(record.id)).length,
           clients: this.clients.size,
-          hookPort: this.hooks?.port
+          hookPort: this.hooks?.port,
+          update: this.updater.view()
         }
       case 'subscribe': {
         if (message.output === '*') client.output = '*'
@@ -1115,6 +1157,7 @@ export class Daemon {
           message.agents === '*' ? this.store.all().map((record) => record.id) : message.agents
         this.send(client, { t: 'agents', agents: this.views() })
         this.send(client, { t: 'phones', phone: this.phoneView() })
+        this.send(client, { t: 'update', update: this.updater.view() })
         for (const id of ids) void this.joinScreen(client, id)
         return undefined
       }
@@ -1128,6 +1171,7 @@ export class Daemon {
       case 'input': {
         const record = this.need(message.id)
         this.rt(record.id).lastInputAt = Date.now()
+        this.lastInputAt = Date.now()
         this.ptys.write(record.id, message.data)
         noteUserInput(record.id, message.data)
         return undefined
@@ -1135,13 +1179,16 @@ export class Daemon {
       case 'paste': {
         const record = this.need(message.id)
         this.rt(record.id).lastInputAt = Date.now()
+        this.lastInputAt = Date.now()
         if (!this.ptys.paste(record.id, message.text))
           throw new Error(`${record.name} is not running`)
         return undefined
       }
       case 'send':
+        this.lastInputAt = Date.now()
         return this.sendPrompt(this.need(message.id), message.text, message.whenDone === true)
       case 'answer':
+        this.lastInputAt = Date.now()
         await this.answerPrompt(this.need(message.id), message.key)
         return undefined
       case 'interrupt': {
@@ -1246,14 +1293,139 @@ export class Daemon {
       case 'shutdown':
         setTimeout(() => void this.shutdown(message.stopAgents !== false), 50)
         return undefined
+      case 'update':
+        return this.updateRequest(message.action)
       default:
         throw new Error('unknown request')
     }
   }
 
+  // ---- updates -------------------------------------------------------------------------
+
+  private async updateRequest(
+    action: 'status' | 'check' | 'install' | 'apply'
+  ): Promise<{ update: UpdateView; waitingFor?: string[]; restarting?: boolean }> {
+    switch (action) {
+      case 'status':
+        return { update: this.updater.view() }
+      case 'check':
+        return { update: await this.updater.check(true) }
+      case 'install': {
+        let view = await this.updater.check(true)
+        if (view.state === 'available') view = await this.updater.install()
+        // Asked for by hand: restart onto it at the first safe moment, even with checks off.
+        if (view.installed) this.applyWhenIdle ??= 'safe'
+        return { update: this.updater.view() }
+      }
+      case 'apply': {
+        if (!this.updater.view().installed) return { update: this.updater.view() }
+        this.applyWhenIdle = 'forced'
+        const waitingFor = this.restartBlockers('forced')
+        if (waitingFor.length) {
+          this.updater.setBlockers(waitingFor, true)
+          return { update: this.updater.view(), waitingFor }
+        }
+        setTimeout(() => this.considerRestart(), 50)
+        return { update: this.updater.view(), restarting: true }
+      }
+    }
+  }
+
+  /**
+   * Why the daemon cannot restart onto an installed update right now. Never while an agent works,
+   * needs you, starts, or has prompts waiting. Unless asked for (`forced`: U in the dashboard),
+   * also not while a dashboard, attach or phone is open, someone typed lately, or a running agent
+   * would not come back on its session (a plain command starts over).
+   */
+  private restartBlockers(how: 'auto' | 'safe' | 'forced'): string[] {
+    const blockers: string[] = []
+    for (const record of this.store.all()) {
+      const starting = this.starting.has(record.id)
+      if (!starting && !this.ptys.isRunning(record.id)) continue
+      const status = this.view(record).status
+      const rt = this.rt(record.id)
+      if (starting) blockers.push(`${record.name} is starting`)
+      else if (status === 'working') blockers.push(`${record.name} is working`)
+      else if (status === 'needs-input') blockers.push(`${record.name} needs you`)
+      else if (rt.switchPending) blockers.push(`${record.name} has a model change waiting`)
+      else if (rt.queue.length || rt.pendingPrompt) {
+        blockers.push(`${record.name} has prompts waiting`)
+      } else if (how !== 'forced' && !resumable(record)) {
+        blockers.push(`${record.name} would start over (a command has no session to resume)`)
+      }
+    }
+    if (how === 'forced') return blockers
+    const windows = [...this.clients].filter((client) => client.authed).length
+    if (windows) blockers.push(`${windows} nsq window${windows === 1 ? ' is' : 's are'} open`)
+    if (this.phone.status().connections) blockers.push('a phone is connected')
+    if (this.lastInputAt && Date.now() - this.lastInputAt < UPDATE_QUIET_MS) {
+      blockers.push('an agent got input in the last 5 minutes')
+    }
+    return blockers
+  }
+
+  /** Restarts onto an installed update when nothing stands in the way (see restartBlockers). */
+  private considerRestart(): void {
+    if (this.restarting || this.stopping) return
+    const view = this.updater.view()
+    if (!view.installed || view.state === 'installing') return
+    const how = this.applyWhenIdle ?? (view.auto === 'off' ? null : 'auto')
+    if (!how) {
+      this.updater.setBlockers(['automatic updates are off'])
+      return
+    }
+    const blockers = this.restartBlockers(how)
+    this.updater.setBlockers(blockers, how === 'forced')
+    if (blockers.length) return
+    void this.restartForUpdate(view.installed)
+  }
+
+  /**
+   * Hands over to a daemon running the new version: it is started first (and waits for this one
+   * to exit), then this one shuts down the usual way. The agents keep `wantRunning`, so the new
+   * daemon resumes them on their sessions, exactly like `nsq down` + `nsq up`.
+   */
+  private async restartForUpdate(version: string): Promise<void> {
+    if (this.restarting || this.stopping) return
+    const successor = this.updater.successor()
+    if (!successor) {
+      this.updater.setBlockers([`the new version was not found in ${this.updater.info.stableDir}`])
+      return
+    }
+    this.restarting = true
+    try {
+      ensureDir(paths.home())
+      const log = openSync(paths.daemonLog(), 'a')
+      try {
+        const child = spawn(successor.node, [successor.script, 'daemon', '--foreground'], {
+          detached: true,
+          windowsHide: true,
+          stdio: ['ignore', log, log],
+          cwd: paths.home(),
+          env: { ...process.env, NSQ_DAEMON: '1', NSQ_SUCCESSOR_OF: String(process.pid) }
+        })
+        child.unref()
+      } finally {
+        closeSync(log)
+      }
+    } catch (error) {
+      this.restarting = false
+      this.log(`could not start the new daemon: ${String(error)}`)
+      this.updater.setBlockers([`could not start ${version}: ${String(error)}`])
+      return
+    }
+    this.log(`restarting on ${version}; the agents resume on their sessions`)
+    this.updater.markRestarting()
+    // Let the "restarting" event reach the clients before the socket closes.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    await this.shutdown(true)
+  }
+
   async shutdown(stopAgents = true): Promise<void> {
     if (this.stopping) return
     this.stopping = true
+    this.updater.stop()
+    if (this.updatePoll) clearInterval(this.updatePoll)
     if (stopAgents) {
       // Keep `wantRunning`: `nsq up` (or the next daemon) brings them back.
       await this.ptys.killAll()
@@ -1406,7 +1578,19 @@ function isListening(path: string): Promise<boolean> {
   })
 }
 
+/** A daemon started by an update waits for the one it replaces to exit (that one holds the lock). */
+async function waitForPredecessor(): Promise<void> {
+  const pid = Number(process.env['NSQ_SUCCESSOR_OF'])
+  delete process.env['NSQ_SUCCESSOR_OF']
+  if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return
+  const deadline = Date.now() + 60_000
+  while (Date.now() < deadline && pidAlive(pid)) {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+}
+
 export async function runDaemon(): Promise<void> {
+  await waitForPredecessor()
   const daemon = new Daemon()
   let state: DaemonState
   try {
