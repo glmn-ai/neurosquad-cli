@@ -32,6 +32,7 @@ nsq                             # the dashboard
 | `nsq cost [--since 7d] [--json]`                                               | what each agent spent, from the harness's own logs                                                                                                                     |
 | `nsq openrouter set-key\|clear-key\|models [query]\|status`                    | OpenRouter                                                                                                                                                             |
 | `nsq phone on [--lan] [--port n]\|off\|pair\|rotate\|status`                   | phone access (below)                                                                                                                                                   |
+| `nsq phone push ntfy [url] [--token t]` · `test` · `off`                       | push "needs you" to the phone (ntfy)                                                                                                                                   |
 | `nsq login` · `logout` · `whoami`                                              | the optional NeuroSquad account                                                                                                                                        |
 | `nsq up` · `nsq down`                                                          | start / stop the daemon (agents resume on `up`)                                                                                                                        |
 | `nsq doctor`                                                                   | check the harnesses, hooks, terminal                                                                                                                                   |
@@ -65,6 +66,16 @@ trust (`docs/remote-proposal.md` covers tunnels with a real certificate).
 Who is connected is always visible: the dashboard's header shows the count and the device (`p`
 lists them and can cut them off), `nsq attach` puts it in the window title, and `nsq phone status`
 prints them.
+
+### Push (ntfy)
+
+`nsq phone push ntfy` sends a notification to your phone when an agent needs you, through
+[ntfy](https://ntfy.sh) (open source, self-hostable). Without a URL it picks a random topic on
+ntfy.sh; give your own server's topic URL to self-host (`--token` for a protected topic). Subscribe
+to the topic in the ntfy app. Only the agent's name and its question are sent, never other terminal
+content. The topic URL works like a password and is kept in the OS keyring (`NSQ_NTFY_URL` /
+`NSQ_NTFY_TOKEN` where there is none). With phone access on the network, tapping the notification
+opens the phone page. Also `nsq phone push test`, `show`, `off`.
 
 ## Account
 

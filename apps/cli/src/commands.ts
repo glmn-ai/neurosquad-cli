@@ -551,8 +551,14 @@ function describePhone(status: PhoneReply['status']): string {
 
 export async function cmdPhone(args: ParsedArgs): Promise<void> {
   const verb = args.positional[0] ?? 'status'
+  if (verb === 'push') {
+    await cmdPhonePush(args)
+    return
+  }
   if (!['status', 'on', 'off', 'pair', 'rotate'].includes(verb)) {
-    throw new UsageError('nsq phone on [--lan] [--port n] | off | pair | rotate | status')
+    throw new UsageError(
+      'nsq phone on [--lan] [--port n] | off | pair | rotate | status | push ntfy [url]|off|test|show'
+    )
   }
   const port = flagString(args, 'port')
   if (port !== undefined && (!/^\d{1,5}$/.test(port) || Number(port) > 65535))
@@ -592,6 +598,69 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
     }
   } finally {
     client.close()
+  }
+}
+
+/** `nsq phone push ntfy [url] [--token t] | off | test | show | status` */
+async function cmdPhonePush(args: ParsedArgs): Promise<void> {
+  const push = await import('./daemon/push.js')
+  const verb = args.positional[1] ?? 'status'
+  const sender = new push.NtfyPush((line) => process.stderr.write(`${line}\n`))
+  switch (verb) {
+    case 'ntfy': {
+      const url = args.positional[2] ?? push.randomNtfyUrl()
+      const target = push.parseNtfyUrl(url)
+      const token = flagString(args, 'token')
+      await push.saveNtfy(url, token)
+      out(`push on: when an agent needs you, ntfy gets its name and question (nothing else)`)
+      out('Subscribe to this topic in the ntfy app (it works like a password — keep it private):')
+      out(`  ${url}`)
+      if (target.server.startsWith('http:')) {
+        out('note: plain http — fine on your own network, not over the internet')
+      }
+      out('Check it: nsq phone push test')
+      return
+    }
+    case 'off':
+      await push.saveNtfy(undefined, undefined)
+      out('push off')
+      return
+    case 'test': {
+      const configured = await sender.target()
+      if (!configured) throw new UsageError('push is off: nsq phone push ntfy [url]')
+      const ok = await sender.send(
+        configured.target,
+        configured.token,
+        push.ntfyMessage(configured.target, {
+          agentId: 'test',
+          agentName: 'nsq',
+          question: 'Test notification — push works.'
+        })
+      )
+      if (!ok) throw new Error('the ntfy server did not accept the message')
+      out('sent a test notification')
+      return
+    }
+    case 'show': {
+      const configured = await sender.target()
+      out(
+        configured
+          ? `${configured.target.server}/${configured.target.topic}`
+          : 'push is off: nsq phone push ntfy [url]'
+      )
+      return
+    }
+    case 'status': {
+      const configured = await sender.target()
+      out(
+        configured
+          ? `push: ntfy on ${new URL(configured.target.server).host} (topic: nsq phone push show)${configured.token ? ', with an access token' : ''}`
+          : 'push: off (nsq phone push ntfy [url])'
+      )
+      return
+    }
+    default:
+      throw new UsageError('nsq phone push ntfy [url] [--token t] | off | test | show | status')
   }
 }
 

@@ -73,6 +73,8 @@ import { fetchOpenRouterModels } from './models.js'
 import { VERSION } from '../version.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
 import { PhoneAccess } from './phone.js'
+import { NtfyPush } from './push.js'
+import { lanAddresses } from '@neurosquad/remote'
 
 const execFileAsync = promisify(execFile)
 
@@ -157,6 +159,7 @@ export class Daemon {
   private costTimer: ReturnType<typeof setTimeout> | null = null
 
   private readonly phone: PhoneAccess
+  private readonly push = new NtfyPush((line) => this.log(line))
 
   constructor() {
     this.phone = new PhoneAccess(
@@ -379,6 +382,7 @@ export class Daemon {
     rt.detail = event.detail
     this.pushAgent(event.agentId)
     this.phone.emit({ type: 'status', agentId: event.agentId, status: event.kind, at: event.at })
+    if (event.kind !== 'needs-input') this.push.answered(event.agentId)
     const decision = decideNotification(event)
     if (decision?.action === 'close') this.notifier.close(event.agentId)
     if (decision?.action === 'show') {
@@ -389,6 +393,17 @@ export class Daemon {
         ...(decision.detail ? { detail: decision.detail } : {}),
         at: event.at
       })
+      if (decision.kind === 'needs-input') {
+        // Push (ntfy), when set up: the name and the question, nothing else.
+        const phone = this.phone.status()
+        const host = phone.running && phone.lan ? lanAddresses()[0] : undefined
+        void this.push.needsYou({
+          agentId: event.agentId,
+          agentName: record.name,
+          ...(decision.detail ? { question: decision.detail } : {}),
+          ...(host ? { click: `http://${host}:${phone.port}/` } : {})
+        })
+      }
     }
     // The dashboard rings its terminal unless a desktop notification was actually shown;
     // notifications switched off (config or NSQ_NO_NOTIFY=1) means no bell either.
