@@ -19,7 +19,7 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | Field           | Default                            | What                                                                                                                                       |
 | --------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `logos`         | `"auto"`                           | CLI logos: `"auto"` / `"images"` (real logos where the terminal can draw them), `"glyphs"` (two-cell badges), `"neutral"` (no brand marks) |
-| `notifications` | `true`                             | desktop notifications ([notifications](notifications.md))                                                                                  |
+| `notifications` | `true`                             | desktop notifications, or the terminal bell when none can show; `false` silences both ([notifications](notifications.md))                  |
 | `sound`         | `true`                             | a sound with each notification                                                                                                             |
 | `detachKey`     | `"Ctrl+]"`                         | the key that leaves a full-screen agent: `Ctrl+` and a letter or one of `@ [ \ ] ^ _`; anything else falls back to Ctrl+]                  |
 | `dictation`     | on, `CommandOrControl+Shift+Space` | `enabled`, `hotkey`, `mode` (default: a tap toggles, a hold records; or `toggle` / `hold`), `model` ([dictation](dictation.md))            |
@@ -37,7 +37,7 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `NSQ_COLOR`                      | `truecolor`, `256`, `16` or `none`; otherwise detected (`NO_COLOR` and `FORCE_COLOR` are respected) |
 | `NSQ_GLYPHS`                     | `ascii` or `unicode` — the set used for borders and status glyphs                                   |
 | `NSQ_AMBIGUOUS_WIDE=1`           | for CJK terminals set to "ambiguous width = wide": switches to ASCII so borders line up             |
-| `NSQ_NO_NOTIFY=1`                | no desktop notifications from the daemon (an open dashboard rings its terminal instead)             |
+| `NSQ_NO_NOTIFY=1`                | notifications off: no desktop notifications, and the dashboard does not ring its terminal either    |
 | `NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN` | the ntfy push topic URL and token when there is no OS keyring ([phone](phone.md))                   |
 | `NSQ_OPENROUTER_BASE_URL`        | another OpenRouter-compatible API base (`…/api/v1`)                                                 |
 | `NSQ_NO_BROWSER=1`               | `nsq login` prints the link instead of opening a browser                                            |

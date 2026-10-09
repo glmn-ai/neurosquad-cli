@@ -65,7 +65,9 @@ pasting it cannot submit a prompt or inject terminal sequences.
   microphone is recorded with a tool on `PATH` (`arecord`, `parecord`, `pw-record`, `sox` or
   `ffmpeg`).
 - **Windows:** nothing to set up. Not available on Windows arm64.
-- Over SSH there is no global hotkey; **v** works if the machine you run nsq on has the microphone.
+- Over SSH, on a server or in a container (Linux without an X display) there is no global hotkey:
+  the dashboard says so in one line when it starts and keeps running; **v** works if the machine
+  you run nsq on has the microphone.
 
 Dictation is an optional part of the package: if its native parts cannot load on your system, the
 rest of nsq works normally.

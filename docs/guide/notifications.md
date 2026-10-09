@@ -11,7 +11,7 @@ The rules:
 - **Withdrawn when the agent works again** — a notification asking for an answer you already gave
   would be wrong. (Where the system cannot withdraw notifications, it stays until dismissed.)
 - **Sound** plays separately from the notification; `"sound": false` silences it. (The terminal
-  bell of the fallback below still rings.)
+  bell of the fallback below still rings; `"notifications": false` silences that too.)
 
 The daemon sends notifications even when the dashboard is closed.
 
@@ -41,6 +41,6 @@ In `~/.neurosquad-cli/config.json` ([configuration](configuration.md)):
 { "notifications": false, "sound": false }
 ```
 
-`NSQ_NO_NOTIFY=1` in the daemon's environment also turns desktop notifications off. In both cases
-an open dashboard then rings its own terminal instead (bell + OSC 9); in 0.1.0 there is no setting
-that silences that bell.
+`"notifications": false` — or `NSQ_NO_NOTIFY=1` in the daemon's environment — turns notifications
+off completely: no desktop notification, and the dashboard does not ring its terminal either (no
+bell, no OSC 9). The phone still sees which agent needs you ([Phone](phone.md)).

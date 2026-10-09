@@ -76,7 +76,9 @@ nsq interrupt api-fix
 ## Looks
 
 - **Logos:** the real CLI logos in terminals nsq recognises as able to draw images (kitty, Ghostty,
-  iTerm2, WezTerm, foot, mlterm), two-cell badges elsewhere, neutral badges with `NSQ_LOGOS=none`.
+  iTerm2, WezTerm, foot, mlterm); other terminals (Windows Terminal, VS Code, Konsole…) are asked
+  once at start (at most 150 ms, without delaying the first frame) and get them too if they answer;
+  two-cell badges elsewhere, neutral badges with `NSQ_LOGOS=none`.
   Inside tmux, screen or zellij images are off. A `logos` value in
   [config.json](configuration.md) other than `auto` takes precedence over `NSQ_LOGOS`.
 - **Animations** (working spinner, needs-you pulse, finish sparkle) run on one shared clock, pause

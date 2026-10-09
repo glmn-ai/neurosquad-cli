@@ -59,6 +59,7 @@ Windows 11.
 - **Windows:** check Focus assist / Do not disturb.
 - **Over SSH / no desktop:** notifications go to the dashboard's terminal (bell and OSC 9) —
   keep the dashboard open. See [notifications](notifications.md).
+- **No bell at all:** `"notifications": false` or `NSQ_NO_NOTIFY=1` silences the bell too.
 
 ## Error messages
 
@@ -91,7 +92,8 @@ Windows 11.
 - `nsq dictation status` shows the model and hotkey; `nsq dictation test file.wav` checks the
   model without a microphone.
 - **macOS:** Microphone and Accessibility / Input Monitoring permissions for your terminal app.
-- **Linux/Wayland:** no global hotkey — use **v** in the dashboard.
+- **Linux without X (SSH, server, Wayland-only):** no global hotkey — the dashboard shows a one-line
+  notice; use **v** in the dashboard.
 - Not available on Windows arm64.
 
 ## Start clean
