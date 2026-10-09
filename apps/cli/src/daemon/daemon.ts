@@ -1682,7 +1682,7 @@ async function acquireDaemonLock(file: string, ipc: string): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 200))
       pid = readLockPid(file)
       if (pid === null && existsSync(file)) {
-        let age = 0
+        let age: number
         try {
           age = Date.now() - statSync(file).mtimeMs
         } catch {

@@ -41,7 +41,9 @@ async function load(): Promise<OpenRouterModel[]> {
     return models
   } catch (error) {
     if (memory) return memory.models
-    throw new Error(`could not load the OpenRouter model list: ${String(error)}`)
+    throw new Error(`could not load the OpenRouter model list: ${String(error)}`, {
+      cause: error
+    })
   }
 }
 

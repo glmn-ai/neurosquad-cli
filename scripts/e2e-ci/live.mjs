@@ -58,7 +58,7 @@ function part(name, script, scriptArgs, work) {
     timeout: 25 * 60_000
   })
   console.log('::endgroup::')
-  let checks = []
+  let checks
   try {
     checks = JSON.parse(readFileSync(join(work, 'checks.json'), 'utf8'))
   } catch {

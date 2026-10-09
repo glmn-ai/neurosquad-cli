@@ -246,7 +246,7 @@ export async function fetchCustomProviderModels(
       signal: AbortSignal.timeout(LIST_TIMEOUT_MS)
     })
   } catch (error) {
-    throw new Error(describeFetchError(error).error)
+    throw new Error(describeFetchError(error).error, { cause: error })
   }
   if (!response.ok) throw new Error(`HTTP ${response.status}: ${await readError(response)}`)
   const parsed = parseCustomModels(await response.json().catch(() => undefined))
