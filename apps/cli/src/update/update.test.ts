@@ -383,24 +383,26 @@ function installed(version: string): { home: string; packageDir: string; prefix:
 }
 
 /** A stand-in npm: `mode` ok rewrites the version, fail exits 1 with npm's EACCES output. */
-function fakeNpm(dir: string, mode: 'ok' | 'fail' | 'slow'): string {
+function fakeNpm(dir: string, mode: 'ok' | 'fail' | 'slow' | 'hang'): string {
   mkdirSync(dir, { recursive: true })
   const file = join(dir, `npm-${mode}.mjs`)
   writeFileSync(
     file,
-    mode === 'fail'
-      ? "console.error('npm error code EACCES'); console.error('npm error syscall rename'); process.exit(243)\n"
-      : [
-          "import { readFileSync, writeFileSync } from 'node:fs'",
-          "import { join } from 'node:path'",
-          ...(mode === 'slow' ? ['await new Promise((r) => setTimeout(r, 1500))'] : []),
-          'const args = process.argv.slice(2)',
-          "const version = args.at(-1).split('@').at(-1)",
-          "const prefix = args[args.indexOf('--prefix') + 1]",
-          `const file = join(prefix, ${process.platform === 'win32' ? "''" : "'lib'"}, 'node_modules', 'neurosquad', 'package.json')`,
-          "writeFileSync(file, JSON.stringify({ name: 'neurosquad', version }))",
-          ''
-        ].join('\n')
+    mode === 'hang'
+      ? "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)\n"
+      : mode === 'fail'
+        ? "console.error('npm error code EACCES'); console.error('npm error syscall rename'); process.exit(243)\n"
+        : [
+            "import { readFileSync, writeFileSync } from 'node:fs'",
+            "import { join } from 'node:path'",
+            ...(mode === 'slow' ? ['await new Promise((r) => setTimeout(r, 1500))'] : []),
+            'const args = process.argv.slice(2)',
+            "const version = args.at(-1).split('@').at(-1)",
+            "const prefix = args[args.indexOf('--prefix') + 1]",
+            `const file = join(prefix, ${process.platform === 'win32' ? "''" : "'lib'"}, 'node_modules', 'neurosquad', 'package.json')`,
+            "writeFileSync(file, JSON.stringify({ name: 'neurosquad', version }))",
+            ''
+          ].join('\n')
   )
   return file
 }
@@ -533,6 +535,28 @@ describe('Updater', () => {
     const stale = make()
     await stale.check()
     expect(await stale.install()).toMatchObject({ state: 'installed', installed: '0.2.0' })
+  }, 30_000)
+
+  it('an installer past its deadline is stopped and the install fails', async () => {
+    const copy = installed('0.1.0')
+    for (const foreground of [true, false]) {
+      const updater = new Updater({
+        version: '0.1.0',
+        name: 'neurosquad',
+        packageDir: copy.packageDir,
+        home: copy.home,
+        config: () => ({}),
+        env: { NSQ_UPDATE_NPM: fakeNpm(copy.home + '-bin', 'hang') },
+        fetchImpl: registryAnswer('0.2.0'),
+        installTimeoutMs: 800
+      })
+      await updater.check()
+      const started = Date.now()
+      const done = await updater.install({ foreground })
+      expect(done.state).toBe('failed')
+      expect(Date.now() - started).toBeLessThan(10_000)
+      expect(() => readFileSync(join(copy.home, 'update.lock'))).toThrow()
+    }
   }, 30_000)
 
   it('a failed install says why and is not retried until the next check', async () => {

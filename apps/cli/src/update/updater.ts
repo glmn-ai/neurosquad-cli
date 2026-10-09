@@ -2,7 +2,7 @@
 // metadata, with an ETag; nothing about the user is sent), installs it the way this copy was
 // installed (npm, Homebrew, Scoop), and checks the result. Applying it — restarting the daemon on
 // the new code — is the daemon's job (see daemon.ts): it never stops a busy agent for it.
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process'
 import {
   accessSync,
   utimesSync,
@@ -111,6 +111,8 @@ export interface UpdaterOptions {
   now?: () => number
   /** Probe overrides (tests). */
   probe?: Partial<InstallProbe>
+  /** How long an installer may run (default 15 minutes; tests). */
+  installTimeoutMs?: number
 }
 
 const truthy = (value: string | undefined): boolean =>
@@ -223,6 +225,28 @@ function pidAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Ends an installer that ran past its deadline, with everything it started: `taskkill /T` on
+ * Windows; on macOS and Linux its process group when it leads one (detached), else itself.
+ */
+function killTree(child: ChildProcess, ownGroup: boolean): void {
+  if (!child.pid) return
+  try {
+    if (process.platform === 'win32') {
+      spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {
+        windowsHide: true,
+        stdio: 'ignore'
+      })
+    } else if (ownGroup) {
+      process.kill(-child.pid, 'SIGKILL')
+    } else {
+      child.kill('SIGKILL')
+    }
+  } catch {
+    // already gone
+  }
+}
+
 /** Reads the last `bytes` of a file (the installer's output for the failure reason). */
 function tail(file: string, from: number, bytes = 16 * 1024): string {
   try {
@@ -292,6 +316,10 @@ export class Updater {
 
   private get logFile(): string {
     return join(this.options.home, 'logs', 'update.log')
+  }
+
+  private get installTimeout(): number {
+    return this.options.installTimeoutMs ?? INSTALL_TIMEOUT_MS
   }
 
   private get lockFile(): string {
@@ -654,7 +682,12 @@ export class Updater {
         // A live pid holds it — unless nobody has refreshed the lock for longer than any install
         // may take: its owner kept it fresh while waiting (a foreground install too), so the pid
         // was reused by an unrelated process after a daemon was killed mid-install.
-        if (Number.isFinite(pid) && pid > 0 && pidAlive(pid) && age < INSTALL_TIMEOUT_MS + 60_000) {
+        if (
+          Number.isFinite(pid) &&
+          pid > 0 &&
+          pidAlive(pid) &&
+          age < this.installTimeout + 60_000
+        ) {
           return false
         }
         rmSync(this.lockFile, { force: true })
@@ -712,22 +745,28 @@ export class Updater {
         }
         child.stdout.on('data', take)
         child.stderr.on('data', take)
-        // The same limit as in the background: the lock's staleness rule relies on it.
+        // The same limit as in the background (the lock's staleness rule relies on it), settled
+        // at the deadline even if the installer or something it started keeps a pipe open.
+        let settled = false
         const timer = setTimeout(() => {
           take(
             Buffer.from(
-              `\nnsq: the installer took over ${INSTALL_TIMEOUT_MS / 60_000} minutes; stopped\n`
+              `\nnsq: the installer took over ${Math.round(this.installTimeout / 60_000)} minutes; stopped\n`
             )
           )
-          child.kill()
-        }, INSTALL_TIMEOUT_MS)
+          killTree(child, false)
+          settled = true
+          resolve({ code: null, output })
+        }, this.installTimeout)
         child.once('error', (error) => {
           clearTimeout(timer)
-          reject(error)
+          if (!settled) reject(error)
+          settled = true
         })
         child.once('close', (code) => {
           clearTimeout(timer)
-          resolve({ code, output })
+          if (!settled) resolve({ code, output })
+          settled = true
         })
       })
     }
@@ -766,22 +805,25 @@ export class Updater {
           // best effort
         }
       }
+      let settled = false
       const timer = setTimeout(() => {
-        this.log(`the installer took over ${INSTALL_TIMEOUT_MS / 60_000} minutes; stopping it`)
-        try {
-          child.kill()
-        } catch {
-          // gone
-        }
-      }, INSTALL_TIMEOUT_MS)
+        this.log(
+          `the installer took over ${Math.round(this.installTimeout / 60_000)} minutes; stopped it`
+        )
+        killTree(child, true)
+        settled = true
+        resolve({ code: null, output: tail(this.logFile, start) })
+      }, this.installTimeout)
       timer.unref()
       child.once('error', (error) => {
         clearTimeout(timer)
-        reject(error)
+        if (!settled) reject(error)
+        settled = true
       })
       child.once('exit', (code) => {
         clearTimeout(timer)
-        resolve({ code, output: tail(this.logFile, start) })
+        if (!settled) resolve({ code, output: tail(this.logFile, start) })
+        settled = true
       })
     })
   }
