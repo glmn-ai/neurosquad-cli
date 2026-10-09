@@ -1,5 +1,13 @@
 # neurosquad
 
+## 0.1.1
+
+### Patch Changes
+
+- [#23](https://github.com/glmn-ai/neurosquad-cli/pull/23) [`f02fd51`](https://github.com/glmn-ai/neurosquad-cli/commit/f02fd512340ed14d44f10dc6e043bb20a4e494ff) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Push to the phone through ntfy (`nsq phone push ntfy [--url] [--token] | test | show | status | off`): when an agent needs you, its name and question, nothing else; topic URL and token in the OS keyring, your own topic URL and the token asked for or piped in (never on the command line); the server must use https, except plain http to this machine or a local network address, and an access token is sent only over https or to this machine (plain http on the local network is readable by anyone watching that network).
+
+- [#34](https://github.com/glmn-ai/neurosquad-cli/pull/34) [`8e458ce`](https://github.com/glmn-ai/neurosquad-cli/commit/8e458ce8debf9aae4e4bd814534096c1ef354c06) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - `nsq phone` with an unknown subcommand now shows the push syntax that shipped: `push ntfy [--url] [--token] | off | test | show | status`.
+
 ## 0.1.0
 
 ### Minor Changes
