@@ -70,7 +70,12 @@ import { openRouterKey, setSecret, OPENROUTER_SECRET } from './secrets.js'
 import { UsageTracker } from './usage.js'
 import { KEY_GAP_MS, answerKeys, type AnswerKey } from './answers.js'
 import { fetchOpenRouterModels } from './models.js'
-import { checkModelChoice, modelNeedsOpenRouter, ownModelOnResume } from '../modelRules.js'
+import {
+  checkModelChoice,
+  modelNeedsOpenRouter,
+  ownModelOnResume,
+  type ModelSwitchApplied
+} from '../modelRules.js'
 import { VERSION } from '../version.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
 import { PhoneAccess } from './phone.js'
@@ -149,6 +154,8 @@ const READY_MARKERS: Partial<Record<AgentRecord['harness'], RegExp>> = {
 const SWITCH_QUIET_MS = 3000
 /** …waiting at most this long; still typing then → it waits for the end of the turn instead. */
 const SWITCH_WAIT_MS = 10_000
+
+type ModelSwitchResult = { applied: ModelSwitchApplied; warnings?: string[] }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
@@ -691,13 +698,24 @@ export class Daemon {
     return this.startAgent(this.store.get(id)!)
   }
 
+  /** Model switches in flight, per agent: a second request joins the first instead of racing it. */
+  private readonly switching = new Map<string, Promise<ModelSwitchResult>>()
+
   /**
    * Puts an agent's stored model/provider into effect: a restart on the same session, now if
    * the agent is not mid-turn and the person is not typing into it, else once the turn ends.
+   * One at a time per agent; the restart reads the record when it happens, so a change made
+   * meanwhile is not lost (and a change during the restart restarts once more).
    */
-  private async applyModelSwitch(
-    id: string
-  ): Promise<{ applied: 'now' | 'after-turn' | 'next-start'; warnings?: string[] }> {
+  private applyModelSwitch(id: string): Promise<ModelSwitchResult> {
+    const inFlight = this.switching.get(id)
+    if (inFlight) return inFlight
+    const run = this.applyModelSwitchNow(id).finally(() => this.switching.delete(id))
+    this.switching.set(id, run)
+    return run
+  }
+
+  private async applyModelSwitchNow(id: string): Promise<ModelSwitchResult> {
     const rt = this.rt(id)
     if (!this.ptys.isRunning(id)) {
       rt.switchPending = false
@@ -705,8 +723,19 @@ export class Daemon {
     }
     const deadline = Date.now() + SWITCH_WAIT_MS
     for (;;) {
-      if (rt.status === 'working' || rt.status === 'needs-input' || Date.now() >= deadline) {
+      if (rt.status === 'working' || rt.status === 'needs-input') {
         rt.switchPending = true
+        return { applied: 'after-turn' }
+      }
+      if (Date.now() >= deadline) {
+        // Still typing, nothing submitted: no status event may come to pick the switch up.
+        rt.switchPending = true
+        setTimeout(() => {
+          if (rt.switchPending)
+            void this.applyModelSwitch(id).catch((error: unknown) =>
+              this.log(`model switch failed: ${String(error)}`)
+            )
+        }, SWITCH_QUIET_MS).unref?.()
         return { applied: 'after-turn' }
       }
       const quietFor = Date.now() - (rt.lastInputAt ?? 0)
@@ -714,11 +743,18 @@ export class Daemon {
       await sleep(Math.min(500, SWITCH_QUIET_MS - quietFor))
     }
     rt.switchPending = false
-    const record = this.store.get(id)!
-    this.log(
-      `${record.name}: model ${record.model ?? 'default'}${record.provider === 'openrouter' ? ' on OpenRouter' : ''}: restarting on the same session`
-    )
-    const warnings = await this.restartAgent(id)
+    const warnings: string[] = []
+    for (;;) {
+      const record = this.store.get(id)
+      if (!record) return { applied: 'now' }
+      const launched = `${record.provider ?? ''} ${record.model ?? ''}`
+      this.log(
+        `${record.name}: model ${record.model ?? 'default'}${record.provider === 'openrouter' ? ' on OpenRouter' : ''}: restarting on the same session`
+      )
+      warnings.splice(0, warnings.length, ...(await this.restartAgent(id)))
+      const now = this.store.get(id)
+      if (!now || `${now.provider ?? ''} ${now.model ?? ''}` === launched) break
+    }
     // Prompts queued for the end of the turn go to the restarted harness once it is ready.
     const next = rt.queue.shift()
     if (next !== undefined) {

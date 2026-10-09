@@ -166,6 +166,9 @@ const turnRequest = (from, text) =>
 async function waitTurn(name, from, text) {
   for (let i = 0; i < 180 && !turnRequest(from, text); i++) await sleep(500)
   await waitStatus(name, ['finished'], 60_000)
+  // A beat, as a person would take: Claude Code's Stop hook can land after a prompt typed the
+  // instant the turn showed finished, and then marks the new turn finished too.
+  await sleep(2000)
   return turnRequest(from, text)
 }
 
@@ -265,13 +268,13 @@ async function modelsScenario(short) {
     from = fake.requests.length
     nsq('send', name, '[nsq:slow] a long turn')
     for (let i = 0; i < 60 && !turnRequest(from, 'a long turn'); i++) await sleep(250)
-    await waitStatus(name, ['working'], 30_000)
+    const busy = await waitStatus(name, ['working'], 30_000)
     const later = nsq('set', name, '--model', slug2, '--provider', 'openrouter')
     nsq('send', name, '--when-done', '[nsq:hello] queued for after the switch')
     check(
       `${short}: mid-turn, the switch waits for the turn to end`,
       /switches to .* when this turn ends \(session kept\)/.test(later.stdout),
-      later.stdout.trim() || later.stderr.trim()
+      { out: later.stdout.trim() || later.stderr.trim(), seen: busy.seen }
     )
     turn = await waitTurn(name, from, 'queued for after the switch')
     check(
