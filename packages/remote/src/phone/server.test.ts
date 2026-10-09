@@ -483,3 +483,99 @@ describe('connections', () => {
     expect(deviceLabel('\u001b[31mevil')).toBe('unknown device')
   })
 })
+
+describe('online (the tunnel listener)', () => {
+  let tunnelBase = ''
+  const viaTunnel = (
+    path: string,
+    headers: Record<string, string>,
+    key: string | null = token
+  ): Promise<Response> =>
+    fetch(`${tunnelBase}${path}`, {
+      headers: {
+        'x-forwarded-proto': 'https',
+        ...(key ? { authorization: `Bearer ${key}` } : {}),
+        ...headers
+      }
+    })
+
+  beforeEach(async () => {
+    await server.stop()
+    server = new PhoneServer({
+      host,
+      token,
+      port: 0,
+      pollHoldMs: 300,
+      statePollMs: 50,
+      onlineLockout: { attempts: 3, lockMs: 60_000 }
+    })
+    const { port } = await server.start()
+    base = `http://127.0.0.1:${port}`
+    tunnelBase = `http://127.0.0.1:${await server.openTunnelOrigin()}`
+  })
+
+  it('locks out an internet address after a few wrong tokens, others keep working', async () => {
+    const stranger = { 'cf-connecting-ip': '203.0.113.7' }
+    for (let i = 0; i < 3; i++) {
+      expect((await viaTunnel('/api/state', stranger, 'f'.repeat(48))).status).toBe(401)
+    }
+    const locked = await viaTunnel('/api/state', stranger)
+    expect(locked.status).toBe(429)
+    expect(Number(locked.headers.get('retry-after'))).toBeGreaterThan(0)
+    // The owner's phone, elsewhere on the internet, is not caught by it.
+    expect((await viaTunnel('/api/state', { 'cf-connecting-ip': '198.51.100.2' })).status).toBe(200)
+    // Neither is anyone on the ordinary port.
+    expect((await call('/api/state')).status).toBe(200)
+    // Rotating the token starts everyone over.
+    token = generatePairingToken()
+    server.rotateToken(token)
+    expect((await viaTunnel('/api/state', stranger)).status).toBe(200)
+  })
+
+  it('believes CF-Connecting-IP only on the tunnel listener', async () => {
+    // On the ordinary port the header is just text: three wrong tokens "from" different
+    // addresses all land on the socket address, and no lockout applies there.
+    for (const ip of ['203.0.113.1', '203.0.113.2', '203.0.113.3', '203.0.113.4']) {
+      const response = await fetch(`${base}/api/state`, {
+        headers: { authorization: `Bearer ${'f'.repeat(48)}`, 'cf-connecting-ip': ip }
+      })
+      expect(response.status).toBe(401)
+    }
+    expect((await call('/api/state')).status).toBe(200)
+    await call('/api/state')
+    const local = server.connections()
+    expect(local.every((c) => c.via === undefined && !c.address.startsWith('203.'))).toBe(true)
+
+    await viaTunnel('/api/state', { 'cf-connecting-ip': '198.51.100.9', 'user-agent': 'curl/8' })
+    const online = server.connections().find((c) => c.via === 'internet')
+    expect(online).toMatchObject({ address: '198.51.100.9', device: 'curl', via: 'internet' })
+    // Garbage in the header is not an address.
+    await viaTunnel('/api/state', { 'cf-connecting-ip': '<script>' })
+    expect(server.connections().some((c) => c.address === '<script>')).toBe(false)
+  })
+
+  it('refuses plain http through the tunnel', async () => {
+    const plain = await fetch(`${tunnelBase}/api/state`, {
+      headers: { authorization: `Bearer ${token}`, 'x-forwarded-proto': 'http' }
+    })
+    expect(plain.status).toBe(403)
+    const visitor = await fetch(`${tunnelBase}/`, {
+      headers: { 'cf-visitor': '{"scheme":"http"}' }
+    })
+    expect(visitor.status).toBe(403)
+    const page = await viaTunnel('/', {}, null)
+    expect(page.status).toBe(200)
+    expect(page.headers.get('strict-transport-security')).toContain('max-age')
+  })
+
+  it('closing the tunnel listener cuts off the internet and keeps the local port', async () => {
+    await viaTunnel('/api/state', { 'cf-connecting-ip': '198.51.100.9' })
+    expect(server.connections().some((c) => c.via === 'internet')).toBe(true)
+    expect(server.tunnelOriginPort()).toBeGreaterThan(0)
+    await server.closeTunnelOrigin()
+    expect(server.tunnelOriginPort()).toBeUndefined()
+    expect(server.connections().some((c) => c.via === 'internet')).toBe(false)
+    await expect(viaTunnel('/api/state', {})).rejects.toThrow()
+    expect((await call('/api/state')).status).toBe(200)
+  })
+})
