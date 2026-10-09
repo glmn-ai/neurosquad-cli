@@ -329,5 +329,14 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
     expect(daemonState()?.pid).toBe(before?.pid)
     expect(daemonState()?.version).toBe('0.1.2')
     expect(pidAlive(before!.pid)).toBe(true)
+
+    // Keys typed into an agent hold an automatic restart for 5 minutes (the daemon-wide quiet
+    // window; the per-agent one paces model switches).
+    expect((await nsq('start', 'keep')).status).toBe(0)
+    expect((await nsq('_input', 'keep', JSON.stringify('x'))).status).toBe(0)
+    expect((await nsq('stop', 'keep')).status).toBe(0)
+    expect((await nsq('update', '--check')).stdout).toMatch(
+      /an agent got input in the last 5 minutes/
+    )
   }, 120_000)
 })
