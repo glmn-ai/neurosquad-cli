@@ -14,6 +14,7 @@
 //
 //   node scripts/e2e-ci/tui-record.mjs --root <repo under test> --bin <dir with the CLIs>
 //        --out <dir> [--cols 140 --rows 38] [--native-notify] [--headless-check] [--display :99]
+//        [--project <dir>]
 //        [--agents "claude:api-fix:[nsq:hello] …,codex:reviewer:[nsq:perm] …,opencode:docs:[nsq:hello] …"]
 //
 // --native-notify keeps desktop notifications on (a headless Linux has no
@@ -21,8 +22,12 @@
 // switched off, which must ring as well. --headless-check first runs the
 // dashboard with no X display (SSH, servers): it must keep running and keep
 // native noise off the screen; --display then records against a virtual X server.
+// --project is the folder the agents work in, shown in the recording (default: on
+// GitHub Actions ~/demo-shop of the runner, so the GIF shows a clean name; else a
+// folder in the scratch work dir). Created for the run and removed afterwards.
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
+import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   args,
@@ -73,7 +78,22 @@ delete env.TERM_PROGRAM
 delete env.WT_SESSION
 // --display <X display>: record against a virtual X server (Linux CI), after the headless check.
 if (get('display')) env.DISPLAY = get('display')
-const { bin, nsq, waitStatus, agentNamed } = makeNsq(root, env, sandbox.project, log)
+const project = get('project')
+  ? resolve(get('project'))
+  : process.env.GITHUB_ACTIONS
+    ? join(homedir(), 'demo-shop')
+    : sandbox.project
+const ownProject = project !== sandbox.project
+if (ownProject) {
+  rmSync(project, { recursive: true, force: true })
+  mkdirSync(project, { recursive: true })
+  writeFileSync(join(project, 'README.md'), '# demo-shop\n\nA small web shop.\n')
+  writeFileSync(
+    join(project, 'package.json'),
+    `${JSON.stringify({ name: 'demo-shop', private: true, scripts: { test: 'node --test' } }, null, 2)}\n`
+  )
+}
+const { bin, nsq, waitStatus, agentNamed } = makeNsq(root, env, project, log)
 const pty = createRequire(join(root, 'apps', 'cli', 'package.json'))('node-pty')
 
 const agents = get(
@@ -99,7 +119,7 @@ if (has('headless-check')) {
     name: 'xterm-256color',
     cols,
     rows,
-    cwd: sandbox.project,
+    cwd: project,
     env: headless
   })
   probe.onData((data) => {
@@ -153,7 +173,7 @@ const term = pty.spawn(process.execPath, [bin], {
   name: 'xterm-256color',
   cols,
   rows,
-  cwd: sandbox.project,
+  cwd: project,
   env,
   useConptyDll: true
 })
@@ -245,7 +265,7 @@ try {
     const done = await waitStatus(asking.name, ['finished'], 90_000)
     check(
       `answered from the dashboard → ${asking.name} finished, the command ran`,
-      done.agent?.status === 'finished' && existsSync(join(sandbox.project, e2e.PERM_DIR)),
+      done.agent?.status === 'finished' && existsSync(join(project, e2e.PERM_DIR)),
       done.seen
     )
     await sleep(3000)
@@ -275,6 +295,7 @@ try {
   )
   writeChecks(out, checks)
   rmSync(work, { recursive: true, force: true })
+  if (ownProject) rmSync(project, { recursive: true, force: true })
   const failed = checks.filter((row) => !row.ok).length
   log(`${checks.length - failed}/${checks.length} checks passed; recording in ${out}`)
   process.exit(failed ? 1 : 0)

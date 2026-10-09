@@ -189,6 +189,7 @@ jobs:
         run: |
           node .e2e-ci/scripts/e2e-ci/render.mjs --root "$GITHUB_WORKSPACE" \
             --in "$RUNNER_TEMP/results" --out "$RUNNER_TEMP/recordings" --agg "$RUNNER_TEMP/agg"
+          mkdir -p "$RUNNER_TEMP/recordings"
           cp "$RUNNER_TEMP/report.md" "$RUNNER_TEMP/results.json" "$RUNNER_TEMP/recordings/"
 
       - name: Upload the recordings
