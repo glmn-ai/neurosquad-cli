@@ -63,13 +63,17 @@ The URL and the optional access token are kept in the OS keyring, not in `config
 The URL must be https; plain http is accepted only for this machine or a local network address,
 and an access token is sent only over https (or plain http to this machine). The URL takes no
 `user:password`, `?query` or `#fragment` — give a token with `--token` instead. `nsq phone push off`
-stays off even when `NSQ_NTFY_URL` is set.
+stores "off" in the keyring, so push stays off even when `NSQ_NTFY_URL` is set. Without an OS
+keyring, `off` cannot be stored: remove `NSQ_NTFY_URL` (and `NSQ_NTFY_TOKEN`) from the environment
+where the daemon starts, then `nsq down` / `nsq up`.
 
 What a push contains: the title `<agent> needs you` and the agent's question (cut to 300
-characters, control characters removed). Nothing else from the terminal is sent. Pushes only go out
-for "needs you", not for "finished". The same question from the same agent is pushed at most once
-per 30 seconds. Push works whether or not `nsq phone on` is set. When phone access is on with
-`--lan`, tapping the notification opens the phone page (the link does not include the token).
+characters, control characters removed). When phone access is on with `--lan`, it also carries a
+link to the phone page — this computer's local network address and port, without the token — so
+tapping the notification opens the page. Nothing else from the terminal is sent. Pushes only go out
+for "needs you", not for "finished". A push is skipped only when it repeats the question that was
+last pushed successfully for the same agent, within 30 seconds and with no answer in between; a
+different question is pushed right away. Push works whether or not `nsq phone on` is set.
 
 ## Security
 
