@@ -209,6 +209,20 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       }
       return lines.join('\n')
     }
+    // Every header and footer the dashboard showed (a toast lasts seconds).
+    const seen = new Set<string>()
+    const sampler = setInterval(() => {
+      const lines = screen().split('\n')
+      seen.add(lines[0] ?? '')
+      seen.add(lines[lines.length - 1] ?? '')
+    }, 100)
+    const tail = (file: string): string => {
+      try {
+        return readFileSync(file, 'utf8').slice(-2500)
+      } catch {
+        return '(none)'
+      }
+    }
     try {
       expect(await until(() => screen().includes('keep'), 20_000), screen()).toBe(true)
 
@@ -237,8 +251,21 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       ).toBe(true)
       // Same dashboard process, reconnected to the new daemon.
       expect(
-        await until(() => screen().includes('nsq updated to 0.1.2 (was 0.1.1)'), 30_000),
-        `${screen()}\n--- raw tail ---\n${JSON.stringify(raw.slice(-3000))}`
+        await until(
+          () => [...seen].some((line) => line.includes('nsq updated to 0.1.2 (was 0.1.1)')),
+          30_000
+        ),
+        [
+          screen(),
+          '--- seen ---',
+          ...seen,
+          '--- update.json ---',
+          tail(join(home, 'update.json')),
+          '--- daemon.log ---',
+          tail(join(home, 'daemon.log')),
+          '--- raw tail ---',
+          JSON.stringify(raw.slice(-1500))
+        ].join('\n')
       ).toBe(true)
       expect(
         await until(() => {
@@ -247,6 +274,7 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
         })
       ).toBe(true)
     } finally {
+      clearInterval(sampler)
       dashboard.write('q')
       await new Promise((resolveWait) => setTimeout(resolveWait, 500))
       try {
