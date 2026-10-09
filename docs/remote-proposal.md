@@ -115,12 +115,18 @@ The desktop's lightweight phone client (~2.1k LOC, React + HeroUI + i18next) alr
 MIT is an owner decision; adapting it to a standalone Vite build served by nsq: **~2 days**. Heavier
 than A (React + HeroUI in the CLI package) but i18n and polish for free.
 
-### C. Reach from outside the LAN (no server work)
+### C. Reach from outside the LAN (no server work) — implemented
 
-Same as the desktop: `cloudflared` quick tunnel (binary downloaded with a pinned sha256, an empty
-`--config` to dodge `~/.cloudflared/config.yaml`), long-poll because quick tunnels drop SSE; or
-document Tailscale / `ssh -R` for people who already have them. Gives HTTPS, so in-page
-notifications work while open. **Effort: ~2 days.**
+`nsq phone on --online` (docs/guide/phone.md, "Online"): a quick tunnel (or the person's named
+one), cloudflared from PATH or downloaded once with its sha256 verified, a separate loopback
+listener for the tunnel with a per-address lockout and HTTPS-only.
+
+The download is not pinned to one release: the latest release's asset is checked against the
+sha256 digest GitHub publishes for it (and Cloudflare's checksum list in the release notes for
+plain binaries) and refused without one or on a mismatch. A `cloudflared` on PATH is used as is.
+Quick tunnels get an empty `--config` (to dodge `~/.cloudflared/config.yaml`) and the phone page
+long-polls, because quick tunnels drop SSE. Tailscale / `ssh -R` remain an alternative for people
+who already have them.
 
 ### D. Cloud relay + push (server work on the NeuroSquad cloud, additive under `/api/v1`)
 

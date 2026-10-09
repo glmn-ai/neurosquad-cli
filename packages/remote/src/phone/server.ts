@@ -21,12 +21,23 @@
 //
 // Not a substitute for HTTPS: plain HTTP on a home network leaks the token to anyone sniffing it.
 // Through a tunnel or a reverse proxy with a real certificate it is fine (docs/remote-proposal.md).
+//
+// Online (`openTunnelOrigin`): a second listener, loopback only, that only the tunnel connector
+// (cloudflared) is pointed at. Requests on it come from the internet, so:
+//   - the client is whoever Cloudflare names in `CF-Connecting-IP` — believed only on that
+//     listener (a request to the ordinary port carrying the header is just text a client chose);
+//   - a few wrong tokens from one address lock it out for minutes (lockout.ts), on top of the
+//     per-minute throttle;
+//   - plain http is refused (Cloudflare says which scheme the visitor used); the token only
+//     travels over HTTPS;
+//   - the connection shows up as `via: 'internet'` in connections(), so the host can say so.
 import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
-import type { AddressInfo } from 'node:net'
+import { isIP, type AddressInfo } from 'node:net'
 import { basename } from 'node:path'
 import { PHONE_BLOCKED, PHONE_CAPABILITIES } from './capabilities.js'
 import { tokenMatches } from './token.js'
+import { Lockout, type LockoutOptions } from './lockout.js'
 import { PHONE_API_CSP, PHONE_PAGE_CSP, phonePageFile } from './page.js'
 import {
   PhoneHostError,
@@ -73,6 +84,8 @@ export interface PhoneServerOptions {
   /** Default 8766 (the desktop app uses 8765). 0 = any free port. */
   port?: number
   limits?: Partial<PhoneServerLimits>
+  /** The lockout for requests through the tunnel (default: 5 wrong tokens → 15 minutes). */
+  onlineLockout?: Partial<LockoutOptions>
   /** How long a long poll is held open. Default 25 s. */
   pollHoldMs?: number
   /** How often the agent list is re-read while someone listens. Default 2 s. */
@@ -101,6 +114,8 @@ export interface PhoneConnection {
   lastSeen: number
   /** Event streams and held polls open right now. */
   open: number
+  /** Came through the tunnel, from the internet (the address is the one Cloudflare reported). */
+  via?: 'internet'
 }
 
 /** How long a client counts as connected after its last call when it holds nothing open. */
@@ -144,6 +159,16 @@ interface Client {
   firstSeen: number
   lastSeen: number
   open: number
+  via?: 'internet'
+}
+
+type Via = 'local' | 'internet'
+
+/** Who is asking: the throttle key and the address to show. */
+interface Origin {
+  key: string
+  address: string
+  via: Via
 }
 
 interface Bucket {
@@ -219,6 +244,21 @@ function workspacesOf(
   return [...byId.values()]
 }
 
+/**
+ * Whether a request through the tunnel came over HTTPS. Cloudflare's edge sets
+ * `X-Forwarded-Proto` (and `CF-Visitor`); a request with neither cannot be told apart and is let
+ * through — cloudflared always sets them, and only cloudflared is pointed at this listener.
+ */
+function cameOverHttps(req: IncomingMessage): boolean {
+  const proto = req.headers['x-forwarded-proto']
+  if (typeof proto === 'string' && proto.split(',')[0]!.trim().toLowerCase() !== 'https') {
+    return false
+  }
+  const visitor = req.headers['cf-visitor']
+  if (typeof visitor === 'string' && /"scheme"\s*:\s*"http"/i.test(visitor)) return false
+  return true
+}
+
 /** What a phone would notice in the list: which agents exist, their names and projects. */
 function stateSignature(state: PhoneState): string {
   return state.agents
@@ -228,6 +268,8 @@ function stateSignature(state: PhoneState): string {
 
 export class PhoneServer {
   private server: Server | null = null
+  private tunnelServer: Server | null = null
+  private readonly lockout: Lockout
   private token: string
   private readonly limits: PhoneServerLimits
   private readonly buckets = new Map<string, Bucket>()
@@ -249,14 +291,12 @@ export class PhoneServer {
     this.token = options.token
     this.now = options.now ?? Date.now
     this.limits = { failures: 20, writes: 40, windowMs: 60_000, ...options.limits }
+    this.lockout = new Lockout(options.onlineLockout, this.now)
   }
 
-  // ---------------------------------------------------------------- lifecycle
-
-  async start(): Promise<{ address: string; port: number }> {
-    if (this.server) return this.address()
+  private createHttpServer(via: Via): Server {
     const server = createServer((req, res) => {
-      this.handle(req, res).catch((error: unknown) => {
+      this.handle(req, res, via).catch((error: unknown) => {
         this.options.log?.(
           `phone: request failed: ${error instanceof Error ? error.name : 'error'}`
         )
@@ -269,17 +309,63 @@ export class PhoneServer {
       })
     })
     server.on('clientError', (_error, socket) => socket.destroy())
-    await new Promise<void>((resolve, reject) => {
+    return server
+  }
+
+  private listen(server: Server, port: number, address: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
       server.once('error', reject)
-      server.listen(
-        this.options.port ?? DEFAULT_PHONE_PORT,
-        this.options.bindAddress ?? '127.0.0.1',
-        () => {
-          server.off('error', reject)
-          resolve()
-        }
-      )
+      server.listen(port, address, () => {
+        server.off('error', reject)
+        resolve()
+      })
     })
+  }
+
+  /**
+   * The listener a tunnel connector forwards to (loopback only; `port` 0 = any free one). Every
+   * request on it is treated as coming from the internet. Returns its port.
+   */
+  async openTunnelOrigin(port = 0): Promise<number> {
+    if (!this.server) throw new Error('The phone server is not running')
+    if (this.tunnelServer) return (this.tunnelServer.address() as AddressInfo).port
+    const server = this.createHttpServer('internet')
+    await this.listen(server, port, '127.0.0.1')
+    this.tunnelServer = server
+    return (server.address() as AddressInfo).port
+  }
+
+  /** Closes the tunnel's listener and cuts off everyone who came through it. */
+  async closeTunnelOrigin(): Promise<void> {
+    const server = this.tunnelServer
+    if (!server) return
+    this.tunnelServer = null
+    this.lockout.clear()
+    for (const [key, client] of this.clients) {
+      if (client.via === 'internet') this.clients.delete(key)
+    }
+    this.connectionsChanged()
+    await new Promise<void>((resolve) => {
+      server.closeAllConnections()
+      server.close(() => resolve())
+    })
+  }
+
+  /** The tunnel listener's port while it is open. */
+  tunnelOriginPort(): number | undefined {
+    return this.tunnelServer ? (this.tunnelServer.address() as AddressInfo).port : undefined
+  }
+
+  // ---------------------------------------------------------------- lifecycle
+
+  async start(): Promise<{ address: string; port: number }> {
+    if (this.server) return this.address()
+    const server = this.createHttpServer('local')
+    await this.listen(
+      server,
+      this.options.port ?? DEFAULT_PHONE_PORT,
+      this.options.bindAddress ?? '127.0.0.1'
+    )
     this.server = server
     this.unsubscribe = this.options.host.subscribe((event) => this.onHostEvent(event))
     return this.address()
@@ -326,16 +412,23 @@ export class PhoneServer {
   }
 
   /** Records an authorized request; returns the client so a stream or poll can hold it open. */
-  private seen(req: IncomingMessage): Client {
-    const address = req.socket.remoteAddress ?? 'unknown'
+  private seen(req: IncomingMessage, origin: Origin): Client {
+    const { address } = origin
     const device = deviceLabel(req.headers['user-agent'])
-    const key = `${address}|${device}`
+    const key = `${origin.key}|${device}`
     const now = this.now()
     let client = this.clients.get(key)
     const fresh =
       !client || (client.open === 0 && now - client.lastSeen >= PHONE_CONNECTION_IDLE_MS)
     if (!client) {
-      client = { address, device, firstSeen: now, lastSeen: now, open: 0 }
+      client = {
+        address,
+        device,
+        firstSeen: now,
+        lastSeen: now,
+        open: 0,
+        ...(origin.via === 'internet' ? { via: 'internet' as const } : {})
+      }
       this.clients.set(key, client)
     }
     if (fresh) client.firstSeen = now
@@ -360,6 +453,7 @@ export class PhoneServer {
     this.server = null
     this.unsubscribe?.()
     this.unsubscribe = null
+    await this.closeTunnelOrigin()
     this.closeClients()
     this.stopTimers()
     this.clients.clear()
@@ -375,6 +469,7 @@ export class PhoneServer {
     if (!token) throw new Error('A pairing token is required')
     this.token = token
     this.buckets.clear()
+    this.lockout.clear()
     this.closeClients()
     this.clients.clear()
     this.connectionsChanged()
@@ -402,7 +497,23 @@ export class PhoneServer {
 
   // -------------------------------------------------------------------- auth
 
-  private bucketFor(req: IncomingMessage): Bucket {
+  /**
+   * Where a request came from. On the tunnel's listener that is the address Cloudflare reports in
+   * `CF-Connecting-IP` (every request there arrives from cloudflared on loopback, and one key for
+   * all of them would let one stranger lock the owner out); anywhere else it is the socket's.
+   */
+  private origin(req: IncomingMessage, via: Via): Origin {
+    if (via === 'internet') {
+      const reported = req.headers['cf-connecting-ip']
+      const trimmed = typeof reported === 'string' ? reported.trim() : ''
+      const address = isIP(trimmed) ? trimmed : 'unknown'
+      return { key: `internet:${address}`, address, via }
+    }
+    const address = req.socket.remoteAddress ?? 'unknown'
+    return { key: address, address, via }
+  }
+
+  private bucketFor(key: string): Bucket {
     const now = this.now()
     if (now - this.lastSweep >= this.limits.windowMs) {
       this.lastSweep = now
@@ -415,7 +526,6 @@ export class PhoneServer {
         }
       }
     }
-    const key = req.socket.remoteAddress ?? 'unknown'
     let bucket = this.buckets.get(key)
     if (!bucket) {
       bucket = { failures: 0, failureWindow: now, writes: 0, writeWindow: now }
@@ -446,11 +556,19 @@ export class PhoneServer {
     res.end(JSON.stringify(value))
   }
 
-  private async handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async handle(req: IncomingMessage, res: ServerResponse, via: Via): Promise<void> {
     res.setHeader('Referrer-Policy', 'no-referrer')
     res.setHeader('X-Content-Type-Options', 'nosniff')
     res.setHeader('X-Frame-Options', 'DENY')
     res.setHeader('Cache-Control', 'no-store')
+    if (via === 'internet') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000')
+      if (!cameOverHttps(req)) {
+        // The token must not travel in the clear; nothing is answered, nothing counted.
+        this.json(res, 403, { error: 'HTTPS only' })
+        return
+      }
+    }
     const url = new URL(req.url ?? '/', 'http://phone.invalid')
     const path = url.pathname
     const method = req.method ?? 'GET'
@@ -478,17 +596,30 @@ export class PhoneServer {
       return
     }
     res.setHeader('Content-Security-Policy', PHONE_API_CSP)
-    const bucket = this.bucketFor(req)
+    const origin = this.origin(req, via)
+    if (via === 'internet') {
+      const locked = this.lockout.remaining(origin.key)
+      if (locked > 0) {
+        res.setHeader('Retry-After', String(Math.ceil(locked / 1000)))
+        this.json(res, 429, { error: 'Too many wrong tokens — locked out for a while' })
+        return
+      }
+    }
+    const bucket = this.bucketFor(origin.key)
     if (bucket.failures >= this.limits.failures) {
       this.json(res, 429, { error: 'Too many attempts' })
       return
     }
     if (!tokenMatches(this.presentedToken(req, url.searchParams), this.token)) {
       bucket.failures += 1
+      if (via === 'internet' && this.lockout.fail(origin.key)) {
+        this.options.log?.('phone: an internet address was locked out after wrong pairing tokens')
+      }
       this.json(res, 401, { error: 'Unauthorized' })
       return
     }
-    const client = this.seen(req)
+    if (via === 'internet') this.lockout.succeed(origin.key)
+    const client = this.seen(req, origin)
     if (method !== 'GET') {
       bucket.writes += 1
       if (bucket.writes > this.limits.writes) {

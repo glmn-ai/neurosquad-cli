@@ -31,6 +31,60 @@ nsq phone off
 
 In the dashboard, **p** shows the connected phones — who is connected is always visible.
 
+## Online: from anywhere (Cloudflare tunnel)
+
+Away from your Wi-Fi, nsq can make the phone page reachable from the internet through a
+[Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+— no account, nothing opened on your router, real HTTPS:
+
+```sh
+nsq phone on --online            # prints an https://….trycloudflare.com link and its QR code
+nsq phone on --online --expire 12h   # … and phones have to pair again after 12 hours
+```
+
+Going online prints a warning, the link with the pairing token and its QR code — scan it with the
+phone. **Anyone with this link and token can control your agents**, so treat it like a password.
+
+- **The address changes every time the tunnel starts** — after `nsq phone on --online` again, a
+  restart of the daemon or `nsq down`, pair the phone again (`nsq phone pair` prints the current
+  link and QR). A quick tunnel is never brought back on its own: going online is explicit, every time. For the same reason an automatic update waits while a quick tunnel is on ([updates](updates.md)).
+- **Turn it off** with `nsq phone off` (all phone access), or `nsq phone on` without `--online`
+  (back to this machine / the Wi-Fi only). The tunnel also stops with `nsq down`. In the dashboard,
+  **O** switches online on and off (with the same warning; it uses your named tunnel if you set one
+  up), and the header shows a red **ONLINE** badge while it is. A later `nsq phone on`/`off` (or
+  **O**) also cuts short an `--online` that is still downloading or starting.
+- **cloudflared** is Cloudflare's connector. If it is on your `PATH`, that one is used. Otherwise,
+  the first time, nsq downloads the official release binary from
+  [Cloudflare's GitHub releases](https://github.com/cloudflare/cloudflared/releases) into
+  `~/.neurosquad-cli/bin` — never system-wide, no install script — and checks it against the sha256
+  digest GitHub publishes (and Cloudflare's own checksum list where it covers the file). Without a
+  published checksum, or on a mismatch, nothing is run. Delete `~/.neurosquad-cli/bin` to remove it.
+  It runs with `--no-autoupdate`, and Cloudflare stops serving connectors older than about a year, so
+  nsq checks the downloaded copy against the latest release every 30 days when going online and
+  replaces it (verified the same way) when there is a newer one; `nsq phone on --online --refresh`
+  checks right away. A `cloudflared` on your `PATH` is yours to keep up to date.
+- Quick tunnels are a free Cloudflare service for testing, with no uptime guarantee; if Cloudflare
+  stops the tunnel, `nsq phone status` and the dashboard say so (it is not restarted silently, since
+  a new address would need a new pairing).
+
+### Your own hostname (named tunnel, optional)
+
+With a Cloudflare account you can keep one address: create a tunnel in the Cloudflare dashboard
+(Zero Trust → Networks → Tunnels), add a public hostname for it (say `nsq.example.com`) whose
+service is `http://127.0.0.1:8767`, and copy its token. Then:
+
+```sh
+nsq phone tunnel-token set       # asks for the token (or reads it from stdin) → OS keyring
+nsq phone on --online --tunnel-token --hostname nsq.example.com [--tunnel-port 8767]
+nsq phone tunnel-token clear
+```
+
+The token is kept in the OS keyring (or `NSQ_TUNNEL_TOKEN` in the daemon's environment where there
+is none), never on the command line, in `config.json` or the log, and reaches `cloudflared` through
+its environment. A named tunnel comes back on its own when the daemon starts, at the same address.
+Consider putting [Cloudflare Access](https://developers.cloudflare.com/cloudflare-one/policies/access/)
+in front of the hostname as a second lock.
+
 ## Push notifications (optional)
 
 The phone page only shows updates while it is open. To get a notification on the phone when an
@@ -68,16 +122,16 @@ keyring, `off` cannot be stored: remove `NSQ_NTFY_URL` (and `NSQ_NTFY_TOKEN`) fr
 where the daemon starts, then `nsq down` / `nsq up`.
 
 What a push contains: the title `<agent> needs you` and the agent's question (cut to 300
-characters, control characters removed). When phone access is on with `--lan`, it also carries a
-link to the phone page — this computer's local network address and port, without the token — so
-tapping the notification opens the page. Nothing else from the terminal is sent. Pushes only go out
+characters, control characters removed). When phone access is online, or on with `--lan`, it also carries a
+link to the phone page — the online https address when online, else this computer's local network
+address and port, never the token — so tapping the notification opens the page. Nothing else from the terminal is sent. Pushes only go out
 for "needs you", not for "finished". A push is skipped only when it repeats the question that was
 last pushed successfully for the same agent, within 30 seconds and with no answer in between; a
 different question is pushed right away. Push works whether or not `nsq phone on` is set.
 
 ## Security
 
-- **Off by default**, and loopback-only unless you pass `--lan`.
+- **Off by default**, and loopback-only unless you pass `--lan` (or `--online`, below).
 - **The link is a password.** It carries the pairing token (24 random bytes in `~/.neurosquad-cli/phone-token`,
   readable only by you on macOS/Linux, shown only by `nsq phone pair`). Anyone with the link on your network can do what a
   phone can. `nsq phone rotate` revokes it at once.
@@ -88,6 +142,26 @@ different question is pushed right away. Push works whether or not `nsq phone on
   rate-limited; no cross-origin access.
 - The connection is plain HTTP on your local network, so someone sniffing that Wi-Fi could see the
   token — use it on networks you trust, or over a VPN.
+
+### Online
+
+- **Opt-in, every time** (`--online`, or **O** with a confirmation in the dashboard), with a warning
+  line wherever the link is shown. Online, anyone on the internet can _reach_ the page; the pairing
+  token is still what lets them _in_.
+- **HTTPS only.** The tunnel forwards to a separate listener on `127.0.0.1` that only `cloudflared`
+  uses; a request that reached Cloudflare over plain http is refused there. TLS ends at Cloudflare:
+  their edge carries the traffic, the token included.
+- **Brute force:** besides the per-minute throttle, 5 wrong tokens from one internet address lock
+  that address out for 15 minutes (the real client address comes from Cloudflare's
+  `CF-Connecting-IP`, which is believed only on the tunnel's own listener — anywhere else it is just
+  a header a client chose). Guessing 24 random bytes is out of reach anyway; this keeps the log and
+  the daemon quiet.
+- **Who is connected** is always shown — phones that came through the tunnel are marked
+  `(internet)` in `nsq phone status`, the dashboard header and **p**.
+- **Re-pairing:** `--expire 12h` (or `2d`) replaces the pairing token once it is that old, signing
+  every phone out; `--expire off` turns that off. `nsq phone rotate` does it at once.
+- The capabilities are the same as on the Wi-Fi (above): no starting agents, no raw keys, no files,
+  no settings.
 
 The design and its trade-offs: [docs/remote-proposal.md](../remote-proposal.md).
 

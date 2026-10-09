@@ -79,7 +79,7 @@ import {
 import { PACKAGE_DIR, PACKAGE_NAME, VERSION } from '../version.js'
 import { Updater, type UpdateView } from '../update/updater.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
-import { PhoneAccess } from './phone.js'
+import { PhoneAccess, PhoneSuperseded, quickTunnelBlocker } from './phone.js'
 import { NtfyPush } from './push.js'
 import { lanAddresses } from '@neurosquad/remote'
 
@@ -324,8 +324,11 @@ export class Daemon {
     this.updatePoll = setInterval(() => this.considerRestart(), UPDATE_POLL_MS)
     this.updatePoll.unref()
     if (this.config.phone?.enabled) {
+      // Online comes back on its own only for a named tunnel: a quick one would get a new
+      // address nobody has (going online is explicit, `nsq phone on --online`).
+      const phone = this.config.phone
       void this.phone
-        .start(this.config.phone)
+        .start({ ...phone, online: phone.online === true && phone.tunnel === 'named' })
         .catch((error: unknown) => this.log(`phone access did not start: ${String(error)}`))
     }
     return state
@@ -460,11 +463,14 @@ export class Daemon {
         // Push (ntfy), when set up: the name and the question, nothing else.
         const phone = this.phone.status()
         const host = phone.running && phone.lan ? lanAddresses()[0] : undefined
+        // The page's address (never the token): online first, else the Wi-Fi one.
+        const online = this.phone.onlineUrl()
+        const click = online ? `${online}/` : host ? `http://${host}:${phone.port}/` : undefined
         void this.push.needsYou({
           agentId: event.agentId,
           agentName: record.name,
           ...(decision.detail ? { question: decision.detail } : {}),
-          ...(host ? { click: `http://${host}:${phone.port}/` } : {})
+          ...(click ? { click } : {})
         })
       }
     }
@@ -993,6 +999,21 @@ export class Daemon {
   }
 
   private lastPhones = ''
+  /** Phone requests run one after another (an on that downloads cloudflared vs an off). */
+  private phoneQueue: Promise<unknown> = Promise.resolve()
+
+  /**
+   * A new on/off first cuts short whatever is still going online (so `off` does not wait for a
+   * download), then waits its turn: the config is always written by the last request.
+   */
+  private queuePhoneRequest(message: Request & { t: 'phone' }): Promise<unknown> {
+    // status / pair / rotate answer at once, never behind a download.
+    if (message.action !== 'on' && message.action !== 'off') return this.phoneRequest(message)
+    this.phone.cancelPending()
+    const run = this.phoneQueue.then(() => this.phoneRequest(message))
+    this.phoneQueue = run.catch(() => {})
+    return run
+  }
 
   private phoneView(): PhoneView {
     const status = this.phone.status()
@@ -1000,7 +1021,8 @@ export class Daemon {
       running: status.running,
       lan: status.lan,
       ...(status.port !== undefined ? { port: status.port } : {}),
-      phones: status.phones
+      phones: status.phones,
+      ...(status.online ? { online: status.online } : {})
     }
   }
 
@@ -1009,24 +1031,27 @@ export class Daemon {
     const view = this.phoneView()
     const signature = JSON.stringify({
       ...view,
-      phones: view.phones.map((p) => [p.address, p.device, p.firstSeen, p.open > 0])
+      phones: view.phones.map((p) => [p.address, p.device, p.firstSeen, p.open > 0, p.via]),
+      // Download progress in whole percents, not every chunk.
+      online: view.online && {
+        ...view.online,
+        progress: view.online.progress && Math.floor(view.online.progress * 100)
+      }
     })
     if (signature === this.lastPhones) return
     this.lastPhones = signature
     if (view.phones.length || view.running) {
       this.log(
-        `phone: ${view.running ? 'on' : 'off'}, ${view.phones.length} connected${view.phones.length ? ` (${view.phones.map((p) => `${p.device} ${p.address}`).join(', ')})` : ''}`
+        `phone: ${view.running ? 'on' : 'off'}${view.online ? `, online ${view.online.state}` : ''}, ${view.phones.length} connected${view.phones.length ? ` (${view.phones.map((p) => `${p.device} ${p.address}${p.via ? ' via internet' : ''}`).join(', ')})` : ''}`
       )
     }
     this.broadcast({ t: 'phones', phone: view })
   }
 
   private async phoneRequest(message: Request & { t: 'phone' }): Promise<unknown> {
-    const saved = (change: {
-      enabled: boolean
-      lan?: boolean
-      port?: number
-    }): NonNullable<ReturnType<typeof readConfig>['phone']> => {
+    const saved = (
+      change: NonNullable<ReturnType<typeof readConfig>['phone']>
+    ): NonNullable<ReturnType<typeof readConfig>['phone']> => {
       const config = readConfig()
       const phone = { ...config.phone, ...change }
       writeConfig({ ...config, phone })
@@ -1039,15 +1064,32 @@ export class Daemon {
         // server that was running keeps running).
         const previous = this.config.phone
         const wasRunning = this.phone.status().running
+        // Online is explicit every time: `on` without it goes back to local only. Which tunnel:
+        // as asked, else the one set up before (the dashboard's O keeps a named tunnel named).
+        const named =
+          message.online === true && (message.named ?? readConfig().phone?.tunnel === 'named')
         const change = {
           enabled: true,
           ...(message.lan !== undefined ? { lan: message.lan } : {}),
-          ...(message.port !== undefined ? { port: message.port } : {})
+          ...(message.port !== undefined ? { port: message.port } : {}),
+          online: message.online === true,
+          ...(message.online ? { tunnel: named ? ('named' as const) : ('quick' as const) } : {}),
+          ...(message.hostname !== undefined ? { tunnelHostname: message.hostname } : {}),
+          ...(message.tunnelPort !== undefined ? { tunnelPort: message.tunnelPort } : {}),
+          ...(message.expireHours !== undefined
+            ? { expireHours: message.expireHours ?? undefined }
+            : {})
         }
         let status: Awaited<ReturnType<PhoneAccess['start']>>
         try {
-          status = await this.phone.start({ ...readConfig().phone, ...change })
+          status = await this.phone.start({
+            ...readConfig().phone,
+            ...change,
+            ...(message.refresh ? { refreshCloudflared: true } : {})
+          })
         } catch (error) {
+          // Taken over by a later request: that one decides (and writes the config).
+          if (error instanceof PhoneSuperseded) throw error
           if (wasRunning && previous) {
             await this.phone.start(previous).catch((again: unknown) => {
               this.log(
@@ -1201,7 +1243,7 @@ export class Daemon {
         return undefined
       }
       case 'phone':
-        return this.phoneRequest(message)
+        return this.queuePhoneRequest(message)
       case 'resize': {
         const record = this.need(message.id)
         const cols = Math.max(20, Math.min(1000, Math.floor(message.cols)))
@@ -1363,6 +1405,8 @@ export class Daemon {
     const windows = [...this.clients].filter((client) => client.authed).length
     if (windows) blockers.push(`${windows} nsq window${windows === 1 ? ' is' : 's are'} open`)
     if (this.phone.status().connections) blockers.push('a phone is connected')
+    const tunnel = quickTunnelBlocker(this.phone.status())
+    if (tunnel) blockers.push(tunnel)
     if (this.lastInputAt && Date.now() - this.lastInputAt < UPDATE_QUIET_MS) {
       blockers.push('an agent got input in the last 5 minutes')
     }

@@ -761,12 +761,34 @@ export class Dashboard {
     const phone = this.phone
     if (!phone) return []
     const phones = phone.phones
+    // Online is never quiet: reachable from the internet is said in the header, in red.
+    const online = phone.online
+    const reach: Seg[] =
+      online?.state === 'running'
+        ? [
+            seg(' ONLINE ', { fg: 'accentFg', bg: 'danger', bold: true }),
+            seg('  ', { bg: 'headerBg' })
+          ]
+        : online?.state === 'installing'
+          ? [
+              seg(`cloudflared ${Math.floor((online.progress ?? 0) * 100)}%  `, {
+                fg: 'accentText',
+                bg: 'headerBg'
+              })
+            ]
+          : online?.state === 'starting'
+            ? [seg('going online…  ', { fg: 'accentText', bg: 'headerBg' })]
+            : online?.state === 'error'
+              ? [seg('online failed (p)  ', { fg: 'danger', bg: 'headerBg' })]
+              : []
     if (!phones.length) {
+      if (reach.length) return reach
       return phone.running ? [seg('phone on  ', { fg: 'faintText', bg: 'headerBg' })] : []
     }
     const first = phones[0]!
-    const who = `${first.device} ${first.address}${phones.length > 1 ? ` +${phones.length - 1}` : ''}`
+    const who = `${first.device} ${first.address}${first.via ? ' (internet)' : ''}${phones.length > 1 ? ` +${phones.length - 1}` : ''}`
     return [
+      ...reach,
       seg(` ${phones.length} phone${phones.length > 1 ? 's' : ''} `, {
         fg: 'accentFg',
         bg: 'accent',
@@ -790,15 +812,89 @@ export class Dashboard {
     const lines = phone.phones.length
       ? phone.phones.map(
           (p) =>
-            `${p.device}  ${p.address}  since ${new Date(p.firstSeen).toLocaleTimeString()}${p.open ? '  live' : ''}`
+            `${p.device}  ${p.address}${p.via ? '  (internet)' : ''}  since ${new Date(p.firstSeen).toLocaleTimeString()}${p.open ? '  live' : ''}`
         )
       : ['Nobody is connected.']
+    const online = phone.online
+    const onlineLines =
+      online?.state === 'running'
+        ? [
+            `ONLINE at ${online.url ?? '?'} — anyone with this link and token`,
+            'can control your agents. O turns it off.'
+          ]
+        : online?.state === 'error'
+          ? [`Online failed: ${online.error ?? 'unknown error'}`]
+          : online
+            ? [`Online: ${online.state}…`]
+            : ['Not online (O: from anywhere, through a Cloudflare tunnel).']
     this.modal = {
       kind: 'confirm',
       title: `Phone access — ${phone.lan ? 'local network' : 'this machine only'}, port ${phone.port ?? '?'}`,
-      body: `${lines.join('\n')}\n\nNew pairing token? Every connected phone is cut off (nsq phone pair shows the new link).`,
+      body: `${lines.join('\n')}\n\n${onlineLines.join('\n')}\n\nNew pairing token? Every connected phone is cut off (nsq phone pair shows the new link).`,
       yes: () =>
         this.request(this.client.request({ t: 'phone', action: 'rotate' }), 'new pairing token')
+    }
+  }
+
+  /** O: online on/off — an explicit yes, with what it means, both ways. */
+  private toggleOnline(): void {
+    const phone = this.phone
+    const online = phone?.online && phone.online.state !== 'error' ? phone.online : undefined
+    const lan = phone?.running ? phone.lan : undefined
+    if (online) {
+      this.modal = {
+        kind: 'confirm',
+        title: 'Go offline?',
+        body: 'The tunnel stops; phones connected from the internet are cut off.\nPhone access on this machine / the Wi-Fi stays as it is.',
+        yes: () =>
+          this.request(
+            this.client.request({
+              t: 'phone',
+              action: 'on',
+              online: false,
+              ...(lan !== undefined ? { lan } : {})
+            }),
+            'offline: the tunnel is stopped'
+          )
+      }
+      return
+    }
+    this.modal = {
+      kind: 'confirm',
+      title: 'Go online?',
+      body: [
+        'Phone access from anywhere through a Cloudflare tunnel (https): your named',
+        'tunnel if you set one up, else a quick tunnel.',
+        'Anyone with this link and the pairing token can control your agents.',
+        "A quick tunnel's address changes every time it starts: pair with nsq phone pair.",
+        'The first time, cloudflared is downloaded (sha256-checked) into the nsq home.',
+        'Turn it off: O again, or nsq phone off.'
+      ].join('\n'),
+      yes: () => {
+        this.toastMessage('going online…')
+        this.client
+          .request({
+            t: 'phone',
+            action: 'on',
+            online: true,
+            ...(lan !== undefined ? { lan } : {})
+          })
+          .then(
+            (data) => {
+              const status = (data as { status?: { online?: PhoneView['online'] } }).status
+              this.toastMessage(
+                status?.online?.state === 'running'
+                  ? `ONLINE at ${status.online.url} — scan the QR from: nsq phone pair`
+                  : `could not go online: ${status?.online?.error ?? 'the tunnel did not start'}`
+              )
+              this.schedule()
+            },
+            (error: unknown) => {
+              this.toastMessage(error instanceof Error ? error.message : String(error))
+              this.schedule()
+            }
+          )
+      }
     }
   }
 
@@ -1174,6 +1270,7 @@ export class Dashboard {
           ['b', 'sidebar on/off'],
           ['v', 'dictate into the agent (also the global hotkey) — pasted, never sent'],
           ['p', 'phones: who is connected; a new pairing token cuts them off'],
+          ['O', 'online on/off: phone access from anywhere (Cloudflare tunnel)'],
           ['U', 'update: install it now, or restart onto an installed one'],
           ['q', 'quit — agents keep running (nsq down stops them)']
         ]
@@ -1538,6 +1635,9 @@ export class Dashboard {
         return
       case 'p':
         this.showPhones()
+        return
+      case 'O':
+        this.toggleOnline()
         return
       case 'U':
         this.showUpdate()

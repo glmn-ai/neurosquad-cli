@@ -9,7 +9,8 @@
 //       worktree; extra.mjs: interrupt, question
 //   dashboard
 //       tui-record.mjs (real pty, 3 agents, keys, BEL/OSC 9 ring, asciicast),
-//       dictation.mjs (synthesised speech → Whisper tiny.en → paste)
+//       dictation.mjs (synthesised speech → Whisper tiny.en → paste),
+//       online.mjs (verified cloudflared download; nsq phone on --online with a fake connector)
 //
 // Writes <out>/results.json: { os, arch, suite, versions, parts: [{ part, exit, checks }] }.
 //
@@ -45,6 +46,7 @@ if (!bin) throw new Error(`CLI set "${plan.set}" is not installed under ${clis}`
 const { help } = makeNsq(root, process.env, root)
 const usage = help()
 const hasPhone = /nsq phone/.test(usage)
+const hasOnline = /--online/.test(usage)
 
 const parts = []
 function part(name, script, scriptArgs, work) {
@@ -121,6 +123,10 @@ if (plan.harness) {
     ],
     dictationWork
   )
+  if (hasOnline) {
+    const onlineWork = join(out, 'online')
+    part('online.mjs', join(HERE, 'online.mjs'), ['--root', root, '--work', onlineWork], onlineWork)
+  }
 }
 
 const results = {

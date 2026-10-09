@@ -32,6 +32,7 @@ nsq                             # the dashboard
 | `nsq cost [--since 7d] [--json]`                                               | what each agent spent, from the harness's own logs                                                                                                                     |
 | `nsq openrouter set-key\|clear-key\|models [query]\|status`                    | OpenRouter                                                                                                                                                             |
 | `nsq phone on [--lan] [--port n]\|off\|pair\|rotate\|status`                   | phone access (below)                                                                                                                                                   |
+| `nsq phone on --online [--expire 12h]` · `nsq phone tunnel-token set\|clear`   | phone access from anywhere through a Cloudflare tunnel (below)                                                                                                         |
 | `nsq phone push ntfy [--url] [--token]` · `test` · `show` · `status` · `off`   | push "needs you" to the phone (ntfy)                                                                                                                                   |
 | `nsq login` · `logout` · `whoami`                                              | the optional NeuroSquad account                                                                                                                                        |
 | `nsq up` · `nsq down`                                                          | start / stop the daemon (agents resume on `up`)                                                                                                                        |
@@ -63,11 +64,23 @@ settings or type arbitrary keys. **Experimental in 0.1.0.**
 The link opens nsq's own phone page (served by nsq, nothing from the internet): agents and their
 status, the question with Yes / Always / No, an agent's screen, a prompt box, interrupt. Add it to
 the home screen to keep it one tap away. Plain HTTP on the local network: use it on networks you
-trust (`docs/remote-proposal.md` covers tunnels with a real certificate).
+trust, or go online with a real certificate (below).
 
 Who is connected is always visible: the dashboard's header shows the count and the device (`p`
 lists them and can cut them off), `nsq attach` puts it in the window title, and `nsq phone status`
 prints them.
+
+### Online
+
+`nsq phone on --online` makes the page reachable from anywhere through a Cloudflare quick tunnel
+(https; an explicit opt-in every time, with a warning — anyone with the link and token can control
+your agents). The address changes on every start, so pair again; with `--expire 12h` phones have to
+re-pair once the token is that old. cloudflared comes from `PATH` or is downloaded once into
+`~/.neurosquad-cli/bin`, checked against its published sha256. Wrong tokens from the internet lock
+an address out for 15 minutes; phones that came through the tunnel are marked `(internet)`.
+`nsq phone off` (or `nsq phone on` without `--online`) closes it. Your own hostname:
+`nsq phone tunnel-token set`, then `--online --tunnel-token --hostname <host>`
+([guide](../../docs/guide/phone.md)).
 
 ### Push (ntfy)
 
@@ -77,8 +90,8 @@ ntfy.sh; `--url` asks for your own server's topic URL (`--token` asks for a prot
 both can be piped in, one per line — never on the command line). Subscribe
 to the topic in the ntfy app. Only the agent's name and its question are sent, never other terminal
 content. The topic URL works like a password and is kept in the OS keyring (`NSQ_NTFY_URL` /
-`NSQ_NTFY_TOKEN` where there is none). With phone access on the network, tapping the notification
-opens the phone page. Also `nsq phone push test`, `show`, `status`, `off`.
+`NSQ_NTFY_TOKEN` where there is none). With phone access online or on the network, tapping the
+notification opens the phone page. Also `nsq phone push test`, `show`, `status`, `off`.
 
 ## Account
 

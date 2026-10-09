@@ -32,7 +32,9 @@ you nothing — never in the middle of an agent's turn.
 3. **Apply.** The running daemon still runs the old version. It restarts onto the new one by
    itself only when nothing is lost: no agent is working, needs you, is starting or has prompts
    queued; every running agent can resume its session (a plain `nsq run -- <command>` would start
-   over, so it waits); no dashboard, `nsq attach` or phone is open; and nobody typed into an agent
+   over, so it waits); no dashboard, `nsq attach` or phone is open; phone access is not online through a quick
+   tunnel (it would not come back after the restart, and a phone away from home would lose its
+   address — a named tunnel comes back, so it does not hold the update); and nobody typed into an agent
    in the last 5 minutes. Before it switches, it runs the new version once (`--version`): if that fails, the old daemon and every agent keep running and the dashboard says why. The restart is the same as `nsq down` + `nsq up`: agents come back on
    their sessions. Until then the dashboard shows **updated to x.y.z · U restart**.
 

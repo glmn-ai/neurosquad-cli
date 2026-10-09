@@ -92,6 +92,7 @@ Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/
 | m                      | pick a model on OpenRouter (switches the agent to it) or "default" |
 | v                      | dictate into the agent (also a global hotkey) — pasted, never sent |
 | p                      | phones: who is connected                                           |
+| O                      | online on/off (Cloudflare tunnel, asks first)                      |
 | U                      | update: install it now, or restart onto an installed one           |
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)        |
 
@@ -117,6 +118,7 @@ nsq cost [--since 7d] [--json]        what each agent spent
 nsq openrouter set-key|clear-key|models [query]|status
 nsq phone on [--lan] [--port n]|off|pair|rotate|status
                                       answer agents from a phone
+nsq phone on --online [--expire 12h]  … from anywhere, through a Cloudflare tunnel (https)
 nsq phone push ntfy [--url] [--token]|off|test|show|status
                                       push "needs you" to the phone
 nsq login | logout | whoami           the optional NeuroSquad account
@@ -149,6 +151,7 @@ same session, the conversation kept); "default" goes back. Details:
 ```sh
 nsq phone on --lan     # off by default; without --lan it listens on this machine only
 nsq phone pair         # prints the link and a QR code — scan it with the phone
+nsq phone on --online  # from anywhere: an https link through a Cloudflare quick tunnel
 nsq phone push ntfy    # optional: a push via ntfy when an agent needs you
 ```
 
@@ -158,6 +161,11 @@ link carries the pairing token — treat it like a password; `nsq phone rotate` 
 out. Pushes through [ntfy](https://ntfy.sh) carry only the agent's name and its question, plus,
 when phone access is on with `--lan`, a link to the phone page (your local network address, no
 token); your own topic URL and token are asked for (or piped in), never put on the command line.
+`--online` is opt-in every time and prints a warning: anyone with that link and token can control
+your agents. The address changes on every start (pair again), wrong tokens from the internet lock
+an address out, and `nsq phone off` (or `nsq phone on` without `--online`) closes it. cloudflared
+is used from `PATH` or downloaded once into `~/.neurosquad-cli/bin`, sha256-checked.
+
 This part is the newest and most likely to change: [docs/guide/phone.md](docs/guide/phone.md).
 
 ## Voice dictation

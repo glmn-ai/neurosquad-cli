@@ -70,6 +70,34 @@ The routes and shapes (`/api/state`, `/api/workspace/:id`, `/api/agent/:id/scree
 `answer`, `interrupt` and `capabilities` are additions. `connections()` lists who is connected
 (address, a short device label, since) for the host to show.
 
+### Online (a Cloudflare tunnel)
+
+`server.openTunnelOrigin(port?)` opens a second listener on `127.0.0.1` for a tunnel connector to
+forward to; every request on it counts as coming from the internet: the client address is
+Cloudflare's `CF-Connecting-IP` (believed only there), plain http is refused, wrong tokens lock an
+address out (`Lockout`: 5 within 15 minutes → 15 minutes, `onlineLockout` to change), and
+`connections()` marks those clients `via: 'internet'`. `closeTunnelOrigin()` cuts them off.
+
+`ensureCloudflared({ binDir })` returns a `cloudflared` from `binDir`, else from `PATH`, else
+downloads the latest official release into `binDir`, verified against GitHub's sha256 digest (and
+Cloudflare's checksum list when it covers the file); `CloudflareTunnel` runs it
+(`tunnel --no-autoupdate --config <empty> --url http://127.0.0.1:<port>` for a quick tunnel, or
+`tunnel run` with `TUNNEL_TOKEN` in a trimmed environment for a named one) and reports the https
+address (`parseQuickTunnelUrl`).
+
+```ts
+const binary = await ensureCloudflared({ binDir })
+const origin = await server.openTunnelOrigin()
+const tunnel = new CloudflareTunnel()
+const { state, url } = await tunnel.start({
+  binary: binary.path,
+  origin: `http://127.0.0.1:${origin}`,
+  mode: 'quick',
+  stateDir
+})
+// pairingUrl(url, token) is the link for the phone; tunnel.stop() closes it
+```
+
 ### The phone page
 
 The server also serves a small client for these routes at `/` (`src/phone/web/`, plain HTML, CSS
