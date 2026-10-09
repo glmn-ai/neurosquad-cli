@@ -38,7 +38,7 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq cost [--since 7d] [--json]        what each agent spent
   nsq openrouter set-key|clear-key|models [query]|status
   nsq phone on [--lan]|off|pair|rotate|status   answer agents from a phone
-  nsq phone push ntfy [url] [--token t]|off|test|show|status
+  nsq phone push ntfy [url] [--token]|off|test|show|status
                                         push "needs you" to the phone
   nsq login | logout | whoami           the optional NeuroSquad account
   nsq dictation setup|status|test <wav> [--model id]

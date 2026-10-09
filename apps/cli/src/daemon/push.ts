@@ -9,6 +9,8 @@ import { getSecret, setSecret } from './secrets.js'
 export const NTFY_URL_SECRET = 'ntfy-topic-url'
 export const NTFY_TOKEN_SECRET = 'ntfy-access-token'
 const DEFAULT_SERVER = 'https://ntfy.sh'
+/** Stored by `nsq phone push off`: off even when NSQ_NTFY_URL is set in the daemon's environment. */
+export const NTFY_OFF = 'off'
 const MAX_MESSAGE = 300
 /** One push per agent at most this often (a flapping prompt must not spam the phone). */
 const PER_AGENT_MS = 30_000
@@ -52,6 +54,17 @@ export function parseNtfyUrl(raw: string): NtfyTarget {
   return { server: `${url.protocol}//${url.host}${prefix}`, topic }
 }
 
+/**
+ * An access token only travels over https, or over plain http to this machine (nothing on the
+ * network to read it). Plain http on the LAN is for a token-less server.
+ */
+export function checkTokenTransport(target: NtfyTarget, token: string | undefined): void {
+  const loopback = /^http:\/\/(localhost|127\.\d+\.\d+\.\d+|\[::1\])(:\d+)?(\/|$)/i
+  if (token && !target.server.startsWith('https:') && !loopback.test(target.server)) {
+    throw new Error('an access token needs an https ntfy server (it would travel in clear text)')
+  }
+}
+
 /** A fresh, unguessable topic on ntfy.sh for `nsq phone push ntfy` without a URL. */
 export function randomNtfyUrl(): string {
   return `${DEFAULT_SERVER}/nsq-${randomBytes(12).toString('hex')}`
@@ -87,6 +100,7 @@ export function ntfyMessage(target: NtfyTarget, event: NeedsYou): Record<string,
 
 export class NtfyPush {
   private readonly last = new Map<string, { at: number; question?: string }>()
+  private readonly inFlight = new Set<string>()
 
   constructor(
     private readonly log: (line: string) => void,
@@ -96,12 +110,17 @@ export class NtfyPush {
 
   /** The configured target and token, or null when push is off. */
   async target(): Promise<{ target: NtfyTarget; token?: string } | null> {
-    const raw = (await getSecret(NTFY_URL_SECRET)) ?? process.env['NSQ_NTFY_URL']
+    const stored = await getSecret(NTFY_URL_SECRET)
+    if (stored === NTFY_OFF) return null
+    const raw = stored ?? process.env['NSQ_NTFY_URL']
     if (!raw) return null
     try {
       const token = (await getSecret(NTFY_TOKEN_SECRET)) ?? process.env['NSQ_NTFY_TOKEN']
-      return { target: parseNtfyUrl(raw), ...(token ? { token } : {}) }
-    } catch {
+      const target = parseNtfyUrl(raw)
+      checkTokenTransport(target, token)
+      return { target, ...(token ? { token } : {}) }
+    } catch (error) {
+      this.log(`ntfy push is off: ${error instanceof Error ? error.message : 'bad settings'}`)
       return null
     }
   }
@@ -115,8 +134,21 @@ export class NtfyPush {
     if (previous && now - previous.at < PER_AGENT_MS && previous.question === event.question) {
       return false
     }
-    this.last.set(event.agentId, { at: now, question: event.question })
-    return this.send(configured.target, configured.token, ntfyMessage(configured.target, event))
+    // One send at a time per agent and question; the 30 s memory only after a delivery.
+    const key = `${event.agentId}\u0000${event.question ?? ''}`
+    if (this.inFlight.has(key)) return false
+    this.inFlight.add(key)
+    try {
+      const ok = await this.send(
+        configured.target,
+        configured.token,
+        ntfyMessage(configured.target, event)
+      )
+      if (ok) this.last.set(event.agentId, { at: now, question: event.question })
+      return ok
+    } finally {
+      this.inFlight.delete(key)
+    }
   }
 
   /** Clears the per-agent memory (the agent was answered: the next question pushes again). */
@@ -137,6 +169,8 @@ export class NtfyPush {
           ...(token ? { authorization: `Bearer ${token}` } : {})
         },
         body: JSON.stringify(message),
+        // A redirect would carry the token and the question somewhere else: never followed.
+        redirect: 'error',
         signal: AbortSignal.timeout(10_000)
       })
       if (!response.ok) {

@@ -601,16 +601,26 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
   }
 }
 
-/** `nsq phone push ntfy [url] [--token t] | off | test | show | status` */
+/** `nsq phone push ntfy [url] [--token] | off | test | show | status` */
 async function cmdPhonePush(args: ParsedArgs): Promise<void> {
   const push = await import('./daemon/push.js')
   const verb = args.positional[1] ?? 'status'
   const sender = new push.NtfyPush((line) => process.stderr.write(`${line}\n`))
   switch (verb) {
     case 'ntfy': {
+      if (typeof args.flags.get('token') === 'string' || args.positional[3] !== undefined) {
+        // Never on the command line (process list, shell history): asked for, or piped in.
+        throw new UsageError(
+          'give the access token without a value: nsq phone push ntfy <url> --token (asked for, or read from stdin)'
+        )
+      }
       const url = args.positional[2] ?? push.randomNtfyUrl()
       const target = push.parseNtfyUrl(url)
-      const token = flagString(args, 'token')
+      const token =
+        args.flags.get('token') === true
+          ? (await readSecretLine('ntfy access token: ')).trim() || undefined
+          : undefined
+      push.checkTokenTransport(target, token)
       await push.saveNtfy(url, token)
       out(`push on: when an agent needs you, ntfy gets its name and question (nothing else)`)
       out('Subscribe to this topic in the ntfy app (it works like a password — keep it private):')
@@ -622,7 +632,14 @@ async function cmdPhonePush(args: ParsedArgs): Promise<void> {
       return
     }
     case 'off':
-      await push.saveNtfy(undefined, undefined)
+      // Stored as "off" so NSQ_NTFY_URL in the daemon's environment does not switch it back on.
+      try {
+        await push.saveNtfy(push.NTFY_OFF, undefined)
+      } catch {
+        throw new Error(
+          'no OS keyring here: push comes from NSQ_NTFY_URL — remove it from the environment where the daemon starts, then nsq down / nsq up'
+        )
+      }
       out('push off')
       return
     case 'test': {
@@ -660,7 +677,7 @@ async function cmdPhonePush(args: ParsedArgs): Promise<void> {
       return
     }
     default:
-      throw new UsageError('nsq phone push ntfy [url] [--token t] | off | test | show | status')
+      throw new UsageError('nsq phone push ntfy [url] [--token] | off | test | show | status')
   }
 }
 

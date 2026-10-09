@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { NtfyPush, ntfyMessage, parseNtfyUrl, randomNtfyUrl } from './daemon/push.js'
+import {
+  NtfyPush,
+  checkTokenTransport,
+  ntfyMessage,
+  parseNtfyUrl,
+  randomNtfyUrl
+} from './daemon/push.js'
 
 describe('ntfy push', () => {
   it('takes https topic URLs, http only on this machine or the local network', () => {
@@ -63,5 +69,33 @@ describe('ntfy push', () => {
     expect(sent[0]!.url).toBe('https://ntfy.example')
     expect((sent[0]!.init.headers as Record<string, string>).authorization).toBe('Bearer tk_secret')
     expect(JSON.parse(String(sent[0]!.init.body)).topic).toBe('nsq-t')
+  })
+
+  it('never follows a redirect and keeps the 30 s memory only after a delivery', async () => {
+    const inits: RequestInit[] = []
+    let ok = false
+    const push = new NtfyPush(
+      () => {},
+      (async (_url: string, init: RequestInit) => {
+        inits.push(init)
+        return new Response('{}', { status: ok ? 200 : 502 })
+      }) as unknown as typeof fetch,
+      () => 1000
+    )
+    push.target = async () => ({ target: { server: 'https://ntfy.example', topic: 'nsq-t' } })
+    const event = { agentId: 'a', agentName: 'api-fix', question: 'Allow?' }
+    expect(await push.needsYou(event)).toBe(false)
+    ok = true
+    expect(await push.needsYou(event)).toBe(true) // the failed one did not count as sent
+    expect(await push.needsYou(event)).toBe(false)
+    expect(inits.every((init) => init.redirect === 'error')).toBe(true)
+  })
+
+  it('sends an access token only over https', () => {
+    const http = parseNtfyUrl('http://192.168.1.5/nsq-t')
+    expect(() => checkTokenTransport(http, 'tk_x')).toThrow(/https/)
+    expect(() => checkTokenTransport(http, undefined)).not.toThrow()
+    expect(() => checkTokenTransport(parseNtfyUrl('https://ntfy.sh/t'), 'tk_x')).not.toThrow()
+    expect(() => checkTokenTransport(parseNtfyUrl('http://127.0.0.1:8080/t'), 'tk_x')).not.toThrow()
   })
 })
