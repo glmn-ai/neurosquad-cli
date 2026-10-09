@@ -32,6 +32,7 @@ nsq                             # the dashboard
 | `nsq cost [--since 7d] [--json]`                                               | what each agent spent, from the harness's own logs                                                                                                                     |
 | `nsq openrouter set-key\|clear-key\|models [query]\|status`                    | OpenRouter                                                                                                                                                             |
 | `nsq phone on [--lan] [--port n]\|off\|pair\|rotate\|status`                   | phone access (below)                                                                                                                                                   |
+| `nsq phone on --online [--expire 12h]` · `nsq phone tunnel-token set\|clear`   | phone access from anywhere through a Cloudflare tunnel (below)                                                                                                         |
 | `nsq phone push ntfy [--url] [--token]` · `test` · `show` · `status` · `off`   | push "needs you" to the phone (ntfy)                                                                                                                                   |
 | `nsq login` · `logout` · `whoami`                                              | the optional NeuroSquad account                                                                                                                                        |
 | `nsq up` · `nsq down`                                                          | start / stop the daemon (agents resume on `up`)                                                                                                                        |
@@ -70,6 +71,16 @@ lists them and can cut them off), `nsq attach` puts it in the window title, and 
 prints them.
 
 ### Push (ntfy)
+
+`nsq phone on --online` makes the page reachable from anywhere through a Cloudflare quick tunnel
+(https; an explicit opt-in every time, with a warning — anyone with the link and token can control
+your agents). The address changes on every start, so pair again; `--expire 12h` makes phones pair
+again after that long. cloudflared comes from `PATH` or is downloaded once into
+`~/.neurosquad-cli/bin`, checked against its published sha256. Wrong tokens from the internet lock
+an address out for 15 minutes; phones that came through the tunnel are marked `(internet)`.
+`nsq phone off` (or `nsq phone on` without `--online`) closes it. Your own hostname:
+`nsq phone tunnel-token set`, then `--online --tunnel-token --hostname <host>`
+([guide](../../docs/guide/phone.md)).
 
 `nsq phone push ntfy` sends a notification to your phone when an agent needs you, through
 [ntfy](https://ntfy.sh) (open source, self-hostable). Without a URL it picks a random topic on

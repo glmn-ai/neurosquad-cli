@@ -93,6 +93,14 @@ export type Request =
       action: 'status' | 'on' | 'off' | 'pair' | 'rotate'
       lan?: boolean
       port?: number
+      /** `on`: through a Cloudflare tunnel too (false: back to local only). */
+      online?: boolean
+      /** `on --online`: the person's named tunnel instead of a quick one. */
+      named?: boolean
+      hostname?: string
+      tunnelPort?: number
+      /** Phones pair again after this many hours; null = never. */
+      expireHours?: number | null
     }
   | { t: 'shutdown'; stopAgents?: boolean }
   /** Updates: the state, a check now, install now, or restart onto an installed one (when idle). */
@@ -131,7 +139,23 @@ export interface PhoneView {
   running: boolean
   lan: boolean
   port?: number
-  phones: { address: string; device: string; firstSeen: number; lastSeen: number; open: number }[]
+  phones: {
+    address: string
+    device: string
+    firstSeen: number
+    lastSeen: number
+    open: number
+    /** Came in through the tunnel. */
+    via?: 'internet'
+  }[]
+  /** The tunnel while online: state, the public https address (no token), an error. */
+  online?: {
+    state: 'off' | 'installing' | 'starting' | 'running' | 'error'
+    mode?: 'quick' | 'named'
+    url?: string
+    error?: string
+    progress?: number
+  }
 }
 
 /** Splits a stream into lines and parses each as JSON; a bad line is skipped. */

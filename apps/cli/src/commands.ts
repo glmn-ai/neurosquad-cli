@@ -646,17 +646,52 @@ interface PhoneReply {
     port?: number
     address?: string
     connections: number
-    phones: { address: string; device: string; firstSeen: number; open: number }[]
+    phones: {
+      address: string
+      device: string
+      firstSeen: number
+      open: number
+      via?: 'internet'
+    }[]
+    online?: { state: string; mode?: 'quick' | 'named'; url?: string; error?: string }
+    expireHours?: number
   }
   links?: string[]
 }
 
+const PHONE_USAGE =
+  'nsq phone on [--lan] [--port n] [--online [--tunnel-token --hostname h]] [--expire 12h|off] | off | pair | rotate | status | tunnel-token set|clear | push ntfy [--url] [--token]|off|test|show|status'
+
+/** The warning that goes with every online address. */
+export const ONLINE_WARNING =
+  'ONLINE: anyone with this link and token can control your agents. Turn it off: nsq phone off (or nsq phone on without --online)'
+
 function describePhone(status: PhoneReply['status']): string {
-  if (!status.running) return 'phone access: off (nsq phone on [--lan])'
+  if (!status.running) return 'phone access: off (nsq phone on [--lan] [--online])'
   const where = status.lan
     ? `the local network, port ${status.port}`
     : `this machine only, port ${status.port}`
-  return `phone access: on — ${where}; ${status.phones.length} connected`
+  const online = status.online
+  const reach =
+    online?.state === 'running'
+      ? `; online at ${online.url}`
+      : online?.state === 'error'
+        ? '; online: failed'
+        : online
+          ? `; online: ${online.state}`
+          : ''
+  const expiry = status.expireHours ? `; pairing expires after ${status.expireHours} h` : ''
+  return `phone access: on — ${where}${reach}${expiry}; ${status.phones.length} connected`
+}
+
+/** `12`, `12h`, `2d` → hours; `off`/`0`/`never` → null; anything else → undefined. */
+export function parseExpireHours(text: string): number | null | undefined {
+  const value = text.trim().toLowerCase()
+  if (value === 'off' || value === 'never' || value === '0') return null
+  const match = /^(\d{1,4})\s*([hd]?)$/.exec(value)
+  if (!match) return undefined
+  const hours = Number(match[1]) * (match[2] === 'd' ? 24 : 1)
+  return hours > 0 && hours <= 24 * 365 ? hours : undefined
 }
 
 export async function cmdPhone(args: ParsedArgs): Promise<void> {
@@ -665,50 +700,144 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
     await cmdPhonePush(args)
     return
   }
+  if (verb === 'tunnel-token') {
+    await cmdTunnelToken(args)
+    return
+  }
   if (!['status', 'on', 'off', 'pair', 'rotate'].includes(verb)) {
-    throw new UsageError(
-      'nsq phone on [--lan] [--port n] | off | pair | rotate | status | push ntfy [--url] [--token]|off|test|show|status'
-    )
+    throw new UsageError(PHONE_USAGE)
   }
   const port = flagString(args, 'port')
   if (port !== undefined && (!/^\d{1,5}$/.test(port) || Number(port) > 65535))
     throw new UsageError('--port takes a number from 0 to 65535')
+  const tunnelPort = flagString(args, 'tunnel-port')
+  if (tunnelPort !== undefined && (!/^\d{1,5}$/.test(tunnelPort) || Number(tunnelPort) > 65535))
+    throw new UsageError('--tunnel-port takes a number from 1 to 65535')
+  if (typeof args.flags.get('tunnel-token') === 'string') {
+    // A tunnel token works like a password: never on the command line.
+    throw new UsageError(
+      'give no token on the command line: save it with nsq phone tunnel-token set, then use --tunnel-token'
+    )
+  }
+  const online = args.flags.has('online') ? flagBool(args, 'online') : false
+  const named = flagBool(args, 'tunnel-token')
+  if (named && !online) throw new UsageError('--tunnel-token goes with --online')
+  const hostnameFlag = flagString(args, 'hostname')
+  let hostname: string | undefined
+  if (hostnameFlag !== undefined) {
+    const { normalizeTunnelHostname } = await import('@neurosquad/remote')
+    hostname = normalizeTunnelHostname(hostnameFlag)?.replace(/^https:\/\//, '')
+    if (!hostname) throw new UsageError('--hostname takes a host name like nsq.example.com')
+  }
+  const expireFlag = flagString(args, 'expire')
+  const expireHours = expireFlag === undefined ? undefined : parseExpireHours(expireFlag)
+  if (expireFlag !== undefined && expireHours === undefined)
+    throw new UsageError('--expire takes hours or days (12h, 2d) or off')
+  if (verb === 'on' && online) {
+    process.stderr.write(
+      named
+        ? 'going online through your named Cloudflare tunnel…\n'
+        : "going online through a Cloudflare quick tunnel (the first time, cloudflared is downloaded from Cloudflare's GitHub releases and its sha256 checked)…\n"
+    )
+  }
   const client = await DaemonClient.open('phone')
   try {
     const reply = (await client.request({
       t: 'phone',
       action: verb as 'status' | 'on' | 'off' | 'pair' | 'rotate',
       ...(args.flags.has('lan') ? { lan: flagBool(args, 'lan') } : {}),
-      ...(port !== undefined ? { port: Number(port) } : {})
+      ...(port !== undefined ? { port: Number(port) } : {}),
+      ...(verb === 'on' ? { online } : {}),
+      ...(named ? { named } : {}),
+      ...(hostname ? { hostname } : {}),
+      ...(tunnelPort !== undefined ? { tunnelPort: Number(tunnelPort) } : {}),
+      ...(expireHours !== undefined ? { expireHours } : {})
     })) as PhoneReply
-    out(describePhone(reply.status))
-    for (const phone of reply.status.phones) {
+    const status = reply.status
+    out(describePhone(status))
+    for (const phone of status.phones) {
       out(
-        `  ${phone.device}  ${phone.address}  since ${new Date(phone.firstSeen).toLocaleTimeString()}${phone.open ? '  (live)' : ''}`
+        `  ${phone.device}  ${phone.address}${phone.via ? '  (internet)' : ''}  since ${new Date(phone.firstSeen).toLocaleTimeString()}${phone.open ? '  (live)' : ''}`
       )
     }
+    if (status.online?.state === 'running') out(`! ${ONLINE_WARNING}`)
     if (verb === 'rotate')
       out('new pairing token: every paired phone is signed out (nsq phone pair)')
-    if (verb === 'on' && !reply.status.lan) {
-      out('a phone cannot reach 127.0.0.1; for the Wi-Fi: nsq phone on --lan')
+    if (verb === 'on' && online) {
+      if (status.online?.state !== 'running') {
+        throw new Error(
+          `could not go online: ${status.online?.error ?? 'the tunnel did not start'} (phone access stays on locally)`
+        )
+      }
+      if (status.online.mode !== 'named') {
+        out(
+          'the quick-tunnel address changes every time it starts: pair the phone again after nsq phone on --online, a restart or nsq down'
+        )
+      }
+      await printPairing(reply.links ?? [])
+      return
+    }
+    if (verb === 'on' && !status.lan) {
+      out(
+        'a phone cannot reach 127.0.0.1; for the Wi-Fi: nsq phone on --lan; from anywhere: nsq phone on --online'
+      )
     }
     if (verb === 'pair') {
       const links = reply.links ?? []
       if (!links.length) {
         out(
-          reply.status.running ? 'no network address found' : 'turn it on first: nsq phone on --lan'
+          status.running
+            ? 'no network address found'
+            : 'turn it on first: nsq phone on --lan (or --online)'
         )
         return
       }
-      // The link is the credential: shown only here, on request.
-      const { renderUnicodeCompact } = await import('uqr')
-      out('Scan with the phone (it carries the pairing token — do not share it):')
-      out(renderUnicodeCompact(links[0]!))
-      for (const link of links) out(`  ${link}`)
+      await printPairing(links)
     }
   } finally {
     client.close()
   }
+}
+
+/** The QR of the first link and every link — they carry the pairing token. */
+async function printPairing(links: string[]): Promise<void> {
+  if (!links.length) return
+  // The link is the credential: shown only on request (pair, or on --online which is pairing).
+  const { renderUnicodeCompact } = await import('uqr')
+  out('Scan with the phone (it carries the pairing token — do not share it):')
+  out(renderUnicodeCompact(links[0]!))
+  for (const link of links) out(`  ${link}`)
+}
+
+/** `nsq phone tunnel-token set | clear` — a named tunnel's token, kept in the OS keyring. */
+async function cmdTunnelToken(args: ParsedArgs): Promise<void> {
+  const { setSecret } = await import('./daemon/secrets.js')
+  const { TUNNEL_TOKEN_SECRET } = await import('./daemon/phone.js')
+  const verb = args.positional[1]
+  if (args.positional[2] !== undefined) {
+    throw new UsageError(
+      'give no token on the command line: nsq phone tunnel-token set asks for it (or reads it from stdin)'
+    )
+  }
+  if (verb === 'set') {
+    const [answer] = await readSecretLines(['Cloudflare tunnel token: '])
+    const token = (answer ?? '').trim()
+    if (!/^[A-Za-z0-9+/=_-]{20,4096}$/.test(token)) {
+      throw new UsageError(
+        'that does not look like a tunnel token (Cloudflare dashboard → Tunnels → your tunnel → the token after --token)'
+      )
+    }
+    await setSecret(TUNNEL_TOKEN_SECRET, token)
+    out('tunnel token saved in the OS keyring')
+    out('then: nsq phone on --online --tunnel-token --hostname <the public hostname you set up>')
+    return
+  }
+  if (verb === 'clear') {
+    await setSecret(TUNNEL_TOKEN_SECRET, undefined)
+    out('tunnel token removed')
+    return
+  }
+  throw new UsageError('nsq phone tunnel-token set | clear')
 }
 
 /** `nsq phone push ntfy [--url] [--token] | off | test | show | status` */

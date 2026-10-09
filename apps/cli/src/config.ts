@@ -28,6 +28,15 @@ export interface NsqConfig {
     /** Listen on the local network, not only this machine. */
     lan?: boolean
     port?: number
+    /** Reachable from the internet through a Cloudflare tunnel (restored on start only for `named`). */
+    online?: boolean
+    tunnel?: 'quick' | 'named'
+    /** A named tunnel's public hostname; its token lives in the OS keyring. */
+    tunnelHostname?: string
+    /** The local port a named tunnel forwards to. Default 8767. */
+    tunnelPort?: number
+    /** Phones pair again once the pairing token is this many hours old. */
+    expireHours?: number
   }
   dictation?: {
     enabled?: boolean

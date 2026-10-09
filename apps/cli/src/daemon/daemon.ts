@@ -324,8 +324,11 @@ export class Daemon {
     this.updatePoll = setInterval(() => this.considerRestart(), UPDATE_POLL_MS)
     this.updatePoll.unref()
     if (this.config.phone?.enabled) {
+      // Online comes back on its own only for a named tunnel: a quick one would get a new
+      // address nobody has (going online is explicit, `nsq phone on --online`).
+      const phone = this.config.phone
       void this.phone
-        .start(this.config.phone)
+        .start({ ...phone, online: phone.online === true && phone.tunnel === 'named' })
         .catch((error: unknown) => this.log(`phone access did not start: ${String(error)}`))
     }
     return state
@@ -460,11 +463,14 @@ export class Daemon {
         // Push (ntfy), when set up: the name and the question, nothing else.
         const phone = this.phone.status()
         const host = phone.running && phone.lan ? lanAddresses()[0] : undefined
+        // The page's address (never the token): online first, else the Wi-Fi one.
+        const online = this.phone.onlineUrl()
+        const click = online ? `${online}/` : host ? `http://${host}:${phone.port}/` : undefined
         void this.push.needsYou({
           agentId: event.agentId,
           agentName: record.name,
           ...(decision.detail ? { question: decision.detail } : {}),
-          ...(host ? { click: `http://${host}:${phone.port}/` } : {})
+          ...(click ? { click } : {})
         })
       }
     }
@@ -1000,7 +1006,8 @@ export class Daemon {
       running: status.running,
       lan: status.lan,
       ...(status.port !== undefined ? { port: status.port } : {}),
-      phones: status.phones
+      phones: status.phones,
+      ...(status.online ? { online: status.online } : {})
     }
   }
 
@@ -1009,24 +1016,27 @@ export class Daemon {
     const view = this.phoneView()
     const signature = JSON.stringify({
       ...view,
-      phones: view.phones.map((p) => [p.address, p.device, p.firstSeen, p.open > 0])
+      phones: view.phones.map((p) => [p.address, p.device, p.firstSeen, p.open > 0, p.via]),
+      // Download progress in whole percents, not every chunk.
+      online: view.online && {
+        ...view.online,
+        progress: view.online.progress && Math.floor(view.online.progress * 100)
+      }
     })
     if (signature === this.lastPhones) return
     this.lastPhones = signature
     if (view.phones.length || view.running) {
       this.log(
-        `phone: ${view.running ? 'on' : 'off'}, ${view.phones.length} connected${view.phones.length ? ` (${view.phones.map((p) => `${p.device} ${p.address}`).join(', ')})` : ''}`
+        `phone: ${view.running ? 'on' : 'off'}${view.online ? `, online ${view.online.state}` : ''}, ${view.phones.length} connected${view.phones.length ? ` (${view.phones.map((p) => `${p.device} ${p.address}${p.via ? ' via internet' : ''}`).join(', ')})` : ''}`
       )
     }
     this.broadcast({ t: 'phones', phone: view })
   }
 
   private async phoneRequest(message: Request & { t: 'phone' }): Promise<unknown> {
-    const saved = (change: {
-      enabled: boolean
-      lan?: boolean
-      port?: number
-    }): NonNullable<ReturnType<typeof readConfig>['phone']> => {
+    const saved = (
+      change: NonNullable<ReturnType<typeof readConfig>['phone']>
+    ): NonNullable<ReturnType<typeof readConfig>['phone']> => {
       const config = readConfig()
       const phone = { ...config.phone, ...change }
       writeConfig({ ...config, phone })
@@ -1039,10 +1049,20 @@ export class Daemon {
         // server that was running keeps running).
         const previous = this.config.phone
         const wasRunning = this.phone.status().running
+        // Online is explicit every time: `on` without it goes back to local only.
         const change = {
           enabled: true,
           ...(message.lan !== undefined ? { lan: message.lan } : {}),
-          ...(message.port !== undefined ? { port: message.port } : {})
+          ...(message.port !== undefined ? { port: message.port } : {}),
+          online: message.online === true,
+          ...(message.online
+            ? { tunnel: message.named ? ('named' as const) : ('quick' as const) }
+            : {}),
+          ...(message.hostname !== undefined ? { tunnelHostname: message.hostname } : {}),
+          ...(message.tunnelPort !== undefined ? { tunnelPort: message.tunnelPort } : {}),
+          ...(message.expireHours !== undefined
+            ? { expireHours: message.expireHours ?? undefined }
+            : {})
         }
         let status: Awaited<ReturnType<PhoneAccess['start']>>
         try {
