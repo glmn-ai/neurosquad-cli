@@ -136,6 +136,8 @@ try {
     await sleep(1500)
     nsq('stop', name)
   }
+} catch (error) {
+  check('extra.mjs: crashed', false, String(error?.stack ?? error))
 } finally {
   stopDaemon(nsq, sandbox.env.NSQ_HOME)
   // The held answer may keep a connection open: do not wait for it.

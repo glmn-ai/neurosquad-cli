@@ -42,7 +42,8 @@ for (const suite of suites) {
         if (!names.includes(bare(check.name))) names.push(bare(check.name))
   const passed = (os) => {
     const checks = runs.get(os)?.parts.flatMap((p) => p.checks) ?? []
-    return checks.length ? `${checks.filter((c) => c.ok).length}/${checks.length}` : '—'
+    const counted = checks.filter((c) => !c.skipped)
+    return counted.length ? `${counted.filter((c) => c.ok).length}/${counted.length}` : '—'
   }
   lines.push(`## ${suite}`, '')
   lines.push(`| check | ${oses.join(' | ')} |`, `| --- | ${oses.map(() => ':---:').join(' | ')} |`)
@@ -67,7 +68,7 @@ for (const suite of suites) {
   if (versions.length) lines.push('<sub>', ...versions.map((v) => `${v}<br>`), '</sub>', '')
   for (const run of runs.values())
     for (const part of run.parts)
-      for (const check of part.checks) {
+      for (const check of part.checks.filter((c) => !c.skipped)) {
         total++
         if (!check.ok && check.known) knownFailed++
         else if (!check.ok) failed++
@@ -85,7 +86,7 @@ lines.splice(
 const failures = found.flatMap((r) =>
   r.parts.flatMap((p) =>
     p.checks
-      .filter((c) => !c.ok)
+      .filter((c) => !c.ok && !c.skipped)
       .map((c) => ({
         os: r.os,
         suite: r.suite,

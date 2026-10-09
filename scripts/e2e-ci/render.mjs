@@ -76,7 +76,7 @@ for (const dir of recordings) {
       console.error(`agg failed for ${label}`)
       failed++
     } else if (ffmpeg) {
-      spawnSync(
+      const video = spawnSync(
         'ffmpeg',
         [
           '-loglevel',
@@ -94,6 +94,10 @@ for (const dir of recordings) {
         ],
         { stdio: 'inherit' }
       )
+      if (video.status !== 0) {
+        console.error(`ffmpeg failed for ${label}`)
+        failed++
+      }
     }
   }
   if (!existsSync(termDump) || !existsSync(renderFrames)) {

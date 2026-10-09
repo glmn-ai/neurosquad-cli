@@ -260,6 +260,8 @@ try {
     'agents keep running after the dashboard quits',
     agents.every((agent) => agentNamed(agent.name)?.running === true)
   )
+} catch (error) {
+  check('tui-record.mjs: crashed', false, String(error?.stack ?? error))
 } finally {
   if (exitCode === null)
     try {
