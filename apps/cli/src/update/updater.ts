@@ -5,6 +5,7 @@
 import { spawn } from 'node:child_process'
 import {
   accessSync,
+  utimesSync,
   closeSync,
   constants,
   existsSync,
@@ -586,6 +587,17 @@ export class Updater {
     this.log(`installing ${target} (running ${this.options.version}): ${command.display}`)
     let exitCode: number | null = null
     let output = ''
+    // While this process waits on the installer it keeps the lock fresh: only a lock nobody has
+    // touched for longer than any install may take is treated as stale (see takeLock).
+    const heartbeat = setInterval(() => {
+      try {
+        const now = new Date()
+        utimesSync(this.lockFile, now, now)
+      } catch {
+        // gone
+      }
+    }, 30_000)
+    heartbeat.unref()
     try {
       const result = await this.runInstaller(command, options)
       exitCode = result.code
@@ -593,6 +605,7 @@ export class Updater {
     } catch (error) {
       output = error instanceof Error ? error.message : String(error)
     } finally {
+      clearInterval(heartbeat)
       this.releaseLock()
     }
     const after = readPackageVersion(this.info.stableDir)
@@ -638,8 +651,9 @@ export class Updater {
         } catch {
           age = 0
         }
-        // A live pid holds it — unless the lock is older than any install may take (the pid
-        // was reused by an unrelated process after a daemon was killed mid-install).
+        // A live pid holds it — unless nobody has refreshed the lock for longer than any install
+        // may take: its owner kept it fresh while waiting (a foreground install too), so the pid
+        // was reused by an unrelated process after a daemon was killed mid-install.
         if (Number.isFinite(pid) && pid > 0 && pidAlive(pid) && age < INSTALL_TIMEOUT_MS + 60_000) {
           return false
         }
@@ -698,8 +712,23 @@ export class Updater {
         }
         child.stdout.on('data', take)
         child.stderr.on('data', take)
-        child.once('error', reject)
-        child.once('close', (code) => resolve({ code, output }))
+        // The same limit as in the background: the lock's staleness rule relies on it.
+        const timer = setTimeout(() => {
+          take(
+            Buffer.from(
+              `\nnsq: the installer took over ${INSTALL_TIMEOUT_MS / 60_000} minutes; stopped\n`
+            )
+          )
+          child.kill()
+        }, INSTALL_TIMEOUT_MS)
+        child.once('error', (error) => {
+          clearTimeout(timer)
+          reject(error)
+        })
+        child.once('close', (code) => {
+          clearTimeout(timer)
+          resolve({ code, output })
+        })
       })
     }
     // Detached, output straight into the log file: it runs on if the daemon stops meanwhile, and

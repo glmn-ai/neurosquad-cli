@@ -1,5 +1,5 @@
 import { createServer, type IncomingHttpHeaders } from 'node:http'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -506,6 +506,33 @@ describe('Updater', () => {
     expect(await other.install()).toMatchObject({ reason: 'another nsq is installing it' })
     expect(await running).toMatchObject({ state: 'installed', installed: '0.2.0' })
     expect(() => readFileSync(lock)).toThrow()
+  }, 30_000)
+
+  it('a lock nobody refreshed for longer than an install may take is stale, even with a live pid', async () => {
+    const copy = installed('0.1.0')
+    const make = (): Updater =>
+      new Updater({
+        version: '0.1.0',
+        name: 'neurosquad',
+        packageDir: copy.packageDir,
+        home: copy.home,
+        config: () => ({}),
+        env: { NSQ_UPDATE_NPM: fakeNpm(copy.home + '-bin', 'ok') },
+        fetchImpl: registryAnswer('0.2.0')
+      })
+    mkdirSync(copy.home, { recursive: true })
+    const lock = join(copy.home, 'update.lock')
+    // A live pid (an unrelated process) in a fresh lock: someone is installing.
+    writeFileSync(lock, String(process.ppid))
+    const fresh = make()
+    await fresh.check()
+    expect(await fresh.install()).toMatchObject({ reason: 'another nsq is installing it' })
+    // The same lock untouched for 20 minutes: the pid was reused, the lock is taken over.
+    const old = new Date(Date.now() - 20 * 60 * 1000)
+    utimesSync(lock, old, old)
+    const stale = make()
+    await stale.check()
+    expect(await stale.install()).toMatchObject({ state: 'installed', installed: '0.2.0' })
   }, 30_000)
 
   it('a failed install says why and is not retried until the next check', async () => {
