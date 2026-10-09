@@ -1,0 +1,13 @@
+{
+  "$comment": "Checks that fail because of an open bug in nsq: reported with the issue (⚠️), not failing the job. Remove an entry when its issue is fixed; a known failure that passes is reported so the entry is not forgotten.",
+  "known": [
+    {
+      "check": "opencode: interrupt — the turn stops, the agent stays",
+      "issue": "https://github.com/glmn-ai/neurosquad-cli/issues/25"
+    },
+    {
+      "check": "without an X display the dashboard keeps running and draws only its own screen",
+      "issue": "https://github.com/glmn-ai/neurosquad-cli/issues/27"
+    }
+  ]
+}

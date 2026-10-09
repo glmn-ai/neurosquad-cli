@@ -26,11 +26,13 @@ const suites = [...new Set(found.map((r) => r.suite))].sort(
 )
 // "claude: hello turn working → finished" → "hello turn working → finished" (the suite says which).
 const bare = (name) => name.replace(/^(claude|codex|opencode): /, '')
-const mark = (check) => (!check ? '—' : check.skipped ? '⏭' : check.ok ? '✅' : '❌')
+const mark = (check) =>
+  !check ? '—' : check.skipped ? '⏭' : check.ok ? '✅' : check.known ? `[⚠️](${check.known})` : '❌'
 
 const lines = ['# nsq live e2e', '']
 let total = 0
 let failed = 0
+let knownFailed = 0
 for (const suite of suites) {
   const runs = new Map(found.filter((r) => r.suite === suite).map((r) => [r.os, r]))
   const names = []
@@ -67,15 +69,29 @@ for (const suite of suites) {
     for (const part of run.parts)
       for (const check of part.checks) {
         total++
-        if (!check.ok) failed++
+        if (!check.ok && check.known) knownFailed++
+        else if (!check.ok) failed++
       }
 }
-lines.splice(2, 0, `**${total - failed}/${total} checks passed** on ${oses.join(', ')}`, '')
+lines.splice(
+  2,
+  0,
+  `**${total - failed - knownFailed}/${total} checks passed** on ${oses.join(', ')}` +
+    (knownFailed ? ` · ${knownFailed} known failure(s) of open issues (⚠️)` : ''),
+  '',
+  '✅ pass · ❌ fail · ⚠️ fails, open issue (linked) · ⏭ skipped · — not run',
+  ''
+)
 const failures = found.flatMap((r) =>
   r.parts.flatMap((p) =>
     p.checks
       .filter((c) => !c.ok)
-      .map((c) => ({ os: r.os, suite: r.suite, name: c.name, detail: c.detail }))
+      .map((c) => ({
+        os: r.os,
+        suite: r.suite,
+        name: c.name + (c.known ? ` (known: ${c.known})` : ''),
+        detail: c.detail
+      }))
   )
 )
 if (failures.length) {

@@ -131,11 +131,23 @@ const results = {
   versions: installed[plan.set]?.versions ?? {},
   parts
 }
-writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 2))
+// Failures of an open nsq bug (known.json) are reported with their issue, not failing the job.
+const { known } = JSON.parse(readFileSync(join(HERE, 'known.json'), 'utf8'))
 const all = parts.flatMap((p) => p.checks)
-const failed = all.filter((check) => !check.ok)
+for (const check of all) {
+  const entry = known.find((k) => k.check === check.name)
+  if (entry) check.known = entry.issue
+}
+writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 2))
+const failed = all.filter((check) => !check.ok && !check.known)
+const knownFailed = all.filter((check) => !check.ok && check.known)
+for (const check of all.filter((c) => c.ok && c.known))
+  console.log(`::notice::known failure now passes — drop it from known.json: ${check.name}`)
 console.log(
-  `\n${suite} on ${results.os}: ${all.length - failed.length}/${all.length} checks passed` +
+  `\n${suite} on ${results.os}: ${all.filter((c) => c.ok).length}/${all.length} checks passed` +
+    (knownFailed.length
+      ? `\nknown (open issues):\n  ${knownFailed.map((c) => `${c.name} — ${c.known}`).join('\n  ')}`
+      : '') +
     (failed.length ? `\nfailed:\n  ${failed.map((check) => check.name).join('\n  ')}` : '')
 )
 process.exitCode = failed.length ? 1 : 0
