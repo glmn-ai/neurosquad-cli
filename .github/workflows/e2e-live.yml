@@ -86,9 +86,14 @@ jobs:
           npm ci --no-audit --no-fund
           npm run build
 
-      - name: Speech engine (espeak-ng) for dictation
+      # The dashboard is first checked with no display at all (SSH, servers), then recorded
+      # against a virtual X server, where its dictation hotkey has an X display to hook.
+      - name: Speech engine (espeak-ng) for dictation, a virtual X server for the recording
         if: matrix.suite == 'dashboard' && runner.os == 'Linux'
-        run: sudo apt-get install -y --no-install-recommends espeak-ng
+        run: |
+          sudo apt-get install -y --no-install-recommends espeak-ng xvfb
+          Xvfb :99 -screen 0 1280x800x24 +extension RECORD > /dev/null 2>&1 &
+          echo "E2E_DISPLAY=:99" >> "$GITHUB_ENV"
 
       - name: Cache the dictation test model
         if: matrix.suite == 'dashboard'
@@ -113,7 +118,7 @@ jobs:
         run: |
           node .e2e-ci/scripts/e2e-ci/live.mjs --suite "$SUITE" --os-label "$LABEL" \
             --root "$GITHUB_WORKSPACE" --clis "$RUNNER_TEMP/clis" --out "$RUNNER_TEMP/out" \
-            --models "$RUNNER_TEMP/models"
+            --models "$RUNNER_TEMP/models" ${E2E_DISPLAY:+--display "$E2E_DISPLAY"}
 
       - name: Upload results
         if: always()

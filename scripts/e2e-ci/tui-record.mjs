@@ -13,12 +13,14 @@
 // checks.json.
 //
 //   node scripts/e2e-ci/tui-record.mjs --root <repo under test> --bin <dir with the CLIs>
-//        --out <dir> [--cols 140 --rows 38] [--native-notify]
+//        --out <dir> [--cols 140 --rows 38] [--native-notify] [--headless-check] [--display :99]
 //        [--agents "claude:api-fix:[nsq:hello] …,codex:reviewer:[nsq:perm] …,opencode:docs:[nsq:hello] …"]
 //
 // --native-notify keeps desktop notifications on (a headless Linux has no
 // notification server, so the dashboard must still ring); without it they are
-// switched off, which must ring as well.
+// switched off, which must ring as well. --headless-check first runs the
+// dashboard with no X display (SSH, servers): it must keep running and keep
+// native noise off the screen; --display then records against a virtual X server.
 import { appendFileSync, copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { join, resolve } from 'node:path'
@@ -28,6 +30,7 @@ import {
   makeChecks,
   makeLog,
   makeNsq,
+  plain,
   rootFrom,
   sleep,
   stopDaemon,
@@ -68,6 +71,8 @@ const env = {
 }
 delete env.TERM_PROGRAM
 delete env.WT_SESSION
+// --display <X display>: record against a virtual X server (Linux CI), after the headless check.
+if (get('display')) env.DISPLAY = get('display')
 const { bin, nsq, waitStatus, agentNamed } = makeNsq(root, env, sandbox.project, log)
 const pty = createRequire(join(root, 'apps', 'cli', 'package.json'))('node-pty')
 
@@ -82,6 +87,49 @@ const agents = get(
     return { harness, name, prompt: rest.join(':') }
   })
 const asking = agents.find((agent) => /\[nsq:perm\]/.test(agent.prompt))
+
+// ---- headless: no X display, as over SSH or on a server ----------------------------------
+if (has('headless-check')) {
+  const headless = { ...env }
+  delete headless.DISPLAY
+  delete headless.WAYLAND_DISPLAY
+  let text = ''
+  let code = null
+  const probe = pty.spawn(process.execPath, [bin], {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    cwd: sandbox.project,
+    env: headless
+  })
+  probe.onData((data) => {
+    if (/\x1b\[0?c/.test(data)) probe.write('\x1b[?62;22c') // eslint-disable-line no-control-regex
+    text += data
+  })
+  probe.onExit(({ exitCode: exit }) => {
+    code = exit
+  })
+  await sleep(6000)
+  const alive = code === null
+  const stray = /XOpenDisplay|hook_thread_proc|Could not set thread priority/.exec(text)?.[0]
+  check(
+    'without an X display the dashboard keeps running and draws only its own screen',
+    alive && !stray,
+    {
+      exitedWith: code,
+      stray,
+      tail: plain(text).trim().slice(-240)
+    }
+  )
+  if (alive) {
+    probe.write('q')
+    for (let i = 0; i < 20 && code === null; i++) await sleep(250)
+    if (code === null)
+      try {
+        probe.kill()
+      } catch {}
+  }
+}
 
 // ---- recording ---------------------------------------------------------------------------
 const cast = join(out, 'dashboard.cast')
@@ -161,13 +209,20 @@ try {
     await waitStatus(agent.name, ['finished'], 90_000)
   await sleep(2500)
   shot('grid')
+  check(
+    'the grid shows every agent',
+    exitCode === null && agents.every((agent) => plain(output).includes(agent.name)),
+    { exitCode, missing: agents.filter((a) => !plain(output).includes(a.name)).map((a) => a.name) }
+  )
   // The fallback when no desktop notification can show: BEL + OSC 9 with the text.
   // eslint-disable-next-line no-control-regex -- terminal escapes
-  const ring = /\x07\x1b\]9;([^\x07]*)\x07/.exec(output)
+  const rings = [...output.matchAll(/\x07\x1b\]9;([^\x07]*)\x07/g)].map((m) => m[1])
   check(
     'needs you rings the terminal (BEL + OSC 9)',
-    Boolean(ring) && (!asking || ring[1].includes(asking.name)),
-    ring?.[1]
+    asking
+      ? rings.some((text) => text.includes(asking.name) && /needs you/.test(text))
+      : rings.length > 0,
+    rings
   )
 
   // The first agent full screen, then back to the grid.
@@ -197,6 +252,7 @@ try {
     shot('answered')
   }
 
+  check('the dashboard is still running before q', exitCode === null, { exitCode })
   press('q', 'q (quit; agents keep running)')
   for (let i = 0; i < 20 && exitCode === null; i++) await sleep(250)
   check('q quits the dashboard', exitCode === 0, { exitCode })

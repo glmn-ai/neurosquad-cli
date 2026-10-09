@@ -102,7 +102,8 @@ if (plan.harness) {
       bin,
       '--out',
       recordOut,
-      ...(process.platform === 'linux' ? ['--native-notify'] : [])
+      ...(process.platform === 'linux' ? ['--native-notify', '--headless-check'] : []),
+      ...(get('display') ? ['--display', get('display')] : [])
     ],
     recordOut
   )
