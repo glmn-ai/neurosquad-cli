@@ -215,13 +215,13 @@ describe('cloudflared download verification', () => {
     const name = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared'
     const bin = join(dir, 'tools')
     mkdirSync(bin)
-    writeFileSync(join(dir, name), 'planted')
+    writeFileSync(join(dir, name), 'planted', { mode: 0o755 })
     const cwd = process.cwd()
     process.chdir(dir)
     try {
       const sep = process.platform === 'win32' ? ';' : ':'
       expect(await cloudflaredOnPath({ PATH: `.${sep}tools`, Path: `.${sep}tools` })).toBeNull()
-      writeFileSync(join(bin, name), 'installed')
+      writeFileSync(join(bin, name), 'installed', { mode: 0o755 })
       expect(await cloudflaredOnPath({ PATH: `.${sep}${bin}`, Path: `.${sep}${bin}` })).toBe(
         join(bin, name)
       )
