@@ -115,7 +115,11 @@ The desktop's lightweight phone client (~2.1k LOC, React + HeroUI + i18next) alr
 MIT is an owner decision; adapting it to a standalone Vite build served by nsq: **~2 days**. Heavier
 than A (React + HeroUI in the CLI package) but i18n and polish for free.
 
-### C. Reach from outside the LAN (no server work)
+### C. Reach from outside the LAN (no server work) — implemented
+
+`nsq phone on --online` (docs/guide/phone.md, "Online"): a quick tunnel (or the person's named
+one), cloudflared from PATH or downloaded once with its sha256 verified, a separate loopback
+listener for the tunnel with a per-address lockout and HTTPS-only.
 
 Same as the desktop: `cloudflared` quick tunnel (binary downloaded with a pinned sha256, an empty
 `--config` to dodge `~/.cloudflared/config.yaml`), long-poll because quick tunnels drop SSE; or

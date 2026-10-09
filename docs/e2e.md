@@ -42,6 +42,8 @@ any ref. Per OS it runs `run.mjs` for Claude Code, Codex, OpenCode 1.x and 2.x p
 (interrupt, a question as "needs you"), records the dashboard in a real pty with three agents
 (`tui-record.mjs`: grid, full screen and back, BEL + OSC 9 ring, answering from the dashboard; on
 Linux first without any X display) and runs dictation from OS-synthesised speech through Whisper
-tiny.en (`dictation.mjs`). The run summary has a check × OS table; the `tui-recordings` artifact
+tiny.en (`dictation.mjs`), and checks online phone access (`online.mjs`: the real cloudflared for
+that OS downloaded and sha256-verified by nsq's downloader, then `nsq phone on --online` against a
+fake connector, `scripts/e2e/fake-cloudflared.mjs` — no real tunnel from CI). The run summary has a check × OS table; the `tui-recordings` artifact
 has a GIF, an MP4 and PNG screenshots per OS. Checks failing because of an open nsq issue are
 listed in `scripts/e2e-ci/known.json` and shown as ⚠️ with the issue instead of failing the job.
