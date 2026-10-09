@@ -36,6 +36,7 @@ screen agent that asked for the mouse, clicks go to it.
   open agent takes the whole area.
 - Logos: real images over kitty / iTerm2 / sixel where the terminal has them, two-cell glyph badges
   elsewhere, neutral badges with `NSQ_LOGOS=none` (or `"logos": "neutral"` in `config.json`).
+  Claude Code has no image: a neutral `CC` badge in every mode.
 
 ## Why not a TUI framework
 

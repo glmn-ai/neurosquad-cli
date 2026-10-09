@@ -5,7 +5,8 @@ Usage: python scripts/gen-logos.py <dir with source icons>
 
 The source icons are the official marks each project publishes (the same files the NeuroSquad
 desktop app shows). Adding a harness: drop `<id>.png` (square, >= 32 px) into the source dir, add
-the id to SOURCES below and an entry to HARNESS_LOGOS in src/logos.ts, re-run.
+the id to SOURCES below and an entry to HARNESS_LOGOS in src/logos.ts, re-run (only with the
+owner's permission to show the mark).
 Requires Pillow. The `command` icon is drawn here, it is our own neutral mark.
 """
 import base64, io, os, sys
@@ -13,8 +14,9 @@ from PIL import Image, ImageDraw
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PKG = os.path.dirname(HERE)
+# Claude Code is deliberately absent: at Anthropic's request no Claude Code logo is shipped; it
+# gets the neutral "CC" glyph badge from HARNESS_LOGOS in every mode.
 SOURCES = {
-    'claude-code': 'claude-code-icon.png',
     'codex': 'codex-cli-icon.png',
     'opencode': 'opencode-icon.png',
 }
