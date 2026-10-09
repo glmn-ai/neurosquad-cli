@@ -216,6 +216,25 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       seen.add(lines[0] ?? '')
       seen.add(lines[lines.length - 1] ?? '')
     }, 100)
+    // Waits for text on screen. A full repaint now and then (a resize) so that one stray line
+    // that scrolled the terminal under the dashboard's diffing renderer cannot hide it.
+    let cols = 140
+    const shows = async (text: string, ms: number): Promise<boolean> => {
+      const deadline = Date.now() + ms
+      let repaintAt = Date.now() + 3000
+      while (Date.now() < deadline) {
+        if (screen().includes(text)) return true
+        if (Date.now() > repaintAt) {
+          cols = cols === 140 ? 141 : 140
+          term.resize(cols, 30)
+          dashboard.resize(cols, 30)
+          repaintAt = Date.now() + 3000
+        }
+        await new Promise((resolveWait) => setTimeout(resolveWait, 200))
+      }
+      return screen().includes(text)
+    }
+    const debug = (): string => `${screen()}\n--- raw tail ---\n${JSON.stringify(raw.slice(-4000))}`
     const tail = (file: string): string => {
       try {
         return readFileSync(file, 'utf8').slice(-2500)
@@ -224,23 +243,18 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       }
     }
     try {
-      expect(await until(() => screen().includes('keep'), 20_000), screen()).toBe(true)
+      expect(await shows('keep', 20_000), debug()).toBe(true)
 
       // A new release, installed by hand while the dashboard is open: the header says so.
       registry.setLatest('0.1.2')
       const update = await nsq('update')
       expect(update.stdout).toMatch(/0\.1\.2 is installed/)
-      expect(
-        await until(() => screen().includes('updated to 0.1.2 · U restart'), 20_000),
-        screen()
-      ).toBe(true)
+      expect(await shows('updated to 0.1.2 · U restart', 20_000), debug()).toBe(true)
       // The dashboard is open: no restart on its own.
       expect(daemonState()?.pid).toBe(before?.pid)
 
       dashboard.write('U')
-      expect(await until(() => screen().includes('Restart nsq on 0.1.2?'), 10_000), screen()).toBe(
-        true
-      )
+      expect(await shows('Restart nsq on 0.1.2?', 10_000), debug()).toBe(true)
       expect(screen()).toMatch(/Commands start over: keep/)
       dashboard.write('y')
       expect(
