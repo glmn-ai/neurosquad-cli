@@ -18,6 +18,7 @@ import { trackPtyExit } from './ptyExits.js'
 import { ensureSpawnHelperExecutable } from './spawnHelper.js'
 import { isInheritedSessionEnvKey } from './inheritedEnv.js'
 import { submitsInput } from './input.js'
+import { KEY_PRESS_GAP_MS, sendPresses } from './presses.js'
 import { stripAnsi } from './plainText.js'
 
 type NodePty = typeof import('node-pty')
@@ -244,11 +245,23 @@ export class PtyHost {
     return true
   }
 
-  /** The harness's own interrupt keys (not always Ctrl+C — that quits some CLIs). */
-  interrupt(agentId: string, keys: string): void {
+  /**
+   * The harness's own interrupt keys (not always Ctrl+C — that quits some CLIs). A list is sent
+   * one press per write, `gapMs` apart (`interruptKeys`); a string is one write.
+   */
+  interrupt(
+    agentId: string,
+    keys: string | readonly string[],
+    gapMs: number = KEY_PRESS_GAP_MS
+  ): void {
     const live = this.live.get(agentId)
     if (!live) return
-    live.pty.write(keys)
+    sendPresses(
+      typeof keys === 'string' ? [keys] : keys,
+      (data) => live.pty.write(data),
+      () => this.live.get(agentId) === live,
+      gapMs
+    )
     emitPtyInterrupt(agentId)
   }
 
