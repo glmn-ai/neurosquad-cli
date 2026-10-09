@@ -1,7 +1,7 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBufferSource } from './buffer.js'
 import { createCommandSource, findExecutable, recorderCandidates } from './command.js'
 
@@ -147,14 +147,24 @@ describe('createCommandSource', () => {
 
 describe('createBufferSource', () => {
   it('plays back samples in chunks and goes quiet after the end', async () => {
-    const source = createBufferSource(Float32Array.from([1, 2, 3, 4, 5]), 8000, { chunkSamples: 2 })
-    const chunks: number[][] = []
-    await source.start(
-      (samples) => chunks.push(Array.from(samples)),
-      () => undefined
-    )
-    await new Promise((resolve) => setTimeout(resolve, 30))
-    await source.stop()
-    expect(chunks).toEqual([[1, 2], [3, 4], [5]])
+    // Each chunk is its own setTimeout (Windows timers tick at ~15 ms, so real
+    // waits were flaky): drive the timers by hand instead.
+    vi.useFakeTimers()
+    try {
+      const source = createBufferSource(Float32Array.from([1, 2, 3, 4, 5]), 8000, {
+        chunkSamples: 2
+      })
+      const chunks: number[][] = []
+      await source.start(
+        (samples) => chunks.push(Array.from(samples)),
+        () => undefined
+      )
+      await vi.runAllTimersAsync()
+      await vi.advanceTimersByTimeAsync(50)
+      await source.stop()
+      expect(chunks).toEqual([[1, 2], [3, 4], [5]])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
