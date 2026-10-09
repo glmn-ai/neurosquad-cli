@@ -27,8 +27,10 @@ npx neurosquad                 # or try it without installing
 
 More ways (Homebrew, Scoop, install scripts) and uninstalling:
 [docs/guide/getting-started.md](docs/guide/getting-started.md). nsq then keeps itself up to date:
-it installs a new release in the background the way you installed it and switches to it when no
-agent is busy ([updates](docs/guide/updates.md); `nsq config set autoUpdate false` turns it off).
+installed with npm, Homebrew or Scoop, it installs a new release in the background (other installs
+show the command to run) and switches to it when no agent is busy and no dashboard is open, or
+when you press **U** ([updates](docs/guide/updates.md); `nsq config set autoUpdate false` turns it
+off).
 
 ## Quick start
 

@@ -383,7 +383,7 @@ function installed(version: string): { home: string; packageDir: string; prefix:
 }
 
 /** A stand-in npm: `mode` ok rewrites the version, fail exits 1 with npm's EACCES output. */
-function fakeNpm(dir: string, mode: 'ok' | 'fail'): string {
+function fakeNpm(dir: string, mode: 'ok' | 'fail' | 'slow'): string {
   mkdirSync(dir, { recursive: true })
   const file = join(dir, `npm-${mode}.mjs`)
   writeFileSync(
@@ -393,6 +393,7 @@ function fakeNpm(dir: string, mode: 'ok' | 'fail'): string {
       : [
           "import { readFileSync, writeFileSync } from 'node:fs'",
           "import { join } from 'node:path'",
+          ...(mode === 'slow' ? ['await new Promise((r) => setTimeout(r, 1500))'] : []),
           'const args = process.argv.slice(2)',
           "const version = args.at(-1).split('@').at(-1)",
           "const prefix = args[args.indexOf('--prefix') + 1]",
@@ -464,6 +465,47 @@ describe('Updater', () => {
     expect(updateBadge(next.view())?.text).toBe('updated to 0.2.0 (was 0.1.0)')
     expect(updateBadge(next.view(), Date.now() + 120_000)).toBeNull()
     expect((await next.check()).state).toBe('current') // the cached answer: no new request
+  }, 30_000)
+
+  it('the lock names the detached installer (it may outlive the daemon)', async () => {
+    const copy = installed('0.1.0')
+    const updater = new Updater({
+      version: '0.1.0',
+      name: 'neurosquad',
+      packageDir: copy.packageDir,
+      home: copy.home,
+      config: () => ({}),
+      env: { NSQ_UPDATE_NPM: fakeNpm(copy.home + '-bin', 'slow') },
+      fetchImpl: registryAnswer('0.2.0')
+    })
+    await updater.check()
+    const running = updater.install()
+    const lock = join(copy.home, 'update.lock')
+    let holder = ''
+    for (let i = 0; i < 50 && (!holder || holder === String(process.pid)); i++) {
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      try {
+        holder = readFileSync(lock, 'utf8').trim()
+      } catch {
+        holder = ''
+      }
+    }
+    expect(holder).not.toBe(String(process.pid))
+    expect(Number(holder)).toBeGreaterThan(0)
+    // A second updater (the next daemon) does not start another install meanwhile.
+    const other = new Updater({
+      version: '0.1.0',
+      name: 'neurosquad',
+      packageDir: copy.packageDir,
+      home: copy.home,
+      config: () => ({}),
+      env: { NSQ_UPDATE_NPM: fakeNpm(copy.home + '-bin', 'fail') },
+      fetchImpl: registryAnswer('0.2.0')
+    })
+    await other.check()
+    expect(await other.install()).toMatchObject({ reason: 'another nsq is installing it' })
+    expect(await running).toMatchObject({ state: 'installed', installed: '0.2.0' })
+    expect(() => readFileSync(lock)).toThrow()
   }, 30_000)
 
   it('a failed install says why and is not retried until the next check', async () => {

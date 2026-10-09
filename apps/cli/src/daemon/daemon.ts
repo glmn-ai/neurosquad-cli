@@ -212,6 +212,10 @@ export class Daemon {
   /** Restart onto the installed update as soon as nothing is busy (asked for: U, nsq update). */
   private applyWhenIdle: 'forced' | 'safe' | null = null
   private restarting = false
+  /** considerRestart is running (setBlockers re-enters it through the updater's onChange). */
+  private considering = false
+  /** A restart onto this installed version failed: a blocker until U retries or a new version. */
+  private restartFailure: { version: string; reason: string } | null = null
   private updatePoll: ReturnType<typeof setInterval> | null = null
 
   constructor() {
@@ -1320,6 +1324,7 @@ export class Daemon {
       case 'apply': {
         if (!this.updater.view().installed) return { update: this.updater.view() }
         this.applyWhenIdle = 'forced'
+        this.restartFailure = null
         const waitingFor = this.restartBlockers('forced')
         if (waitingFor.length) {
           this.updater.setBlockers(waitingFor, true)
@@ -1366,18 +1371,24 @@ export class Daemon {
 
   /** Restarts onto an installed update when nothing stands in the way (see restartBlockers). */
   private considerRestart(): void {
-    if (this.restarting || this.stopping) return
-    const view = this.updater.view()
-    if (!view.installed || view.state === 'installing') return
-    const how = this.applyWhenIdle ?? (view.auto === 'off' ? null : 'auto')
-    if (!how) {
-      this.updater.setBlockers(['automatic updates are off'])
-      return
+    if (this.restarting || this.stopping || this.considering) return
+    this.considering = true
+    try {
+      const view = this.updater.view()
+      if (!view.installed || view.state === 'installing') return
+      const how = this.applyWhenIdle ?? (view.auto === 'off' ? null : 'auto')
+      if (!how) {
+        this.updater.setBlockers(['automatic updates are off'])
+        return
+      }
+      const blockers = this.restartBlockers(how)
+      if (this.restartFailure?.version === view.installed) blockers.push(this.restartFailure.reason)
+      this.updater.setBlockers(blockers, how === 'forced')
+      if (blockers.length) return
+      void this.restartForUpdate(view.installed)
+    } finally {
+      this.considering = false
     }
-    const blockers = this.restartBlockers(how)
-    this.updater.setBlockers(blockers, how === 'forced')
-    if (blockers.length) return
-    void this.restartForUpdate(view.installed)
   }
 
   /**
@@ -1389,7 +1400,11 @@ export class Daemon {
     if (this.restarting || this.stopping) return
     const successor = this.updater.successor()
     if (!successor) {
-      this.updater.setBlockers([`the new version was not found in ${this.updater.info.stableDir}`])
+      this.restartFailure = {
+        version,
+        reason: `the new version was not found in ${this.updater.info.stableDir}`
+      }
+      this.updater.setBlockers([this.restartFailure.reason])
       return
     }
     this.restarting = true
@@ -1411,7 +1426,8 @@ export class Daemon {
     } catch (error) {
       this.restarting = false
       this.log(`could not start the new daemon: ${String(error)}`)
-      this.updater.setBlockers([`could not start ${version}: ${String(error)}`])
+      this.restartFailure = { version, reason: `could not start ${version}: ${String(error)}` }
+      this.updater.setBlockers([this.restartFailure.reason])
       return
     }
     this.log(`restarting on ${version}; the agents resume on their sessions`)

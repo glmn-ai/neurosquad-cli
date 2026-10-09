@@ -254,6 +254,8 @@ export class Updater {
   private timer: ReturnType<typeof setInterval> | null = null
   private first: ReturnType<typeof setTimeout> | null = null
   private busy: Promise<UpdateView> | null = null
+  /** The detached installer's pid, written into the lock: it may outlive this process. */
+  private installerPid: number | undefined
 
   constructor(private readonly options: UpdaterOptions) {
     this.env = options.env ?? process.env
@@ -577,7 +579,7 @@ export class Updater {
       return this.view()
     }
     if (!this.takeLock()) {
-      this.set('installing', 'another nsq is installing it')
+      this.set('available', 'another nsq is installing it')
       return this.view()
     }
     this.set('installing')
@@ -639,11 +641,14 @@ export class Updater {
 
   private releaseLock(): void {
     try {
-      if (readFileSync(this.lockFile, 'utf8').trim() === String(process.pid)) {
+      const holder = readFileSync(this.lockFile, 'utf8').trim()
+      if (holder === String(process.pid) || holder === String(this.installerPid)) {
         rmSync(this.lockFile, { force: true })
       }
     } catch {
       // gone
+    } finally {
+      this.installerPid = undefined
     }
   }
 
@@ -712,6 +717,16 @@ export class Updater {
         return
       }
       closeSync(fd)
+      // The installer outlives a daemon that stops meanwhile: the lock names it, so the next
+      // daemon does not start a second install into the same folder while it runs.
+      if (child.pid) {
+        this.installerPid = child.pid
+        try {
+          writeFileSync(this.lockFile, String(child.pid), { mode: 0o600 })
+        } catch {
+          // best effort
+        }
+      }
       const timer = setTimeout(() => {
         this.log(`the installer took over ${INSTALL_TIMEOUT_MS / 60_000} minutes; stopping it`)
         try {
