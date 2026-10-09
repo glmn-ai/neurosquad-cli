@@ -18,6 +18,14 @@ npm's global `bin` folder is not on your `PATH`. `npm prefix -g` shows the prefi
 falls back to `~/.local` when npm's global folder is not writable — make sure `~/.local/bin` is on
 `PATH`.
 
+## An update failed or does not apply
+
+`nsq update --check` (or **U** in the dashboard) says why and what to run yourself; the installer's
+output is in `~/.neurosquad-cli/logs/update.log`. "Permission denied" means npm's global folder is
+not yours to write — nsq never uses `sudo`; run the shown command the way you installed nsq. An
+installed update waits for a quiet moment: no busy agent, no dashboard open; **U** restarts now.
+[Updates](updates.md) has the details.
+
 ## The terminal backend does not load (node-pty)
 
 nsq runs each agent in a pseudo-terminal through a prebuilt `node-pty`; nothing is compiled. If

@@ -15,8 +15,8 @@ import {
   truncate
 } from './format.js'
 import { attach, parseDetachKey } from './attach.js'
-import { readConfig } from './config.js'
-import { paths } from './paths.js'
+import { readConfig, writeConfig, type NsqConfig } from './config.js'
+import { ensureDir, paths } from './paths.js'
 import type { AgentView, RunSpec } from './protocol.js'
 import { VERSION } from './version.js'
 import { modelSwitchText, type ModelSwitchApplied } from './modelRules.js'
@@ -439,6 +439,10 @@ export async function cmdDoctor(): Promise<void> {
   out(
     `OpenRouter   ${(await openRouterKey()) ? 'key available' : 'no key (nsq openrouter set-key)'}`
   )
+  const { doctorUpdateLines } = await import('./update/command.js')
+  const [first, ...more] = await doctorUpdateLines()
+  out(`update       ${first ?? ''}`)
+  for (const line of more) out(`             ${line.trimStart()}`)
   const term =
     process.env['TERM_PROGRAM'] ??
     process.env['TERM'] ??
@@ -489,6 +493,81 @@ export async function cmdOpenRouter(args: ParsedArgs): Promise<void> {
     }
     default:
       throw new UsageError('nsq openrouter set-key|clear-key|models [query]|status')
+  }
+}
+
+const BOOLEAN = new Map<string, boolean>([
+  ['true', true],
+  ['on', true],
+  ['false', false],
+  ['off', false]
+])
+
+/** The settings `nsq config set` changes (the rest of config.json is written by its commands). */
+const CONFIG_KEYS: Record<string, { values: string; parse: (text: string) => unknown }> = {
+  autoUpdate: {
+    values: 'true | notify | false',
+    parse: (text) => (text === 'notify' ? 'notify' : BOOLEAN.get(text))
+  },
+  notifications: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
+  sound: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
+  logos: {
+    values: 'auto | images | glyphs | neutral',
+    parse: (text) => (['auto', 'images', 'glyphs', 'neutral'].includes(text) ? text : undefined)
+  },
+  color: {
+    values: 'auto | truecolor | 256 | 16',
+    parse: (text) => (['auto', 'truecolor', '256', '16'].includes(text) ? text : undefined)
+  },
+  layout: {
+    values: 'grid | focus',
+    parse: (text) => (['grid', 'focus'].includes(text) ? text : undefined)
+  },
+  detachKey: {
+    values: 'Ctrl+<key>',
+    parse: (text) => (/^ctrl\+.$/i.test(text) ? text : undefined)
+  }
+}
+
+/** `nsq config` · `get <key>` · `set <key> <value>` · `unset <key>` */
+export function cmdConfig(args: ParsedArgs): void {
+  const [verb = 'list', key, value] = args.positional
+  const config = readConfig() as Record<string, unknown>
+  const usage = `nsq config [get <key> | set <key> <value> | unset <key>]; keys: ${Object.keys(CONFIG_KEYS).join(', ')}`
+  if (verb === 'list' || verb === 'show') {
+    out(`# ${paths.config()}`)
+    out(JSON.stringify(config, null, 2))
+    return
+  }
+  if (!key) throw new UsageError(usage)
+  const spec = Object.hasOwn(CONFIG_KEYS, key) ? CONFIG_KEYS[key] : undefined
+  switch (verb) {
+    case 'get':
+      out(config[key] === undefined ? '(default)' : JSON.stringify(config[key]))
+      return
+    case 'set': {
+      if (!spec)
+        throw new UsageError(
+          `nsq config set: unknown key "${key}" (${Object.keys(CONFIG_KEYS).join(', ')})`
+        )
+      const parsed = value === undefined ? undefined : spec.parse(value)
+      if (parsed === undefined) throw new UsageError(`nsq config set ${key} <${spec.values}>`)
+      ensureDir(paths.home())
+      writeConfig({ ...config, [key]: parsed } as NsqConfig)
+      out(`${key} = ${JSON.stringify(parsed)}`)
+      return
+    }
+    case 'unset': {
+      if (!spec) throw new UsageError(`nsq config unset: unknown key "${key}"`)
+      const next = { ...config }
+      delete next[key]
+      ensureDir(paths.home())
+      writeConfig(next as NsqConfig)
+      out(`${key} back to its default`)
+      return
+    }
+    default:
+      throw new UsageError(usage)
   }
 }
 

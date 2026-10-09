@@ -43,7 +43,9 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq login | logout | whoami           the optional NeuroSquad account
   nsq dictation setup|status|test <wav> [--model id]
   nsq up | down                         start / stop the daemon (and its agents)
-  nsq doctor                            check harnesses, hooks, terminal
+  nsq update [--check]                  install the newest release now (or only check)
+  nsq config [get|set|unset <key> [value]]   settings (e.g. autoUpdate true|notify|false)
+  nsq doctor                            check harnesses, hooks, terminal, updates
 `
 
 async function main(argv: string[]): Promise<number> {
@@ -135,11 +137,29 @@ async function main(argv: string[]): Promise<number> {
     case 'doctor':
       await cmdDoctor()
       return 0
+    case 'update':
+    case 'upgrade': {
+      const { cmdUpdate } = await import('./update/command.js')
+      await cmdUpdate(args)
+      return 0
+    }
+    case 'config': {
+      const { cmdConfig } = await import('./commands.js')
+      cmdConfig(args)
+      return 0
+    }
     case 'version':
     case '--version':
-    case '-v':
+    case '-v': {
       process.stdout.write(`${VERSION}\n`)
+      // Scripts read stdout; a person at a terminal also hears about a newer release.
+      if (process.stderr.isTTY) {
+        const { versionNotice } = await import('./update/command.js')
+        const notice = versionNotice()
+        if (notice) process.stderr.write(`${notice}\n`)
+      }
       return 0
+    }
     case 'help':
     case '--help':
     case '-h':

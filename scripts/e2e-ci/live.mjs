@@ -72,6 +72,7 @@ if (plan.harness) {
     'perm',
     ...(hasPhone ? ['phone'] : []),
     'resume',
+    'update',
     'cost',
     'openrouter',
     'worktree'

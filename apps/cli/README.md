@@ -35,6 +35,8 @@ nsq                             # the dashboard
 | `nsq phone push ntfy [--url] [--token]` · `test` · `show` · `status` · `off`   | push "needs you" to the phone (ntfy)                                                                                                                                   |
 | `nsq login` · `logout` · `whoami`                                              | the optional NeuroSquad account                                                                                                                                        |
 | `nsq up` · `nsq down`                                                          | start / stop the daemon (agents resume on `up`)                                                                                                                        |
+| `nsq update [--check]`                                                         | install the newest release now (or only check); nsq also does it by itself                                                                                             |
+| `nsq config [get\|set\|unset <key> [value]]`                                   | settings, e.g. `nsq config set autoUpdate notify\|false`                                                                                                               |
 | `nsq doctor`                                                                   | check the harnesses, hooks, terminal                                                                                                                                   |
 
 ## How it knows
@@ -86,6 +88,19 @@ the OS keyring. Nothing in nsq needs it.
 ## Data
 
 Everything lives in `~/.neurosquad-cli` (`NSQ_HOME` to move it). No telemetry; the account is optional.
+
+## Updates
+
+nsq keeps itself up to date: every 6 hours the daemon asks the npm registry for the newest release
+(the package's public metadata only — nothing about you), installs it in the background the way
+nsq was installed (npm into the same prefix, Homebrew, Scoop; npx and other managers get the
+command to run), and restarts onto it once nothing would be lost — no agent working, needing you
+or with prompts queued, every running agent able to resume its session (a plain command waits), no
+dashboard, `nsq attach` or phone open, and no input to an agent in the last 5 minutes; agents
+resume on their sessions (**U** in the dashboard restarts sooner, still waiting for busy agents). The dashboard shows `update 0.1.0 → 0.2.0`, then `updated to 0.2.0 · U
+restart`. Off: `nsq config set autoUpdate false` or `NSQ_NO_UPDATE=1` (`notify` only shows it); never
+in CI or from a checkout. See
+[docs/guide/updates.md](https://github.com/glmn-ai/neurosquad-cli/blob/main/docs/guide/updates.md).
 
 MIT licensed. Harness names are trademarks of their owners, used only to describe which CLI an
 agent runs. Claude Code is shown as a `CC` monogram on Claude's orange, with no Claude Code logo, at

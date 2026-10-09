@@ -27,7 +27,12 @@ export const paths = {
   worktrees: (): string => join(nsqHome(), 'worktrees'),
   models: (): string => join(nsqHome(), 'models'),
   secretsFile: (): string => join(nsqHome(), 'secrets.json'),
-  cloud: (): string => join(nsqHome(), 'cloud.json')
+  cloud: (): string => join(nsqHome(), 'cloud.json'),
+  /** The update check's cache and the last install's outcome. */
+  update: (): string => join(nsqHome(), 'update.json'),
+  updateLock: (): string => join(nsqHome(), 'update.lock'),
+  logs: (): string => join(nsqHome(), 'logs'),
+  updateLog: (): string => join(nsqHome(), 'logs', 'update.log')
 }
 
 /** The daemon's IPC endpoint: a named pipe on Windows, a Unix socket elsewhere. */

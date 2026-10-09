@@ -5,6 +5,9 @@
 //   perm       a permission prompt: needs-input with the question text →
 //              answered inline (`nsq answer yes`) → finished, the command ran
 //   resume     the daemon restarts; the agent comes back on its session
+//   update     nsq installed like `npm i -g` finds a new release (stand-in registry), installs it
+//              (stand-in npm), restarts onto it by itself while the agent is idle, and the
+//              agent comes back on its session
 //   cost       `nsq cost` matches the usage the fake reported
 //   openrouter an agent on the OpenRouter recipe: every request to the
 //              (fake) OpenRouter carries the attribution headers, no
@@ -23,7 +26,15 @@
 //   node scripts/e2e/run.mjs --harness claude|codex|opencode|all
 //        [--work <scratch dir>] [--bin <dir with the CLIs>] [--only hello,perm]
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { startFakeModel, credentialFingerprint, PERM_DIR, STEP_USAGE } from './fake-model.mjs'
@@ -464,6 +475,107 @@ try {
         /NSQ_HELLO_DONE/.test(peek),
         peek.slice(-400)
       )
+    }
+
+    if (runs('update')) {
+      const name = `${short}-update`
+      nsq('run', short, '--name', name, '[nsq:hello] say hello')
+      await waitStatus(name, ['finished'], 90_000)
+      nsq('down')
+      // nsq as `npm i -g` would lay it out (0.1.0), a registry saying 0.1.1, an npm that "installs"
+      // it by rewriting the copy's version: the daemon must do the rest by itself.
+      const { makeInstalledCopy, startFakeRegistry } = await import('./update-fixture.mjs')
+      const registry = await startFakeRegistry({ latest: '0.1.1' })
+      const copyWork = join(WORK, `update-${short}`)
+      mkdirSync(copyWork, { recursive: true })
+      const copy = makeInstalledCopy({
+        root: ROOT,
+        work: copyWork,
+        version: '0.1.0',
+        registry: registry.base
+      })
+      const copyEnv = { ...sandbox.env, ...copy.env }
+      const nsqCopy = (...args) =>
+        spawnSync(process.execPath, [copy.bin, ...args], {
+          env: copyEnv,
+          cwd: sandbox.project,
+          encoding: 'utf8',
+          timeout: 120_000,
+          windowsHide: true
+        })
+      const stateFile = join(sandbox.env.NSQ_HOME, 'daemon.json')
+      const daemonState = () => {
+        try {
+          return JSON.parse(readFileSync(stateFile, 'utf8'))
+        } catch {
+          return null
+        }
+      }
+      try {
+        nsqCopy('up')
+        const before = daemonState()
+        check(
+          `${short}: nsq 0.1.0 (installed copy) runs the daemon`,
+          before?.version === '0.1.0',
+          before?.version
+        )
+        let after = null
+        const deadline = Date.now() + 120_000
+        while (Date.now() < deadline) {
+          const state = daemonState()
+          if (state && state.pid !== before?.pid && state.version === '0.1.1') {
+            after = state
+            break
+          }
+          // Asynchronous waits only: the stand-in registry answers from this process.
+          await sleep(500)
+        }
+        const calls = copy.readNpmCalls()
+        check(
+          `${short}: the update was installed in the background (npm -g, same prefix)`,
+          calls.length === 1 &&
+            calls[0].includes('neurosquad@0.1.1') &&
+            calls[0].includes(realpathSync(copy.prefix)),
+          calls
+        )
+        check(`${short}: the daemon restarted onto 0.1.1 by itself (agent idle)`, after !== null, {
+          version: daemonState()?.version
+        })
+        const back = await waitStatus(name, ['idle', 'working', 'finished'], 60_000)
+        let peek = ''
+        for (let i = 0; i < 25 && !/NSQ_HELLO_DONE/.test(peek); i++) {
+          await sleep(1000)
+          peek = nsq('peek', name, '-n', '80').stdout
+        }
+        check(
+          `${short}: the agent is back after the update`,
+          back.agent?.running === true,
+          back.seen
+        )
+        check(
+          `${short}: the agent resumed its session after the update`,
+          /NSQ_HELLO_DONE/.test(peek),
+          peek.slice(-400)
+        )
+        check(
+          `${short}: the update check sent no credentials or ids`,
+          registry.requests.length > 0 &&
+            registry.requests.every(
+              (r) => !r.headers.authorization && !r.headers.cookie && !r.headers['npm-session']
+            ),
+          registry.requests.map((r) => r.url)
+        )
+      } finally {
+        nsqCopy('down')
+        await registry.close()
+        // The dependency link first: never follow it into the repository's node_modules.
+        try {
+          unlinkSync(join(copy.packageDir, 'node_modules'))
+        } catch {
+          // gone
+        }
+        rmSync(copyWork, { recursive: true, force: true })
+      }
     }
 
     if (runs('cost')) {

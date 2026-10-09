@@ -1,7 +1,9 @@
 # Configuration
 
 nsq works without any configuration. Settings live in **`~/.neurosquad-cli/config.json`**; every
-field is optional, and a missing or malformed file means the defaults. The dashboard reads it when
+field is optional, and a missing or malformed file means the defaults. `nsq config` prints it;
+`nsq config set <key> <value>` / `unset <key>` change `autoUpdate`, `notifications`, `sound`,
+`logos`, `color`, `layout` and `detachKey`. The dashboard reads it when
 it opens; the daemon (notifications, sound, phone) when it starts — after changing those,
 `nsq down` and `nsq up` (the agents resume).
 
@@ -24,6 +26,7 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `detachKey`     | `"Ctrl+]"`                         | the key that leaves a full-screen agent: `Ctrl+` and a letter or one of `@ [ \ ] ^ _`; anything else falls back to Ctrl+]                  |
 | `dictation`     | on, `CommandOrControl+Shift+Space` | `enabled`, `hotkey`, `mode` (default: a tap toggles, a hold records; or `toggle` / `hold`), `model` ([dictation](dictation.md))            |
 | `phone`         | off                                | written by `nsq phone on` / `nsq phone off` ([phone](phone.md))                                                                            |
+| `autoUpdate`    | `true`                             | `true`: check and install new releases by itself; `"notify"`: only show them; `false`: never check ([updates](updates.md))                 |
 
 ## Environment variables
 
@@ -41,9 +44,11 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN` | the ntfy push topic URL and token when there is no OS keyring ([phone](phone.md))                   |
 | `NSQ_OPENROUTER_BASE_URL`        | another OpenRouter-compatible API base (`…/api/v1`)                                                 |
 | `NSQ_NO_BROWSER=1`               | `nsq login` prints the link instead of opening a browser                                            |
+| `NSQ_NO_UPDATE=1`                | no update checks or installs ([updates](updates.md)); also off when `CI` is set                     |
+| `NSQ_UPDATE_REGISTRY`            | another npm registry for the update check (`https://…`)                                             |
 
 Variables that affect the daemon (`OPENROUTER_API_KEY`, `NSQ_OPENROUTER_BASE_URL`, `NSQ_NO_NOTIFY`,
-`NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN`, `NSQ_HOME`) must be set
+`NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN`, `NSQ_NO_UPDATE`, `NSQ_HOME`) must be set
 where the daemon starts — the first `nsq` command that needs it — or restart it with `nsq down` /
 `nsq up`.
 
@@ -60,10 +65,13 @@ where the daemon starts — the first `nsq` command that needs it — or restart
 | `daemon.log`                     | the daemon's log (no secrets)                                    |
 | `phone-token`                    | the phone pairing token (owner-only)                             |
 | `cloud.json`                     | account state when signed in (no tokens)                         |
+| `update.json`                    | the last update check and install ([updates](updates.md))        |
+| `logs/update.log`                | the installer's output                                           |
 | `nsq.sock`                       | the daemon socket on macOS/Linux when `XDG_RUNTIME_DIR` is unset |
 
 Secrets (the OpenRouter key, the ntfy push topic and token, the optional account session) are kept
 in the OS keyring, not in
 these files. The CLIs keep their own data (sessions, transcripts, logins) where they always do.
 
-**Privacy:** nsq has no telemetry. No account is needed.
+**Privacy:** nsq has no telemetry. No account is needed. The update check sends nothing about you
+([updates](updates.md)).
