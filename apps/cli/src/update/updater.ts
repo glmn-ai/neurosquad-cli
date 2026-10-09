@@ -632,7 +632,17 @@ export class Updater {
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
         const pid = Number.parseInt(readFileSync(this.lockFile, 'utf8'), 10)
-        if (Number.isFinite(pid) && pid > 0 && pidAlive(pid)) return false
+        let age = 0
+        try {
+          age = Date.now() - statSync(this.lockFile).mtimeMs
+        } catch {
+          age = 0
+        }
+        // A live pid holds it — unless the lock is older than any install may take (the pid
+        // was reused by an unrelated process after a daemon was killed mid-install).
+        if (Number.isFinite(pid) && pid > 0 && pidAlive(pid) && age < INSTALL_TIMEOUT_MS + 60_000) {
+          return false
+        }
         rmSync(this.lockFile, { force: true })
       }
     }

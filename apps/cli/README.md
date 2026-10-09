@@ -94,8 +94,10 @@ Everything lives in `~/.neurosquad-cli` (`NSQ_HOME` to move it). No telemetry; t
 nsq keeps itself up to date: every 6 hours the daemon asks the npm registry for the newest release
 (the package's public metadata only — nothing about you), installs it in the background the way
 nsq was installed (npm into the same prefix, Homebrew, Scoop; npx and other managers get the
-command to run), and restarts onto it when no agent is busy and no dashboard is open — agents
-resume on their sessions. The dashboard shows `update 0.1.0 → 0.2.0`, then `updated to 0.2.0 · U
+command to run), and restarts onto it once nothing would be lost — no agent working, needing you
+or with prompts queued, every running agent able to resume its session (a plain command waits), no
+dashboard, `nsq attach` or phone open, and no input to an agent in the last 5 minutes; agents
+resume on their sessions (**U** in the dashboard restarts sooner, still waiting for busy agents). The dashboard shows `update 0.1.0 → 0.2.0`, then `updated to 0.2.0 · U
 restart`. Off: `nsq config set autoUpdate false` or `NSQ_NO_UPDATE=1` (`notify` only shows it); never
 in CI or from a checkout. See
 [docs/guide/updates.md](https://github.com/glmn-ai/neurosquad-cli/blob/main/docs/guide/updates.md).
