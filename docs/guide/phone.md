@@ -53,9 +53,7 @@ the command line (process list, shell history): `--url` and `--token` take no va
 them without echoing what you type, or reads them from stdin, one per line, in that order:
 
 ```sh
-printf '%s
-%s
-' "$NTFY_TOPIC_URL" "$NTFY_TOKEN" | nsq phone push ntfy --url --token
+printf '%s\n%s\n' "$NTFY_TOPIC_URL" "$NTFY_TOKEN" | nsq phone push ntfy --url --token
 ```
 
 The URL and the optional access token are kept in the OS keyring, not in `config.json` or the log
