@@ -80,7 +80,8 @@ export function checkModelChoice(
       )
     return
   }
-  if (!modelNeedsOpenRouter(harness, model)) return
+  // Only on the CLI's own login: another provider has its own id format.
+  if (provider !== undefined || !modelNeedsOpenRouter(harness, model)) return
   throw new Error(
     clearingProvider
       ? `${model} is an OpenRouter model id — to go back to the harness's own login, clear the model too (--model none)`

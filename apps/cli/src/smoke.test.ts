@@ -1,7 +1,7 @@
 // The daemon end to end, with a plain command as the agent: start on demand,
 // run, status from the terminal, peek, send, stop, resume after a daemon
 // restart, shut down. Needs the built CLI (`npm run build`) and node-pty.
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -115,6 +115,24 @@ describe.skipIf(!built)('daemon smoke', () => {
     expect(await until(() => list().some((a) => a.name === 'echo' && a.status === 'exited'))).toBe(
       true
     )
+
+    // A stop during a restart's pause wins: the restart does not start the agent again.
+    expect(nsq('start', 'echo').status).toBe(0)
+    expect(await until(() => list().some((a) => a.name === 'echo' && a.running))).toBe(true)
+    const restarting = new Promise<number | null>((resolveRestart) => {
+      const child = spawn(process.execPath, [BIN, 'restart', 'echo'], {
+        cwd: work,
+        windowsHide: true,
+        env: { ...process.env, NSQ_HOME: home, NSQ_NO_NOTIFY: '1' }
+      })
+      child.on('exit', (code) => resolveRestart(code))
+    })
+    expect(await until(() => list().some((a) => a.name === 'echo' && !a.running), 5_000)).toBe(true)
+    expect(nsq('stop', 'echo').status).toBe(0)
+    expect(await restarting).toBe(0)
+    await new Promise((resolveWait) => setTimeout(resolveWait, 1500))
+    expect(list().find((a) => a.name === 'echo')?.running).toBe(false)
+
     expect(nsq('rm', 'echo').status).toBe(0)
     expect(list()).toEqual([])
   }, 120_000)

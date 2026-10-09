@@ -539,7 +539,8 @@ export class Daemon {
     // A model only OpenRouter knows on an agent still on its own login (nsq 0.1.1's model
     // picker left agents like that): the harness would answer "model not found".
     let launchModel = record.model
-    if (record.provider !== 'openrouter' && modelNeedsOpenRouter(record.harness, record.model)) {
+    // Only with no provider at all: another provider (a custom one) has its own id format.
+    if (record.provider === undefined && modelNeedsOpenRouter(record.harness, record.model)) {
       const model = record.model!
       if (await openRouterKey()) {
         record = this.store.update(record.id, { provider: 'openrouter' }) ?? record
@@ -564,7 +565,7 @@ export class Daemon {
       record.sessionStarted === true &&
       record.harness !== 'command' &&
       (record.harness === 'claude-code' || record.harnessSessionId !== undefined)
-    if (resumed && record.provider !== 'openrouter' && !launchModel) {
+    if (resumed && record.provider === undefined && !launchModel) {
       // Back from OpenRouter on the same session: the CLI would resume on the session's slug.
       const own = ownModelOnResume(record.harness, record.harnessSessionId ?? record.id)
       if (own.model) launchModel = own.model
@@ -693,9 +694,13 @@ export class Daemon {
 
   /** Stop, a beat, start again — on the same session where the harness has one. */
   private async restartAgent(id: string): Promise<string[]> {
+    this.store.update(id, { wantRunning: true })
     await this.stopAgent(id, true)
     await sleep(800)
-    return this.startAgent(this.store.get(id)!)
+    // Stopped (or removed) during the pause: that stop wins, nothing starts.
+    const record = this.store.get(id)
+    if (!record?.wantRunning) return []
+    return this.startAgent(record)
   }
 
   /** Model switches in flight, per agent: a second request joins the first instead of racing it. */
@@ -754,6 +759,7 @@ export class Daemon {
         `${record.name}: model ${record.model ?? 'default'}${record.provider === 'openrouter' ? ' on OpenRouter' : ''}: restarting on the same session`
       )
       warnings.splice(0, warnings.length, ...(await this.restartAgent(id)))
+      if (!this.ptys.isRunning(id)) return { applied: 'next-start' }
       const now = this.store.get(id)
       if (!now || `${now.provider ?? ''} ${now.model ?? ''}` === launched) break
     }
