@@ -17,7 +17,7 @@ import {
   writeFileSync,
   writeSync
 } from 'node:fs'
-import { execFile, spawn } from 'node:child_process'
+import { execFile, spawn, spawnSync } from 'node:child_process'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -1404,6 +1404,31 @@ export class Daemon {
         version,
         reason: `the new version was not found in ${this.updater.info.stableDir}`
       }
+      this.updater.setBlockers([this.restartFailure.reason])
+      return
+    }
+    // Never trade a working daemon for one that does not start: the new version must at least
+    // run and say it is the version that was installed. Otherwise this daemon and every agent
+    // keep running on the old one.
+    const probe = spawnSync(successor.node, [successor.script, '--version'], {
+      cwd: paths.home(),
+      encoding: 'utf8',
+      timeout: 15_000,
+      windowsHide: true,
+      env: { ...process.env, NSQ_DAEMON: undefined, NSQ_SUCCESSOR_OF: undefined }
+    })
+    const said = (probe.stdout ?? '').trim().split(/\r?\n/)[0]
+    if (probe.status !== 0 || said !== version) {
+      const why =
+        probe.error?.message ??
+        (probe.status !== 0
+          ? (probe.stderr ?? '').trim().split(/\r?\n/).at(-1) || `exit code ${probe.status}`
+          : `it reports ${said || 'no version'}`)
+      this.restartFailure = {
+        version,
+        reason: `installed ${version} but it does not start (${why.slice(0, 160)}); run nsq update or reinstall`
+      }
+      this.log(this.restartFailure.reason)
       this.updater.setBlockers([this.restartFailure.reason])
       return
     }

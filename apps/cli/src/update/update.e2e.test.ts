@@ -17,6 +17,7 @@ const built = existsSync(join(ROOT, 'apps', 'cli', 'dist', 'bin.js'))
 interface Fixture {
   bin: string
   packageDir: string
+  breakNextRelease(): void
   prefix: string
   env: Record<string, string>
   readNpmCalls(): string[][]
@@ -75,9 +76,14 @@ const updateCache = (): { installed?: { version: string }; applied?: { version: 
     return {}
   }
 }
-async function until(check: () => boolean, ms = 45_000): Promise<boolean> {
+async function until(
+  check: () => boolean,
+  ms = 45_000,
+  refresh?: () => Promise<void>
+): Promise<boolean> {
   const deadline = Date.now() + ms
   while (Date.now() < deadline) {
+    await refresh?.()
     if (check()) return true
     await new Promise((resolveWait) => setTimeout(resolveWait, 300))
   }
@@ -299,4 +305,29 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       term.dispose()
     }
   }, 180_000)
+
+  it('an installed release that does not start never replaces the running daemon', async () => {
+    const before = daemonState()
+    expect(before?.version).toBe('0.1.2')
+    fixture.breakNextRelease()
+    registry.setLatest('0.1.3')
+    expect((await nsq('update')).stdout).toMatch(/0\.1\.3 is installed/)
+    // Nothing in the way of a restart but the broken build itself.
+    await nsq('stop', 'keep')
+    let check = ''
+    expect(
+      await until(
+        () => /does not start/.test(check),
+        30_000,
+        async () => {
+          check = (await nsq('update', '--check')).stdout
+        }
+      )
+    ).toBe(true)
+    expect(check).toMatch(/installed 0\.1\.3 but it does not start \(broken build\)/)
+    await new Promise((resolveWait) => setTimeout(resolveWait, 2000))
+    expect(daemonState()?.pid).toBe(before?.pid)
+    expect(daemonState()?.version).toBe('0.1.2')
+    expect(pidAlive(before!.pid)).toBe(true)
+  }, 120_000)
 })

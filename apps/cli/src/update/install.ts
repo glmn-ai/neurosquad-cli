@@ -259,6 +259,8 @@ export function installCommand(
         args: ['upgrade', HOMEBREW_FORMULA],
         // Keep the old version's files until the next cleanup: the running daemon still uses them.
         env: {
+          // Only nsq (and what it needs): no cascade into the user's other formulae.
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: '1',
           HOMEBREW_NO_INSTALL_CLEANUP: '1',
           HOMEBREW_NO_ENV_HINTS: '1',
           HOMEBREW_NO_EMOJI: '1'

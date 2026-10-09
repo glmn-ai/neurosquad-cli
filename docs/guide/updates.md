@@ -24,7 +24,7 @@ you nothing — never in the middle of an agent's turn.
 
    nsq never uses `sudo` or asks for administrator rights: when the npm folder is not writable
    (e.g. a system Node.js in `/usr`), it shows the update and the command to run yourself.
-   Homebrew and Scoop get a release a little after npm (Homebrew a day later); until then the
+   With Homebrew only nsq is upgraded (`HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK`, so none of your other formulae), but Homebrew may upgrade `node` along with it when nsq's formula needs a newer one. Homebrew and Scoop get a release a little after npm (Homebrew a day later); until then the
    dashboard says the release is "not in Homebrew yet" and nsq tries again later. A release that
    needs a newer Node.js than yours is shown, not installed. Afterwards nsq reads the installed
    version back to make sure it worked.
@@ -33,7 +33,7 @@ you nothing — never in the middle of an agent's turn.
    itself only when nothing is lost: no agent is working, needs you, is starting or has prompts
    queued; every running agent can resume its session (a plain `nsq run -- <command>` would start
    over, so it waits); no dashboard, `nsq attach` or phone is open; and nobody typed into an agent
-   in the last 5 minutes. The restart is the same as `nsq down` + `nsq up`: agents come back on
+   in the last 5 minutes. Before it switches, it runs the new version once (`--version`): if that fails, the old daemon and every agent keep running and the dashboard says why. The restart is the same as `nsq down` + `nsq up`: agents come back on
    their sessions. Until then the dashboard shows **updated to x.y.z · U restart**.
 
 ## In the dashboard

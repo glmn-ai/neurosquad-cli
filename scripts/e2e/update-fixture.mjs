@@ -41,7 +41,7 @@ export function makeInstalledCopy({ root, work, version, registry }) {
   writeFileSync(
     fakeNpm,
     [
-      "import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'",
+      "import { appendFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs'",
       "import { join } from 'node:path'",
       'const args = process.argv.slice(2)',
       `appendFileSync(${JSON.stringify(npmLog)}, JSON.stringify(args) + '\\n')`,
@@ -57,6 +57,12 @@ export function makeInstalledCopy({ root, work, version, registry }) {
       "const pkg = JSON.parse(readFileSync(file, 'utf8'))",
       'pkg.version = version',
       "writeFileSync(file, JSON.stringify(pkg, null, 2) + '\\n')",
+      // A marker file makes this release one that does not start (its --version fails).
+      `if (existsSync(${JSON.stringify(join(work, 'fake-npm-broken'))})) {`,
+      "  const dist = join(file, '..', 'dist')",
+      "  renameSync(join(dist, 'bin.js'), join(dist, 'bin.real.js'))",
+      "  writeFileSync(join(dist, 'bin.js'), \"if (process.argv.includes('--version')) { console.error('broken build'); process.exit(3) }\\nawait import('./bin.real.js')\\n\")",
+      '}',
       "console.log('changed 1 package')",
       ''
     ].join('\n')
@@ -66,6 +72,8 @@ export function makeInstalledCopy({ root, work, version, registry }) {
     packageDir,
     bin: join(packageDir, 'bin', 'nsq.js'),
     npmLog,
+    /** The next release "installed" does not start. */
+    breakNextRelease: () => writeFileSync(join(work, 'fake-npm-broken'), ''),
     readNpmCalls: () => {
       try {
         return readFileSync(npmLog, 'utf8')

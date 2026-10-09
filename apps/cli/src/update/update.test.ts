@@ -211,6 +211,7 @@ describe('install method', () => {
       args: ['upgrade', 'glmn-ai/neurosquad/neurosquad-cli']
     })
     expect(command?.env?.['HOMEBREW_NO_INSTALL_CLEANUP']).toBe('1')
+    expect(command?.env?.['HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK']).toBe('1')
     const linux = detectInstall(
       '/home/linuxbrew/.linuxbrew/Cellar/neurosquad-cli/0.1.0/libexec/lib/node_modules/neurosquad',
       'neurosquad',
