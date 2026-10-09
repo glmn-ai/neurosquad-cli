@@ -133,12 +133,12 @@ describe('daemon helpers', () => {
 
 describe('attach detach key', () => {
   it('found as a control byte, kitty CSI u or modifyOtherKeys', () => {
-    expect(findDetachKey('abcd', '')).toEqual({ at: 2, length: 1 })
-    expect(findDetachKey('x[93;5u', '')).toEqual({ at: 1, length: 7 })
-    expect(findDetachKey('[93;5:1u[93;5:3u', '')?.at).toBe(0)
-    expect(findDetachKey('[27;5;93~', '')).toEqual({ at: 0, length: 10 })
-    expect(findDetachKey('[97;5u', '')).toEqual({ at: 0, length: 7 })
-    expect(findDetachKey('plain text', '')).toBeNull()
+    expect(findDetachKey('ab\x1dcd', '\x1d')).toEqual({ at: 2, length: 1 })
+    expect(findDetachKey('x\x1b[93;5u', '\x1d')).toEqual({ at: 1, length: 7 })
+    expect(findDetachKey('\x1b[93;5:1u\x1b[93;5:3u', '\x1d')?.at).toBe(0)
+    expect(findDetachKey('\x1b[27;5;93~', '\x1d')).toEqual({ at: 0, length: 10 })
+    expect(findDetachKey('\x1b[97;5u', '\x01')).toEqual({ at: 0, length: 7 })
+    expect(findDetachKey('plain text', '\x1d')).toBeNull()
   })
 })
 

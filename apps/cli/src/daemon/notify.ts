@@ -4,16 +4,21 @@
 import { createNotifier as createNativeNotifier, type NotificationKind } from '@neurosquad/notify'
 
 export interface Notifier {
-  /** Whether a native notification can be shown here (else the dashboard rings its terminal). */
-  native(): Promise<boolean>
-  show(agentId: string, title: string, body: string, kind: NotificationKind, sound: boolean): void
+  /** Shows it; resolves where it went (`os` = a desktop notification was delivered). */
+  show(
+    agentId: string,
+    title: string,
+    body: string,
+    kind: NotificationKind,
+    sound: boolean
+  ): Promise<'os' | 'terminal' | 'none'>
   close(agentId: string): void
   dispose(): Promise<void>
 }
 
 export function createNotifier(enabled: boolean, muted = false): Notifier {
   if (!enabled || process.env['NSQ_NO_NOTIFY'] === '1') {
-    return { native: async () => false, show() {}, close() {}, dispose: async () => {} }
+    return { show: async () => 'none', close() {}, dispose: async () => {} }
   }
   const native = createNativeNotifier({
     appName: 'nsq (NeuroSquad)',
@@ -23,9 +28,13 @@ export function createNotifier(enabled: boolean, muted = false): Notifier {
     terminal: { mode: 'never' }
   })
   return {
-    native: async () => (await native.status()).backend !== null,
-    show: (agentId, title, body, kind, sound) =>
-      void native.show({ id: agentId, title, body, kind, sound }),
+    show: async (agentId, title, body, kind, sound) => {
+      try {
+        return (await native.show({ id: agentId, title, body, kind, sound })).via
+      } catch {
+        return 'none'
+      }
+    },
     close: (agentId) => void native.withdraw(agentId),
     dispose: () => native.dispose()
   }

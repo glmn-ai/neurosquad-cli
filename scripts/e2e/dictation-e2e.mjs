@@ -20,6 +20,8 @@ const arg = (name, fallback) => {
 const work = resolve(join(ROOT, '..', '.nsq-e2e', `dictation-${Date.now()}`))
 const modelsDir = resolve(arg('models', join(ROOT, '.cache', 'models')))
 mkdirSync(work, { recursive: true })
+// Whatever fails (also before the daemon starts), the scratch folder goes.
+process.on('exit', () => rmSync(work, { recursive: true, force: true }))
 mkdirSync(modelsDir, { recursive: true })
 process.env.NSQ_HOME = join(work, 'nsq')
 process.env.NSQ_NO_NOTIFY = '1'
@@ -94,6 +96,7 @@ if (process.platform === 'win32') {
   })
 } else {
   const response = await fetch(`${REPO}/test_wavs/0.wav`)
+  if (!response.ok) throw new Error(`sample wav download failed: HTTP ${response.status}`)
   const bytes = Buffer.from(await response.arrayBuffer())
   if (
     createHash('sha256').update(bytes).digest('hex') !==

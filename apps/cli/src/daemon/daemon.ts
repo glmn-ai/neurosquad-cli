@@ -4,7 +4,16 @@
 // clients (the dashboard, `nsq attach`, `nsq ls`…) over a local socket.
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { chmodSync, existsSync, rmSync, statSync } from 'node:fs'
+import {
+  chmodSync,
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeSync
+} from 'node:fs'
 import { execFile } from 'node:child_process'
 import { basename, join } from 'node:path'
 import { promisify } from 'node:util'
@@ -135,6 +144,7 @@ export class Daemon {
   private hooks: HookServer | null = null
   private readonly token = randomBytes(24).toString('hex')
   private stopping = false
+  private locked = false
   private costTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor() {
@@ -143,6 +153,10 @@ export class Daemon {
 
   async start(): Promise<DaemonState> {
     ensureDir(paths.home())
+    // One daemon per nsq home, decided before anything else is touched (hook server, socket,
+    // agents): two commands that autostart a daemon at the same moment must not both win.
+    await acquireDaemonLock(lockPath(), ipcPath())
+    this.locked = true
     this.hooks = await startHookServer({
       knows: (id) => this.store.get(id) !== undefined,
       arrive: (id) => statusLife(id),
@@ -339,22 +353,18 @@ export class Daemon {
     if (decision?.action === 'close') this.notifier.close(event.agentId)
     if (decision?.action === 'show') {
       const text = notificationText(record.name, decision.kind, decision.detail)
-      this.notifier.show(
-        event.agentId,
-        text.title,
-        text.body,
-        decision.kind,
-        this.config.sound !== false
-      )
-      void this.notifier.native().then((native) =>
-        this.broadcast({
-          t: 'notify',
-          id: event.agentId,
-          kind: decision.kind,
-          ...text,
-          ring: !native
-        })
-      )
+      // The dashboard rings its terminal unless a desktop notification was actually shown.
+      void this.notifier
+        .show(event.agentId, text.title, text.body, decision.kind, this.config.sound !== false)
+        .then((via) =>
+          this.broadcast({
+            t: 'notify',
+            id: event.agentId,
+            kind: decision.kind,
+            ...text,
+            ring: via !== 'os'
+          })
+        )
     }
     if (event.kind === 'finished') {
       this.scheduleCost(1500)
@@ -855,9 +865,11 @@ export class Daemon {
         this.store.update(record.id, patch)
         this.pushAgent(record.id)
         // Claude Code's dangerous mode is live; a model or provider applies on the next start.
+        // (`patch.dangerousMode` is undefined for "off": test the request, not the patch.)
         const live =
-          Object.keys(patch).length === 1 &&
-          patch.dangerousMode !== undefined &&
+          message.dangerousMode !== undefined &&
+          message.model === undefined &&
+          message.provider === undefined &&
           record.harness === 'claude-code'
         return { restartNeeded: !live && this.ptys.isRunning(record.id) }
       }
@@ -906,6 +918,7 @@ export class Daemon {
     )
     await this.hooks?.close()
     rmSync(paths.daemonState(), { force: true })
+    if (this.locked) rmSync(lockPath(), { force: true })
     process.exit(0)
   }
 
@@ -920,6 +933,55 @@ export class DaemonRunningError extends Error {
   constructor() {
     super('the nsq daemon is already running')
   }
+}
+
+function lockPath(): string {
+  return join(paths.home(), 'daemon.lock')
+}
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Takes `daemon.lock` (created exclusively, holding our pid). A lock whose daemon answers on the
+ * socket, or whose pid is alive and starts answering within a few seconds, means another daemon
+ * owns this home. A lock of a dead process — or of a reused pid that never answers — is stale and
+ * taken over.
+ */
+async function acquireDaemonLock(file: string, ipc: string): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const fd = openSync(file, 'wx', 0o600)
+      writeSync(fd, String(process.pid))
+      closeSync(fd)
+      return
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+    }
+    let pid = NaN
+    try {
+      pid = Number.parseInt(readFileSync(file, 'utf8'), 10)
+    } catch {
+      // Being written right now: look again.
+    }
+    if (await isListening(ipc)) throw new DaemonRunningError()
+    if (Number.isFinite(pid) && pidAlive(pid)) {
+      // Probably starting up: give it a moment to listen.
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 150))
+        if (await isListening(ipc)) throw new DaemonRunningError()
+        if (!pidAlive(pid)) break
+      }
+    }
+    rmSync(file, { force: true })
+  }
+  throw new DaemonRunningError()
 }
 
 function isListening(path: string): Promise<boolean> {

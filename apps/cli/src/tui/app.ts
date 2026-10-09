@@ -43,7 +43,7 @@ import {
 import { formatUsd, type HarnessId } from '@neurosquad/core'
 import { DaemonClient } from '../client/client.js'
 import { readConfig } from '../config.js'
-import { parseDetachKey } from '../attach.js'
+import { findDetachKey, parseDetachKey } from '../attach.js'
 import { HARNESS_LABEL, elapsed } from '../format.js'
 import type { AgentView, DaemonEvent } from '../protocol.js'
 import { Canvas } from './canvas.js'
@@ -67,6 +67,8 @@ import {
 import { PickList, TextField, fitText } from './widgets.js'
 import { bindDictation, type DictationBinding } from '../dictation.js'
 
+/** Leaves the dashboard's terminal modes: colours, focus, paste, mouse, cursor, alternate screen. */
+const RESTORE = '\x1b[0m\x1b[?1004l\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l'
 const FRAME_MS = 33
 const DOUBLE_CLICK_MS = 400
 const RESIZE_DEBOUNCE_MS = 150
@@ -210,6 +212,10 @@ export class Dashboard {
     this.client.onClose(() => this.quit('the daemon stopped'))
     process.on('SIGINT', this.onSignal)
     process.on('SIGTERM', this.onSignal)
+    process.on('SIGHUP', this.onSignal)
+    process.on('uncaughtException', this.onCrash)
+    process.on('unhandledRejection', this.onCrash)
+    process.on('exit', this.onExit)
     if (this.motion.animate) {
       this.unsubscribeTicker = animations.sharedTicker.subscribe(() => this.schedule(), {
         fps: this.motion.fps
@@ -248,6 +254,26 @@ export class Dashboard {
 
   private readonly onSignal = (): void => this.quit()
 
+  /** A crash anywhere: the terminal comes back first (raw mode, screen, mouse), then the error. */
+  private readonly onCrash = (error: unknown): void => {
+    this.quit()
+    process.stderr.write(
+      `nsq: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}\n`
+    )
+    process.exit(1)
+  }
+
+  /** Last resort on any exit while the dashboard is up: restore synchronously. */
+  private readonly onExit = (): void => {
+    if (this.closed) return
+    try {
+      if (this.stdin.isTTY) this.stdin.setRawMode(false)
+      this.stdout.write(RESTORE)
+    } catch {
+      // The terminal is gone.
+    }
+  }
+
   private quit(message?: string): void {
     if (this.closed) return
     this.closed = true
@@ -259,14 +285,15 @@ export class Dashboard {
     this.stdout.off('resize', this.onResize)
     process.off('SIGINT', this.onSignal)
     process.off('SIGTERM', this.onSignal)
+    process.off('SIGHUP', this.onSignal)
+    process.off('uncaughtException', this.onCrash)
+    process.off('unhandledRejection', this.onCrash)
+    process.off('exit', this.onExit)
     this.compositor.dispose()
     for (const screen of this.screens.values()) screen.view.dispose()
     if (this.stdin.isTTY) this.stdin.setRawMode(false)
     this.stdin.pause()
-    this.stdout.write(
-      '\x1b[0m\x1b[?1004l\x1b[?2004l\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?25h\x1b[?1049l' +
-        (this.graphics.protocol === 'kitty' ? '\x1b_Ga=d\x1b\\' : '')
-    )
+    this.stdout.write(RESTORE + (this.graphics.protocol === 'kitty' ? '\x1b_Ga=d\x1b\\' : ''))
     if (message) this.stdout.write(`nsq: ${message}\n`)
     this.client.close()
     this.resolveClosed()
@@ -1116,7 +1143,10 @@ export class Dashboard {
   private handleExpanded(event: InputEvent): void {
     const id = this.expanded as string
     const screen = this.screens.get(id)
-    if (event.type === 'key' && event.seq.includes(this.detachKey)) {
+    // Only the key itself (as a control byte, kitty CSI u or modifyOtherKeys), never a
+    // sequence that merely contains the byte.
+    const detach = event.type === 'key' ? findDetachKey(event.seq, this.detachKey) : null
+    if (detach && detach.at === 0 && detach.length === event.seq.length) {
       this.collapse()
       return
     }
@@ -1308,7 +1338,7 @@ export class Dashboard {
             id: agent.id,
             key: k === 'y' ? 'yes' : k === 'a' ? 'always' : 'no'
           })
-        } else if (k === 'n') this.openNewAgent()
+        }
         return
       case 's':
       case 'S': {
