@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { prepareLaunch } from './launch.js'
-import { OPENROUTER_ATTRIBUTION } from '../providers/openrouter.js'
+import { CLAUDE_CODE_PLAIN_MESSAGES, OPENROUTER_ATTRIBUTION } from '../providers/openrouter.js'
 import { codexHookTrustHash, CODEX_HOOKS } from './codex/hooks.js'
 import type { AgentLaunchSpec, LaunchContext } from './types.js'
 
@@ -78,6 +78,32 @@ describe('Claude Code launch', () => {
     expect(plan.args.join(' ')).not.toContain('sk-or-test')
     expect(plan.env.CLAUDE_CODE_USE_BEDROCK).toBe('')
     expect(plan.env.CLAUDE_CODE_USE_VERTEX).toBe('')
+  })
+
+  it('Claude Code on a non-Anthropic OpenRouter model: the plain Messages shape; Claude keeps everything', () => {
+    const other = prepareLaunch(
+      ctx(
+        { harness: 'claude-code', provider: 'openrouter', model: 'deepseek/deepseek-v4.1-flash' },
+        { openRouterKey: 'sk-or-test' }
+      )
+    )
+    expect(other.env.ANTHROPIC_MODEL).toBe('deepseek/deepseek-v4.1-flash')
+    expect(other.env).toMatchObject(CLAUDE_CODE_PLAIN_MESSAGES)
+    for (const model of ['anthropic/claude-sonnet-5.5', '~anthropic/claude-opus-latest']) {
+      const claude = prepareLaunch(
+        ctx(
+          { harness: 'claude-code', provider: 'openrouter', model },
+          { openRouterKey: 'sk-or-test' }
+        )
+      )
+      for (const name of Object.keys(CLAUDE_CODE_PLAIN_MESSAGES))
+        expect(claude.env[name], `${model} ${name}`).toBeUndefined()
+    }
+    // No model chosen: Claude Code's own (Claude) models.
+    const none = prepareLaunch(
+      ctx({ harness: 'claude-code', provider: 'openrouter' }, { openRouterKey: 'sk-or-test' })
+    )
+    expect(none.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS).toBeUndefined()
   })
 
   it('a native model goes to --model', () => {

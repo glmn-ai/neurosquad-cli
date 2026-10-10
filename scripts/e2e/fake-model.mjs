@@ -515,6 +515,18 @@ function promptsIn(data) {
   return [...new Set(data.match(/\[nsq:[a-z0-9-]+\][^"\\]{0,60}/gi) ?? [])]
 }
 
+/**
+ * What a Messages request asked for beyond the plain API: its top-level fields, the thinking
+ * type, and how many mid-conversation `role: "system"` messages it carried (OpenRouter checks).
+ */
+export function messagesShape(body) {
+  return {
+    fields: Object.keys(body).sort(),
+    thinking: body.thinking?.type,
+    systemMessages: (body.messages ?? []).filter((m) => m?.role === 'system').length
+  }
+}
+
 export async function startFakeModel({
   port = 0,
   logFile,
@@ -612,7 +624,8 @@ export async function startFakeModel({
       usage: reply.usage,
       headers: headersOf(req),
       credentials: credentialsOf(req),
-      prompts: promptsIn(data)
+      prompts: promptsIn(data),
+      ...(protocol === 'anthropic' ? { shape: messagesShape(body) } : {})
     })
     if (reply.delayMs) await sleep(reply.delayMs)
     const model = body.model ?? MODEL

@@ -42,6 +42,20 @@ GPT-6 models (code mode, tools sent as an `additional_tools` input item) instead
 tools. Whether OpenRouter's Responses endpoint accepts that could not be checked without a key; if
 such an agent cannot run commands, pick another OpenAI slug (`openai/gpt-5.5`) for Codex.
 
+### Claude Code with other models
+
+Claude Code takes any model it does not know for a current Claude and sends it everything:
+adaptive thinking, `output_config.effort`, `context_management`, `safeguards`, mid-conversation
+`role: "system"` messages and a dozen `anthropic-beta` values. OpenRouter answered that, for
+other vendors' models, with `400 Invalid Anthropic Messages API request` — which Claude Code does
+not recognise as a refused feature, so it never falls back by itself. For a slug that is not
+`anthropic/…`, nsq therefore runs Claude Code with `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` and
+`CLAUDE_CODE_MODEL_CAPABILITIES=-adaptive_thinking,-effort,-mid_conv_system`: the plain Messages
+request (thinking with a fixed budget, which OpenRouter maps to the model's reasoning; no effort,
+context management or pre-release betas; the system reminders inside the user turn). Claude's own
+models keep every feature. `nsq openrouter test <slug>` shows what OpenRouter says to either request
+([troubleshooting](troubleshooting.md#openrouter-api-error-400--or-theres-an-issue-with-the-selected-model)).
+
 How each CLI is pointed at OpenRouter (environment variables for Claude Code, a session-only
 provider for Codex, a config layer for OpenCode) is described in
 [docs/harnesses.md](../harnesses.md). Claude Code needs version 2.1.227 or newer for the

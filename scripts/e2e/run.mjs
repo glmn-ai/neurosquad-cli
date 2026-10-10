@@ -25,6 +25,9 @@
 //              queued meanwhile runs on the new model); an agent saved with a slug and no
 //              provider (nsq 0.1.1) moves to OpenRouter at start; "default" goes back to the
 //              harness's own login. Checked on the wire: path, key, slug, attribution
+//   handover   a daemon of an older nsq (0.1.2, the real release from npm) with an agent on
+//              OpenRouter: the first command of this nsq waits while the agent needs you, then
+//              restarts the daemon on itself; the agent resumes its session on the stored model
 //   worktree   an agent in its own git worktree
 //   push       ntfy push: a needs-you notification with the name and question only, once
 //   phone      through the phone API: the pending question in the state,
@@ -362,6 +365,13 @@ async function modelsScenario(short) {
         turn.prompts.some((p) => p.includes('on the own login')),
       turn && { path: turn.path, model: turn.model, prompts: turn.prompts }
     )
+    if (short === 'claude') {
+      check(
+        `claude: on OpenRouter, a Claude model (${slug}) keeps Claude Code's full request (adaptive thinking)`,
+        turn?.shape?.thinking === 'adaptive',
+        turn?.shape
+      )
+    }
 
     // 4. Mid-turn: the switch waits for the end of the turn; a prompt queued meanwhile runs on
     //    the new model after the restart.
@@ -384,6 +394,23 @@ async function modelsScenario(short) {
         turnRequest(from, 'a long turn')?.model === slug,
       turn && { model: turn.model, prompts: turn.prompts }
     )
+    if (short === 'claude') {
+      // Not Claude: the plain Messages request (OpenRouter answered "400 Invalid Anthropic
+      // Messages API request" for the full one; packages/core CLAUDE_CODE_PLAIN_MESSAGES).
+      const shape = turn?.shape
+      const betas = String(turn?.headers?.['anthropic-beta'] ?? '')
+      check(
+        `claude: on OpenRouter, ${slug2} (not Claude) gets the plain Messages request — no context_management, output_config, safeguards, adaptive thinking or mid-conversation system messages`,
+        shape &&
+          !['context_management', 'output_config', 'safeguards'].some((field) =>
+            shape.fields.includes(field)
+          ) &&
+          shape.thinking !== 'adaptive' &&
+          shape.systemMessages === 0 &&
+          !/context-management|mid-conversation-system|effort-/.test(betas),
+        { shape, betas }
+      )
+    }
 
     // 5. nsq 0.1.1 left agents with a slug and no provider: at start they move to OpenRouter
     //    (with a key). Not OpenCode: its own ids look the same and are left alone.
@@ -430,6 +457,154 @@ async function modelsScenario(short) {
     nsq('rm', name)
   } finally {
     restore?.()
+  }
+}
+
+/** The real nsq 0.1.2 from npm, installed once per run (a daemon from before the hand-over). */
+let oldNsqBin = null
+function installOldNsq() {
+  if (oldNsqBin) return oldNsqBin
+  const prefix = join(WORK, 'nsq-0.1.2')
+  mkdirSync(prefix, { recursive: true })
+  // One command line (no arguments array): a shell is needed for npm.cmd on Windows.
+  const npm = spawnSync(
+    `npm install --prefix "${prefix}" neurosquad@0.1.2 --no-audit --no-fund --loglevel=error`,
+    { encoding: 'utf8', timeout: 300_000, shell: true, windowsHide: true }
+  )
+  if (npm.status !== 0) throw new Error(`npm install neurosquad@0.1.2: ${npm.stderr || npm.stdout}`)
+  oldNsqBin = join(prefix, 'node_modules', 'neurosquad', 'bin', 'nsq.js')
+  return oldNsqBin
+}
+
+/**
+ * The owner's case: a daemon started by an older nsq keeps running after the package was
+ * upgraded, so its fixes never ran. This nsq's first command hands it over — not while the agent
+ * works — and the agent resumes on its session, on the model the record holds.
+ */
+async function handoverScenario(short) {
+  const [slug] = SLUGS[short]
+  const name = `${short}-handover`
+  // Its own nsq home: the old daemon must not resume the other steps' agents.
+  const env = { ...sandbox.env, NSQ_HOME: join(WORK, `handover-home-${short}`) }
+  const stateFile = join(env.NSQ_HOME, 'daemon.json')
+  const daemonState = () => {
+    try {
+      return JSON.parse(readFileSync(stateFile, 'utf8'))
+    } catch {
+      return null
+    }
+  }
+  const run = (bin, ...args) =>
+    new Promise((resolveRun) => {
+      const child = spawn(process.execPath, [bin, ...args], {
+        env,
+        cwd: sandbox.project,
+        windowsHide: true
+      })
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk) => (stdout += chunk))
+      child.stderr.on('data', (chunk) => (stderr += chunk))
+      const timer = setTimeout(() => child.kill(), 180_000)
+      child.on('close', (status) => {
+        clearTimeout(timer)
+        resolveRun({ status, stdout, stderr })
+      })
+    })
+  let old
+  try {
+    old = installOldNsq()
+  } catch (error) {
+    check(`${short}: nsq 0.1.2 installed from npm (for the hand-over)`, false, String(error))
+    return
+  }
+  const oldAgent = async () => {
+    try {
+      return JSON.parse((await run(old, 'ls', '--json')).stdout).find((a) => a.name === name)
+    } catch {
+      return undefined
+    }
+  }
+  const waitOld = async (kinds, ms = 120_000) => {
+    const deadline = Date.now() + ms
+    for (;;) {
+      const agent = await oldAgent()
+      if ((agent && kinds.includes(agent.status)) || Date.now() > deadline) return agent
+      await sleep(500)
+    }
+  }
+  try {
+    let from = fake.requests.length
+    await run(
+      old,
+      'run',
+      short,
+      '--name',
+      name,
+      '--provider',
+      'openrouter',
+      '--model',
+      slug,
+      '[nsq:hello] before the hand-over'
+    )
+    const first = daemonState()
+    await waitOld(['finished'])
+    check(
+      `${short}: nsq 0.1.2 runs the daemon and the agent's first turn`,
+      first?.version === '0.1.2' && Boolean(turnRequest(from, 'before the hand-over')),
+      first?.version
+    )
+
+    // Busy (waiting for an answer — a state that holds still, unlike a turn's few seconds of
+    // "working"): this nsq runs its command on the old daemon and says why it does not restart.
+    rmSync(join(sandbox.project, PERM_DIR), { recursive: true, force: true })
+    await run(old, 'send', name, '[nsq:perm] a question on 0.1.2')
+    const asked = await waitOld(['needs-input'], 120_000)
+    const busy = await run(BIN, 'ls')
+    check(
+      `${short}: a newer nsq does not restart the daemon while the agent needs you, and says so`,
+      busy.status === 0 &&
+        /the daemon is 0\.1\.2, this nsq is .* once they are free \(.*is busy/.test(busy.stderr) &&
+        daemonState()?.pid === first?.pid,
+      { stderr: busy.stderr.trim(), status: asked?.status }
+    )
+    await sleep(1500)
+    await run(old, 'answer', name, 'yes')
+    await waitOld(['finished'])
+
+    // Free: the next command hands the daemon over to this nsq.
+    const handed = await run(BIN, 'ls', '--json')
+    const after = daemonState()
+    check(
+      `${short}: the next command restarts the daemon on this nsq`,
+      handed.status === 0 &&
+        /the daemon was 0\.1\.2; it now runs/.test(handed.stderr) &&
+        after?.pid !== first?.pid &&
+        after?.version !== '0.1.2' &&
+        Boolean(after?.version),
+      { stderr: handed.stderr.trim(), version: after?.version }
+    )
+    let peek = ''
+    for (let i = 0; i < 40 && !/NSQ_PERM_DONE/.test(peek); i++) {
+      await sleep(1000)
+      peek = (await run(BIN, 'peek', name, '-n', '80')).stdout
+    }
+    await sleep(2500)
+    from = fake.requests.length
+    await run(BIN, 'send', name, '[nsq:hello] after the hand-over')
+    let turn
+    for (let i = 0; i < 180 && !(turn = turnRequest(from, 'after the hand-over')); i++)
+      await sleep(500)
+    check(
+      `${short}: the agent resumed its session on the new daemon, on ${slug} through OpenRouter`,
+      turn?.model === slug &&
+        turn.path?.startsWith('/api/v1/') &&
+        turn.prompts.some((p) => p.includes('a question on 0.1.2')),
+      turn && { model: turn.model, path: turn.path, prompts: turn.prompts }
+    )
+  } finally {
+    await run(BIN, 'down')
+    await run(old, 'down')
   }
 }
 
@@ -584,6 +759,9 @@ try {
         registry: registry.base
       })
       const copyEnv = { ...sandbox.env, ...copy.env }
+      // This step is about the daemon's own updater: this repository's nsq (newer than the copy)
+      // polls the agent here and must not hand the daemon over to itself (that is `handover`).
+      sandbox.env.NSQ_NO_HANDOVER = '1'
       const nsqCopy = (...args) =>
         spawnSync(process.execPath, [copy.bin, ...args], {
           env: copyEnv,
@@ -655,6 +833,7 @@ try {
           registry.requests.map((r) => r.url)
         )
       } finally {
+        delete sandbox.env.NSQ_NO_HANDOVER
         nsqCopy('down')
         await registry.close()
         // The dependency link first: never follow it into the repository's node_modules.
@@ -909,6 +1088,8 @@ try {
       }
     }
     if (runs('models')) await modelsScenario(short)
+
+    if (runs('handover')) await handoverScenario(short)
 
     if (runs('worktree')) {
       const git = (...args) => execFileSync('git', args, { cwd: sandbox.project, stdio: 'ignore' })

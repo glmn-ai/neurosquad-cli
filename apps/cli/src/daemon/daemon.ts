@@ -18,7 +18,7 @@ import {
   writeSync
 } from 'node:fs'
 import { execFile, spawn, spawnSync } from 'node:child_process'
-import { basename, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import {
   PtyHost,
@@ -79,6 +79,7 @@ import {
 } from '../modelRules.js'
 import { PACKAGE_DIR, PACKAGE_NAME, VERSION } from '../version.js'
 import { Updater, type UpdateView } from '../update/updater.js'
+import { compareVersions, isDevVersion } from '../update/semver.js'
 import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
 import { PhoneAccess, PhoneSuperseded, quickTunnelBlocker } from './phone.js'
 import { NtfyPush } from './push.js'
@@ -221,6 +222,12 @@ export class Daemon {
   private considering = false
   /** A restart onto this installed version failed: a blocker until U retries or a new version. */
   private restartFailure: { version: string; reason: string } | null = null
+  /**
+   * A newer nsq that connected (npx, a manual upgrade): this daemon restarts on that copy once no
+   * agent is busy (`now`: at once, asked for with U). See handoverRequest.
+   */
+  private handoverTarget: { node: string; script: string; version: string; now: boolean } | null =
+    null
   private updatePoll: ReturnType<typeof setInterval> | null = null
 
   constructor() {
@@ -1398,6 +1405,8 @@ export class Daemon {
         return undefined
       case 'update':
         return this.updateRequest(message.action)
+      case 'handover':
+        return this.handoverRequest(message)
       default:
         throw new Error('unknown request')
     }
@@ -1470,11 +1479,69 @@ export class Daemon {
     return blockers
   }
 
+  /**
+   * A newer nsq connected to this (older) daemon — npx, or an upgrade the updater did not make:
+   * hand over to that copy the way an update does (it starts first, the agents resume on their
+   * sessions), once no agent works, needs you, starts or has prompts waiting. Unlike an update
+   * found by the daemon itself, open windows and recent typing do not hold it: the person is
+   * at that newer nsq right now. `now` (U) does not wait for busy agents either.
+   */
+  private handoverRequest(message: {
+    node: string
+    script: string
+    version: string
+    now?: boolean
+  }): { restarting?: boolean; waitingFor?: string[]; current?: boolean } {
+    const { node, script, version } = message
+    if (
+      typeof node !== 'string' ||
+      typeof script !== 'string' ||
+      typeof version !== 'string' ||
+      !existsSync(node) ||
+      !isNsqCopy(script, version)
+    ) {
+      throw new Error('handover: no such nsq')
+    }
+    if (isDevVersion(version) || isDevVersion(VERSION) || compareVersions(version, VERSION) <= 0) {
+      return { current: true }
+    }
+    // The updater installed exactly that version: it restarts on it by its own rules.
+    if (this.updater.view().installed === version) return { current: true }
+    const pending = this.handoverTarget
+    // A newer one asked already: never hand over to an older copy than that.
+    if (!pending || compareVersions(version, pending.version) >= 0) {
+      this.handoverTarget = {
+        node,
+        script,
+        version,
+        now: message.now === true || (pending?.version === version && pending.now)
+      }
+    } else if (message.now) pending.now = true
+    if (this.restartFailure?.version === this.handoverTarget!.version) this.restartFailure = null
+    const waitingFor = this.handoverTarget!.now ? [] : this.restartBlockers('forced')
+    if (waitingFor.length) {
+      this.log(
+        `nsq ${this.handoverTarget!.version} connected: restarting on it once ${waitingFor.join('; ')}`
+      )
+      return { waitingFor }
+    }
+    setTimeout(() => this.considerRestart(), 50)
+    return { restarting: true }
+  }
+
   /** Restarts onto an installed update when nothing stands in the way (see restartBlockers). */
   private considerRestart(): void {
     if (this.restarting || this.stopping || this.considering) return
     this.considering = true
     try {
+      const target = this.handoverTarget
+      const installed = this.updater.view().installed
+      if (target && (!installed || compareVersions(target.version, installed) >= 0)) {
+        if (this.restartFailure?.version === target.version) return
+        if (!target.now && this.restartBlockers('forced').length) return
+        void this.restartOnto(target.version, { node: target.node, script: target.script })
+        return
+      }
       const view = this.updater.view()
       if (!view.installed || view.state === 'installing') return
       const how = this.applyWhenIdle ?? (view.auto === 'off' ? null : 'auto')
@@ -1486,7 +1553,16 @@ export class Daemon {
       if (this.restartFailure?.version === view.installed) blockers.push(this.restartFailure.reason)
       this.updater.setBlockers(blockers, how === 'forced')
       if (blockers.length) return
-      void this.restartForUpdate(view.installed)
+      const successor = this.updater.successor()
+      if (!successor) {
+        this.restartFailure = {
+          version: view.installed,
+          reason: `the new version was not found in ${this.updater.info.stableDir}`
+        }
+        this.updater.setBlockers([this.restartFailure.reason])
+        return
+      }
+      void this.restartOnto(view.installed, successor)
     } finally {
       this.considering = false
     }
@@ -1497,17 +1573,11 @@ export class Daemon {
    * to exit), then this one shuts down the usual way. The agents keep `wantRunning`, so the new
    * daemon resumes them on their sessions, exactly like `nsq down` + `nsq up`.
    */
-  private async restartForUpdate(version: string): Promise<void> {
+  private async restartOnto(
+    version: string,
+    successor: { node: string; script: string }
+  ): Promise<void> {
     if (this.restarting || this.stopping) return
-    const successor = this.updater.successor()
-    if (!successor) {
-      this.restartFailure = {
-        version,
-        reason: `the new version was not found in ${this.updater.info.stableDir}`
-      }
-      this.updater.setBlockers([this.restartFailure.reason])
-      return
-    }
     // Never trade a working daemon for one that does not start: the new version must at least
     // run and say it is the version that was installed. Otherwise this daemon and every agent
     // keep running on the old one.
@@ -1588,6 +1658,26 @@ export class Daemon {
   /** For `emitHookFact` callers inside the daemon (tests). */
   fact(id: string, kind: 'working' | 'needs-input' | 'finished', detail?: string): void {
     emitHookFact(id, kind, detail)
+  }
+}
+
+/**
+ * `script` is the CLI entry of an nsq copy at `version`: `<package>/dist/bin.js` next to a
+ * package.json of this package with that version. Only such a copy is run for a hand-over (any
+ * client can ask; it is checked before anything executes).
+ */
+export function isNsqCopy(script: string, version: string): boolean {
+  if (!isAbsolute(script) || basename(script) !== 'bin.js') return false
+  const dist = dirname(script)
+  if (basename(dist) !== 'dist') return false
+  try {
+    const pkg = JSON.parse(readFileSync(join(dirname(dist), 'package.json'), 'utf8')) as {
+      name?: unknown
+      version?: unknown
+    }
+    return pkg.name === PACKAGE_NAME && pkg.version === version && statSync(script).isFile()
+  } catch {
+    return false
   }
 }
 
