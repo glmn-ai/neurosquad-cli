@@ -55,6 +55,12 @@ jobs:
         if: steps.detect.outputs.has_pkg == 'true'
         run: npm run lint --if-present
 
+      # The whole tree (code, docs, configs), not just what ESLint sees: `prettier --check .`
+      # with .prettierignore. One OS is enough — formatting does not depend on the platform.
+      - name: Format
+        if: steps.detect.outputs.has_pkg == 'true' && matrix.os == 'ubuntu-latest'
+        run: npm run format:check
+
       - name: Typecheck
         if: steps.detect.outputs.has_pkg == 'true'
         run: npm run typecheck --if-present

@@ -40,14 +40,14 @@ throwaway folder outside this repository as the agents' working directory.
 
 Create a branch from the latest `main`:
 
-| Prefix       | For                                   | Example                         |
-|--------------|---------------------------------------|---------------------------------|
-| `feat/`      | new features                          | `feat/dashboard-inline-answers` |
-| `fix/`       | bug fixes                             | `fix/windows-resize`            |
-| `docs/`      | documentation only                    | `docs/install-linux`            |
-| `refactor/`  | code changes without behavior change  | `refactor/status-machine`       |
-| `test/`      | tests only                            | `test/codex-hooks`              |
-| `chore/`     | tooling, CI, dependencies             | `chore/ci-node-24`              |
+| Prefix      | For                                  | Example                         |
+| ----------- | ------------------------------------ | ------------------------------- |
+| `feat/`     | new features                         | `feat/dashboard-inline-answers` |
+| `fix/`      | bug fixes                            | `fix/windows-resize`            |
+| `docs/`     | documentation only                   | `docs/install-linux`            |
+| `refactor/` | code changes without behavior change | `refactor/status-machine`       |
+| `test/`     | tests only                           | `test/codex-hooks`              |
+| `chore/`    | tooling, CI, dependencies            | `chore/ci-node-24`              |
 
 ## Commits and PR titles: Conventional Commits
 

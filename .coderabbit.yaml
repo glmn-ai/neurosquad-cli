@@ -1,12 +1,12 @@
 # CodeRabbit AI review config — https://docs.coderabbit.ai/reference/configuration
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: en-US
-tone_instructions: "Be direct and concise. Lead with real bugs and risks; skip praise and style nits a linter would catch."
+tone_instructions: 'Be direct and concise. Lead with real bugs and risks; skip praise and style nits a linter would catch.'
 early_access: false
 
 reviews:
   profile: assertive
-  request_changes_workflow: false  # the owner's review is the merge gate, not the bot
+  request_changes_workflow: false # the owner's review is the merge gate, not the bot
   high_level_summary: true
   high_level_summary_in_walkthrough: true
   review_status: true
@@ -21,21 +21,21 @@ reviews:
   auto_review:
     enabled: true
     drafts: false
-    base_branches: ["main"]
-    ignore_title_keywords: ["WIP", "[skip review]"]
+    base_branches: ['main']
+    ignore_title_keywords: ['WIP', '[skip review]']
   path_filters:
-    - "!**/package-lock.json"
-    - "!**/pnpm-lock.yaml"
-    - "!**/yarn.lock"
-    - "!**/dist/**"
-    - "!**/build/**"
-    - "!**/coverage/**"
-    - "!**/*.generated.*"
-    - "!**/generated/**"
-    - "!**/*.snap"
-    - "!**/*.min.js"
+    - '!**/package-lock.json'
+    - '!**/pnpm-lock.yaml'
+    - '!**/yarn.lock'
+    - '!**/dist/**'
+    - '!**/build/**'
+    - '!**/coverage/**'
+    - '!**/*.generated.*'
+    - '!**/generated/**'
+    - '!**/*.snap'
+    - '!**/*.min.js'
   path_instructions:
-    - path: "packages/core/**"
+    - path: 'packages/core/**'
       instructions: |
         Core library shared by the daemon and the CLI (Node only, no Electron, no DOM). Review for correctness first:
         - Agent status state machine: transitions, duplicate/out-of-order hook events, races between hooks, transcript and pty exit.
@@ -45,17 +45,17 @@ reviews:
         - Secrets and API keys must never reach argv, logs or files; loopback servers must check tokens with timing-safe compare.
         - Resource leaks: timers, listeners, file handles, child processes. Errors must not crash the daemon.
         - Usage/cost: integer tokens, exact money arithmetic, unknown model = "no price", never $0.
-    - path: "apps/cli/**"
+    - path: 'apps/cli/**'
       instructions: |
         The nsq CLI and its TUI (a framework-free cell-diff renderer on @neurosquad/term-view and @neurosquad/tui-theme). Review for terminal UX:
         - Works in Windows Terminal, conhost, macOS Terminal/iTerm2, Linux terminals, tmux and over SSH; no assumptions about colors or Unicode width.
         - Raw mode is always restored on exit, crash or signal; attach mode passes keys through untouched (Ctrl keys, Ctrl+C) except the detach prefix.
         - Resize handling, no flicker or excessive re-renders, keyboard-only navigation, clear help/footer text.
         - Commands and flags are consistent, errors are actionable, exit codes are meaningful, `--json` output is stable.
-    - path: "**/*.test.ts"
-      instructions: "Tests must be deterministic and never touch the real ~/.claude, ~/.codex or network; fake harnesses instead of calling models."
-    - path: ".github/workflows/**"
-      instructions: "Least-privilege permissions, pinned major versions, no secrets exposed to pull_request from forks, no script injection via untrusted inputs."
+    - path: '**/*.test.ts'
+      instructions: 'Tests must be deterministic and never touch the real ~/.claude, ~/.codex or network; fake harnesses instead of calling models.'
+    - path: '.github/workflows/**'
+      instructions: 'Least-privilege permissions, pinned major versions, no secrets exposed to pull_request from forks, no script injection via untrusted inputs.'
   tools:
     eslint:
       enabled: true
