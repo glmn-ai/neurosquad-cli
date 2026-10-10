@@ -106,6 +106,12 @@ export interface MachineState {
   pending?: { since: number }
   /** When the person dismissed a question (Escape) — see DISMISS_GRACE_MS. */
   dismissedAt?: number
+  /**
+   * When the last turn of the agent's own started while it was already `working` (a prompt
+   * submitted while a turn end was still being decided): a turn end reported before it is not
+   * about that turn (see the hook signal's `reportedAt`).
+   */
+  turnAt?: number
   /** The process is gone: facts until the next spawn are stale. */
   dead?: boolean
   /** Subagents running inside the agent right now (see SubagentRun). Absent = none. */
@@ -456,7 +462,16 @@ function stepCore(state: MachineState, signal: StatusSignal, now: number): StepR
       if (kind === 'working') {
         if (state.kind === 'working') {
           // Confirmed: the guess (if any) was right.
-          return drop(state.pending ? { kind: 'working', since: state.since } : state)
+          const confirmed: MachineState = state.pending
+            ? {
+                kind: 'working',
+                since: state.since,
+                ...(state.turnAt ? { turnAt: state.turnAt } : {})
+              }
+            : state
+          // A prompt submitted while the status still reads working (a turn end held for a
+          // moment): a new turn of its own, which a turn end reported before it is not about.
+          return drop(signal.resumeOnly ? confirmed : { ...confirmed, turnAt: now })
         }
         if (signal.resumeOnly && state.kind !== 'needs-input') return drop(state)
         // The harness acknowledging the dismissal the person just typed
@@ -477,11 +492,8 @@ function stepCore(state: MachineState, signal: StatusSignal, now: number): StepR
       }
       // finished
       if (state.kind === 'finished') return drop(state)
-      if (
-        signal.reportedAt !== undefined &&
-        state.since !== undefined &&
-        state.since > signal.reportedAt
-      ) {
+      const establishedAt = Math.max(state.since ?? 0, state.turnAt ?? 0)
+      if (signal.reportedAt !== undefined && establishedAt > signal.reportedAt) {
         return drop(state)
       }
       if (withinDismissGrace(state, now)) return drop(state)

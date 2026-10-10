@@ -148,27 +148,26 @@ describe('status hub', () => {
     const file = join(transcriptDir, `${id}.jsonl`)
     writeFileSync(file, '')
     const line = (entry: Record<string, unknown>): void =>
-      appendFileSync(
-        file,
-        `${JSON.stringify({ ...entry, timestamp: new Date().toISOString() })}
-`
-      )
+      appendFileSync(file, `${JSON.stringify({ ...entry, timestamp: new Date().toISOString() })}\n`)
     const hook = (event: string): string =>
       receiveHook(id, event, JSON.stringify({ transcript_path: file }))
-    hook('UserPromptSubmit')
+    hook('UserPromptSubmit') // arms the transcript poll: due in 1 s
     await tick(20)
     line({ type: 'user', message: { content: 'turn one' } })
-    await tick(20)
+    // The Stop late in that second, so the poll (≈1 s) comes long before the hold ends (≈2.2 s).
+    await tick(650)
     hook('Stop') // the transcript shows turn 1 busy: held for 1.5 s
-    await tick(20)
+    await tick(100) // its transcript read done
     line({
       type: 'assistant',
       message: { content: [{ type: 'text', text: 'x' }], stop_reason: 'end_turn' }
     })
     line({ type: 'system', subtype: 'turn_duration' })
-    // The transcript poll (every second while working) ends turn 1.
+    // The transcript poll ends turn 1 — not the held Stop.
     for (let i = 0; i < 40 && agentStatusSnapshot(id)?.kind !== 'finished'; i++) await tick(50)
-    expect(kinds(id)).toEqual(['working', 'finished'])
+    const own = events.filter((e) => e.agentId === id)
+    expect(own.map((e) => e.kind)).toEqual(['working', 'finished'])
+    expect(own[1]?.origin).toBe('transcript')
     hook('UserPromptSubmit') // turn 2, typed the instant turn 1 showed finished
     await tick(1600) // past the held Stop's 1.5 s
     expect(agentStatusSnapshot(id)?.kind).toBe('working')

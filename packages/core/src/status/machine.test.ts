@@ -541,6 +541,28 @@ describe('Claude Code: reconciliation with the transcript (measured on 2.1.287)'
     expect(kinds(interrupted.published)).toEqual(['working:hook', 'idle:user'])
   })
 
+  it('a prompt submitted while a held Stop keeps the status working is not ended by that Stop', () => {
+    const { published, state } = play([
+      [1000, hook('working')],
+      // turn 1's Stop arrives at 5000 and is held (a queued prompt); a new prompt at 5200
+      [5200, hook('working')],
+      [6500, { type: 'hook', kind: 'finished', reportedAt: 5000 }],
+      [9000, { type: 'hook', kind: 'finished', reportedAt: 9000 }] // turn 2's own Stop
+    ])
+    expect(kinds(published)).toEqual(['working:hook', 'finished:hook'])
+    expect(published[1].at).toBe(9000)
+    expect(state.kind).toBe('finished')
+  })
+
+  it("PostToolUse (resume only) while working is not a new turn: the turn's late Stop still ends it", () => {
+    const { published } = play([
+      [1000, hook('working')],
+      [5200, hook('working', undefined, true)],
+      [6500, { type: 'hook', kind: 'finished', reportedAt: 5000 }]
+    ])
+    expect(kinds(published)).toEqual(['working:hook', 'finished:hook'])
+  })
+
   it('a Stop reported while its own turn ran ends it, however late it is decided', () => {
     const { published } = play([
       [1000, hook('working')],
