@@ -1,5 +1,13 @@
 # @neurosquad/core
 
+## 0.2.1
+
+### Patch Changes
+
+- [#49](https://github.com/glmn-ai/neurosquad-cli/pull/49) [`1f806ee`](https://github.com/glmn-ai/neurosquad-cli/commit/1f806ee269a6ed3d682e2dbcdc989abb8d877906) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Claude Code status: a Stop that is decided late (held for a queued prompt, or waiting on a transcript read) no longer marks a turn that started after it as finished. A prompt typed the instant an agent shows `finished` now stays `working`.
+
+- [#50](https://github.com/glmn-ai/neurosquad-cli/pull/50) [`7ffd718`](https://github.com/glmn-ai/neurosquad-cli/commit/7ffd718d40f31089c94f4bd1fbc95c54499f237c) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Claude Code on OpenRouter with a model that is not Claude's (`deepseek/…`, `openai/…`) failed with "API Error: 400 Invalid Anthropic Messages API request": Claude Code sends any model it does not know the full request of a current Claude (adaptive thinking, effort, context management, safeguards, mid-conversation system messages, pre-release betas). For such slugs nsq now runs it with `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` and `CLAUDE_CODE_MODEL_CAPABILITIES=-adaptive_thinking,-effort,-mid_conv_system` — the plain Messages request; `anthropic/…` models keep every feature. New: `nsq openrouter test <model> [--harness claude|codex|opencode]` sends one small request the way that CLI does through nsq, with the stored key (never printed), and prints OpenRouter's whole answer — for Claude Code also which of its extras OpenRouter refuses.
+
 ## 0.2.0
 
 ### Minor Changes

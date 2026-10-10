@@ -1,5 +1,21 @@
 # neurosquad
 
+## 0.2.1
+
+### Patch Changes
+
+- [#50](https://github.com/glmn-ai/neurosquad-cli/pull/50) [`7ffd718`](https://github.com/glmn-ai/neurosquad-cli/commit/7ffd718d40f31089c94f4bd1fbc95c54499f237c) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - A newer nsq no longer leaves an older daemon running. Upgrading the package (npx picking a new release, `npm i -g`) did not replace a daemon that was already running, so its agents kept the old code: a model picked later was stored but the running process still used the previous one ("There's an issue with the selected model (…)"). Now the first command of a newer nsq (the dashboard, `nsq ls`, `nsq attach`…) restarts the daemon on itself the way an update does — the new daemon starts first and the agents resume on their sessions with the model and provider their records hold. Never while an agent is working, needs you or has prompts queued: it says so and happens once they are free (**U** in the dashboard: now). `nsq doctor` reports a version mismatch.
+
+- [#48](https://github.com/glmn-ai/neurosquad-cli/pull/48) [`dae33a1`](https://github.com/glmn-ai/neurosquad-cli/commit/dae33a1ac74e8c2b97d128c3c0f1cc100a601fc7) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - On Windows, `nsq down` now returns only after the daemon process has exited, not as soon as its socket closes. The nsq home can be deleted or replaced right after it.
+
+- [#51](https://github.com/glmn-ai/neurosquad-cli/pull/51) [`1848bfa`](https://github.com/glmn-ai/neurosquad-cli/commit/1848bfaeae115fa18e0c54a24cc64a0e98b54254) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - OpenCode agents now start one at a time. Before, several of them resuming together after `nsq up` or a daemon restart could collide on OpenCode's shared database ("database is locked"). On OpenCode 2 the loser then showed "Standalone server exited before reporting readiness" instead of its session.
+
+- [#50](https://github.com/glmn-ai/neurosquad-cli/pull/50) [`7ffd718`](https://github.com/glmn-ai/neurosquad-cli/commit/7ffd718d40f31089c94f4bd1fbc95c54499f237c) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Claude Code on OpenRouter with a model that is not Claude's (`deepseek/…`, `openai/…`) failed with "API Error: 400 Invalid Anthropic Messages API request": Claude Code sends any model it does not know the full request of a current Claude (adaptive thinking, effort, context management, safeguards, mid-conversation system messages, pre-release betas). For such slugs nsq now runs it with `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS=1` and `CLAUDE_CODE_MODEL_CAPABILITIES=-adaptive_thinking,-effort,-mid_conv_system` — the plain Messages request; `anthropic/…` models keep every feature. New: `nsq openrouter test <model> [--harness claude|codex|opencode]` sends one small request the way that CLI does through nsq, with the stored key (never printed), and prints OpenRouter's whole answer — for Claude Code also which of its extras OpenRouter refuses.
+
+- [#52](https://github.com/glmn-ai/neurosquad-cli/pull/52) [`94afc1e`](https://github.com/glmn-ai/neurosquad-cli/commit/94afc1e5b7893855224f56f9f732d2b27d809dae) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - The dashboard header, the new-agent form's folder, `nsq ls` and `nsq run` show paths under your home folder as `~/…`. You can also type a `~/…` folder in the form.
+- Updated dependencies [[`1f806ee`](https://github.com/glmn-ai/neurosquad-cli/commit/1f806ee269a6ed3d682e2dbcdc989abb8d877906), [`7ffd718`](https://github.com/glmn-ai/neurosquad-cli/commit/7ffd718d40f31089c94f4bd1fbc95c54499f237c)]:
+  - @neurosquad/core@0.2.1
+
 ## 0.2.0
 
 ### Minor Changes
