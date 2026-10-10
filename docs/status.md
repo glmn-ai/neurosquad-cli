@@ -22,7 +22,10 @@ When the process is gone the machine publishes nothing more and `agentStatusSnap
 3. **The pty** — a spawn clears whatever the previous process said; facts between an exit and the
    next spawn are dropped; a hook sent by a previous process is dropped.
 4. **The Claude Code transcript** — interrupts, API errors, lost hooks and queued prompts are read
-   from the session transcript's tail (only entries newer than the current state count).
+   from the session transcript's tail (only entries newer than the current state count). A Stop
+   with a queued prompt behind it is held for a moment. A Stop decided late never ends a turn that
+   started after the Stop arrived: a prompt typed the instant the agent showed `finished` stays
+   `working`.
 5. **Subagents** — while a subagent runs inside an agent, the parent's own turn end is held.
 
 The rules live in `packages/core/src/status/machine.ts` (pure, fully unit-tested) and the wiring in

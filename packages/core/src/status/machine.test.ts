@@ -500,6 +500,77 @@ describe('Claude Code: reconciliation with the transcript (measured on 2.1.287)'
     expect(kinds(published)).toEqual(['finished:hook', 'working:hook'])
   })
 
+  it('a late Stop (decided after a new prompt was submitted) never ends the new turn', () => {
+    const stop = (reportedAt: number): StatusSignal => ({
+      type: 'hook',
+      kind: 'finished',
+      reportedAt
+    })
+    const { published, state } = play([
+      [1000, hook('working')],
+      [5000, view('ended', 4990, { turnStartedAt: 1000 })], // the transcript ends turn 1 first
+      [5200, hook('working')], // a prompt typed the instant it showed finished
+      [6500, stop(5000)], // turn 1's held Stop, reported at 5000
+      [9000, stop(8990)] // turn 2's own Stop
+    ])
+    expect(kinds(published)).toEqual([
+      'working:hook',
+      'finished:transcript',
+      'working:hook',
+      'finished:hook'
+    ])
+    // Rung by turn 2's own Stop, not by turn 1's at 6500.
+    expect(published[3].at).toBe(9000)
+    expect(state.kind).toBe('finished')
+  })
+
+  it('a late Stop does not wipe a question the new turn asked, nor an interrupt after it', () => {
+    const late: StatusSignal = { type: 'hook', kind: 'finished', reportedAt: 2000 }
+    const asked = play([
+      [1000, hook('working')],
+      [2500, hook('needs-input', 'Claude wants to run: ls')],
+      [3500, late]
+    ])
+    expect(asked.state.kind).toBe('needs-input')
+    const interrupted = play([
+      [1000, hook('working')],
+      [2100, input('')],
+      [5200, { type: 'quiet' }],
+      [11_000, late] // past the dismissal grace
+    ])
+    expect(kinds(interrupted.published)).toEqual(['working:hook', 'idle:user'])
+  })
+
+  it('a prompt submitted while a held Stop keeps the status working is not ended by that Stop', () => {
+    const { published, state } = play([
+      [1000, hook('working')],
+      // turn 1's Stop arrives at 5000 and is held (a queued prompt); a new prompt at 5200
+      [5200, hook('working')],
+      [6500, { type: 'hook', kind: 'finished', reportedAt: 5000 }],
+      [9000, { type: 'hook', kind: 'finished', reportedAt: 9000 }] // turn 2's own Stop
+    ])
+    expect(kinds(published)).toEqual(['working:hook', 'finished:hook'])
+    expect(published[1].at).toBe(9000)
+    expect(state.kind).toBe('finished')
+  })
+
+  it("PostToolUse (resume only) while working is not a new turn: the turn's late Stop still ends it", () => {
+    const { published } = play([
+      [1000, hook('working')],
+      [5200, hook('working', undefined, true)],
+      [6500, { type: 'hook', kind: 'finished', reportedAt: 5000 }]
+    ])
+    expect(kinds(published)).toEqual(['working:hook', 'finished:hook'])
+  })
+
+  it('a Stop reported while its own turn ran ends it, however late it is decided', () => {
+    const { published } = play([
+      [1000, hook('working')],
+      [3000, { type: 'hook', kind: 'finished', reportedAt: 2000 }]
+    ])
+    expect(kinds(published)).toEqual(['working:hook', 'finished:hook'])
+  })
+
   it('a lost UserPromptSubmit: a turn started after the finish makes the card working, its end finishes it', () => {
     const { published } = play([
       [1000, hook('finished')],

@@ -30,6 +30,9 @@
 //   - Escape / Ctrl+C while working is an interrupt only if the output then
 //     stops (harnesses differ: OpenCode needs Escape twice, Claude Code sends
 //     no hook on an interrupt at all).
+//   - A turn end reported before the current state was established (a
+//     Claude Code Stop decided late, after a new prompt was submitted) is
+//     about an older turn and is dropped.
 //   - Between a process exit and the next spawn, facts are stale and dropped;
 //     a spawn clears whatever the dead process last said (published as
 //     `idle`, origin `reset`).
@@ -103,6 +106,12 @@ export interface MachineState {
   pending?: { since: number }
   /** When the person dismissed a question (Escape) — see DISMISS_GRACE_MS. */
   dismissedAt?: number
+  /**
+   * When the last turn of the agent's own started while it was already `working` (a prompt
+   * submitted while a turn end was still being decided): a turn end reported before it is not
+   * about that turn (see the hook signal's `reportedAt`).
+   */
+  turnAt?: number
   /** The process is gone: facts until the next spawn are stale. */
   dead?: boolean
   /** Subagents running inside the agent right now (see SubagentRun). Absent = none. */
@@ -127,6 +136,14 @@ export type StatusSignal =
        * would ever finish it again.
        */
       resumeOnly?: boolean
+      /**
+       * For a turn end that is decided a while after the harness reported it
+       * (Claude Code's Stop waits for a transcript read, or is held 1.5 s for
+       * a queued prompt): when it was reported. A state established after that
+       * belongs to a newer turn (a prompt submitted meanwhile, a question it
+       * asked, the person's interrupt) — the late turn end is not about it.
+       */
+      reportedAt?: number
     }
   | { type: 'input'; data: string }
   | { type: 'quiet' }
@@ -445,7 +462,16 @@ function stepCore(state: MachineState, signal: StatusSignal, now: number): StepR
       if (kind === 'working') {
         if (state.kind === 'working') {
           // Confirmed: the guess (if any) was right.
-          return drop(state.pending ? { kind: 'working', since: state.since } : state)
+          const confirmed: MachineState = state.pending
+            ? {
+                kind: 'working',
+                since: state.since,
+                ...(state.turnAt ? { turnAt: state.turnAt } : {})
+              }
+            : state
+          // A prompt submitted while the status still reads working (a turn end held for a
+          // moment): a new turn of its own, which a turn end reported before it is not about.
+          return drop(signal.resumeOnly ? confirmed : { ...confirmed, turnAt: now })
         }
         if (signal.resumeOnly && state.kind !== 'needs-input') return drop(state)
         // The harness acknowledging the dismissal the person just typed
@@ -466,6 +492,10 @@ function stepCore(state: MachineState, signal: StatusSignal, now: number): StepR
       }
       // finished
       if (state.kind === 'finished') return drop(state)
+      const establishedAt = Math.max(state.since ?? 0, state.turnAt ?? 0)
+      if (signal.reportedAt !== undefined && establishedAt > signal.reportedAt) {
+        return drop(state)
+      }
       if (withinDismissGrace(state, now)) return drop(state)
       return become(kind, now, 'hook', detail ? { detail } : {})
     }

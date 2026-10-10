@@ -1,4 +1,7 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   configureStatusHub,
   receiveHook,
@@ -14,14 +17,24 @@ import type { HarnessId } from '../harnesses/types.js'
 const harness = new Map<string, HarnessId>()
 const dangerous = new Set<string>()
 const events: AgentHookEvent[] = []
+const traces: { agentId: string; line: string }[] = []
 const sessions = new Map<string, string>()
+
+// Transcripts are only read under a `projects` folder (claudeReconciler.ts `plausible`).
+const transcriptRoot = mkdtempSync(join(tmpdir(), 'nsq-hub-'))
+const transcriptDir = join(transcriptRoot, 'projects', 'p')
+mkdirSync(transcriptDir, { recursive: true })
+afterAll(() =>
+  rmSync(transcriptRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+)
 
 beforeAll(() => {
   configureStatusHub({
     harnessOf: (id) => harness.get(id),
     dangerousModeOf: (id) => dangerous.has(id),
     onSessionId: (id, session) => sessions.set(id, session),
-    onStatus: (event) => events.push(event)
+    onStatus: (event) => events.push(event),
+    trace: (agentId, line) => traces.push({ agentId, line })
   })
 })
 
@@ -35,6 +48,14 @@ function agent(kind: HarnessId): string {
 }
 const kinds = (id: string): string[] => events.filter((e) => e.agentId === id).map((e) => e.kind)
 const tick = (ms = 20): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Waits for real I/O (a transcript read) while the hub's timers are fake: yields to the event
+ * loop until `done()` holds. No limit of its own — a stalled read hits the test's timeout.
+ */
+async function untilIo(done: () => boolean): Promise<void> {
+  while (!done()) await new Promise((resolve) => setImmediate(resolve))
+}
 
 describe('status hub', () => {
   it('Claude Code: prompt → permission question with its text → answer → finished', async () => {
@@ -127,6 +148,62 @@ describe('status hub', () => {
     )
     expect(kinds(id)).toEqual(['working', 'needs-input', 'working', 'finished'])
     expect(sessions.get(id)).toBe('ses_abcdefgh1234')
+  })
+
+  it('Claude Code: a held Stop decided after the next prompt was submitted does not end that turn', async () => {
+    // The race the live e2e hit: turn 1's Stop arrives while the transcript still shows the
+    // turn running, so it is held; the transcript then ends turn 1 (finished), a prompt is typed
+    // at once (UserPromptSubmit fires before Claude writes it), and the held Stop comes due.
+    // The hub's timers (transcript poll, Stop hold) and clock are fake and advanced step by step;
+    // only the transcript reads are real I/O, each awaited until its effect shows.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    try {
+      const id = agent('claude-code')
+      const file = join(transcriptDir, `${id}.jsonl`)
+      writeFileSync(file, '')
+      const line = (entry: Record<string, unknown>): void =>
+        appendFileSync(
+          file,
+          `${JSON.stringify({ ...entry, timestamp: new Date().toISOString() })}\n`
+        )
+      const hook = (event: string): string =>
+        receiveHook(id, event, JSON.stringify({ transcript_path: file }))
+      const traced = (text: string): number =>
+        traces.filter((t) => t.agentId === id && t.line.startsWith(text)).length
+      hook('UserPromptSubmit') // arms the transcript poll: due in 1 s
+      line({ type: 'user', message: { content: 'turn one' } })
+      await vi.advanceTimersByTimeAsync(600)
+      const timersBefore = vi.getTimerCount()
+      hook('Stop') // the transcript shows turn 1 busy: held for 1.5 s
+      await untilIo(() => vi.getTimerCount() > timersBefore) // read done, hold armed
+      line({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'x' }], stop_reason: 'end_turn' }
+      })
+      line({ type: 'system', subtype: 'turn_duration' })
+      // The transcript poll (due at 1 s) ends turn 1, long before the hold (≈2.1 s).
+      await vi.advanceTimersByTimeAsync(450)
+      await untilIo(() => agentStatusSnapshot(id)?.kind === 'finished')
+      const own = events.filter((e) => e.agentId === id)
+      expect(own.map((e) => e.kind)).toEqual(['working', 'finished'])
+      expect(own[1]?.origin).toBe('transcript')
+      hook('UserPromptSubmit') // turn 2, typed the instant turn 1 showed finished
+      await vi.advanceTimersByTimeAsync(1100) // the held Stop comes due
+      await untilIo(() => traced('Stop (held)') > 0)
+      expect(agentStatusSnapshot(id)?.kind).toBe('working')
+      expect(kinds(id)).toEqual(['working', 'finished', 'working'])
+      // Turn 2's own Stop still ends it.
+      line({ type: 'user', message: { content: 'turn two' } })
+      line({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'x' }], stop_reason: 'end_turn' }
+      })
+      hook('Stop')
+      await untilIo(() => traced('Stop →') > 0)
+      expect(kinds(id)).toEqual(['working', 'finished', 'working', 'finished'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('drops hooks sent by a previous process', () => {
