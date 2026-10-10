@@ -22,9 +22,9 @@
 // switched off (NSQ_NO_NOTIFY=1), which silences the ring too. --headless-check first runs the
 // dashboard with no X display (SSH, servers): it must keep running and keep
 // native noise off the screen; --display then records against a virtual X server.
-// --project is the folder the agents work in, shown in the recording (default: on
-// GitHub Actions ~/demo-shop of the runner, so the GIF shows a clean name; else a
-// folder in the scratch work dir). Created for the run and removed afterwards.
+// --project is the folder the agents work in, shown in the recording (default: ~/demo-shop
+// in the sandbox's own HOME, shown as `~/demo-shop` — never a runner or user path). Created
+// for the run and removed afterwards.
 import {
   appendFileSync,
   copyFileSync,
@@ -35,7 +35,6 @@ import {
   writeFileSync
 } from 'node:fs'
 import { createRequire } from 'node:module'
-import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import {
   args,
@@ -95,14 +94,12 @@ delete env.TERM_PROGRAM
 delete env.WT_SESSION
 // --display <X display>: record against a virtual X server (Linux CI), after the headless check.
 if (get('display')) env.DISPLAY = get('display')
-const project = get('project')
-  ? resolve(get('project'))
-  : process.env.GITHUB_ACTIONS
-    ? join(homedir(), 'demo-shop')
-    : sandbox.project
+// By default ~/demo-shop of the sandbox's HOME: nsq and the agents' TUIs show it as
+// `~/demo-shop`, so no runner or user path ends up in a recording.
+const project = get('project') ? resolve(get('project')) : join(sandbox.home, 'demo-shop')
 const ownProject = project !== sandbox.project
 if (ownProject) {
-  refuseExisting(project, get('project') ? '--project' : '~/demo-shop')
+  refuseExisting(project, get('project') ? '--project' : 'the sandbox ~/demo-shop')
   mkdirSync(project, { recursive: true })
   writeFileSync(join(project, 'README.md'), '# demo-shop\n\nA small web shop.\n')
   writeFileSync(

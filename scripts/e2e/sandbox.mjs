@@ -17,14 +17,24 @@ const LEAKY = /^(CLAUDE|ANTHROPIC_|OPENAI_|OPENCODE_|OPENROUTER_|CODEX_|XDG_|NSQ
 /**
  * @param {string} work  scratch folder (created)
  * @param {string} fakeBase  `http://127.0.0.1:<port>` of scripts/e2e/fake-model.mjs
- * @param {{ binDirs?: string[] }} options  folders with the harness CLIs, first on PATH
+ * @param {{ binDirs?: string[], projectInHome?: string }} options  `binDirs`: folders with the
+ *   harness CLIs, first on PATH. `projectInHome`: the project as this folder of the sandbox's
+ *   HOME (screenshots: nsq and the agents' TUIs show it as `~/<name>`, no local path).
  */
 export function makeSandbox(work, fakeBase, options = {}) {
   const home = join(work, 'home')
   const claudeDir = join(home, '.claude')
   const codexHome = join(home, '.codex')
   const config = join(home, '.config')
-  const project = join(work, 'project')
+  // A plain folder name only: the project must stay inside the sandbox's HOME (its README is
+  // written below).
+  if (
+    options.projectInHome !== undefined &&
+    !/^(?!\.\.?$)[A-Za-z0-9._-]+$/.test(options.projectInHome)
+  ) {
+    throw new Error(`projectInHome must be a plain folder name, not ${options.projectInHome}`)
+  }
+  const project = options.projectInHome ? join(home, options.projectInHome) : join(work, 'project')
   for (const dir of [home, claudeDir, codexHome, join(config, 'opencode'), project])
     mkdirSync(dir, { recursive: true })
   writeFileSync(join(project, 'README.md'), '# nsq e2e project\n')

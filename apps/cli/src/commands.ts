@@ -23,7 +23,7 @@ import {
 import { attach, parseDetachKey } from './attach.js'
 import { openCurrent } from './client/handover.js'
 import { readConfig, writeConfig, type NsqConfig } from './config.js'
-import { ensureDir, paths } from './paths.js'
+import { ensureDir, paths, tildePath } from './paths.js'
 import type { AgentView, RunSpec } from './protocol.js'
 import { VERSION } from './version.js'
 import { providerNameProblem } from './providers.js'
@@ -111,7 +111,7 @@ export async function cmdRun(args: ParsedArgs): Promise<void> {
       return
     }
     out(
-      `started ${result.agent.name} (${HARNESS_LABEL[result.agent.harness]}) in ${result.agent.cwd}`
+      `started ${result.agent.name} (${HARNESS_LABEL[result.agent.harness]}) in ${tildePath(result.agent.cwd)}`
     )
     if (result.agent.worktree)
       out(`worktree: ${result.agent.worktree.path} on ${result.agent.worktree.branch}`)
@@ -147,7 +147,9 @@ export function formatTable(agents: AgentView[], now = Date.now()): string[] {
     elapsed(agent.statusAt ?? agent.createdAt, now),
     costLabel(agent),
     agent.worktree ? agent.worktree.branch : '',
-    agent.status === 'needs-input' ? truncate(agent.detail ?? '', 60) : truncate(agent.cwd, 60)
+    agent.status === 'needs-input'
+      ? truncate(agent.detail ?? '', 60)
+      : truncate(tildePath(agent.cwd), 60)
   ])
   const head = ['NAME', 'HARNESS', 'STATUS', 'SINCE', 'COST', 'BRANCH', 'DETAIL']
   // Display width, not UTF-16 length: CJK and emoji take two columns.

@@ -3,7 +3,7 @@
 // screenshots (PNG) through packages/tui-theme's term-dump + render-frames.
 //
 //   node scripts/e2e/tui-shot.mjs --bin <dir with the CLIs> [--out dir] [--cols 150 --rows 42]
-//        [--custom-provider <name>] [--steps "wait:6000,shot:grid,key:\r,wait:3000,shot:expanded,key:\u001d,wait:1500,shot:back"]
+//        [--project <name in the sandbox HOME, default demo-shop>] [--custom-provider <name>] [--steps "wait:6000,shot:grid,key:\r,wait:3000,shot:expanded,key:\u001d,wait:1500,shot:back"]
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { mkdirSync, writeFileSync, appendFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
@@ -28,7 +28,13 @@ mkdirSync(out, { recursive: true })
 mkdirSync(work, { recursive: true })
 
 const fake = await startFakeModel({ logFile: join(work, 'fake-requests.jsonl') })
-const sandbox = makeSandbox(work, fake.base, { binDirs: arg('bin') ? [resolve(arg('bin'))] : [] })
+// The agents work in ~/demo-shop of the sandbox's own HOME: the dashboard and the agents' TUIs
+// show it as `~/demo-shop`, so no local path ends up in a screenshot.
+const sandbox = makeSandbox(work, fake.base, {
+  binDirs: arg('bin') ? [resolve(arg('bin'))] : [],
+  projectInHome: arg('project', 'demo-shop')
+})
+const project = sandbox.project
 const env = {
   ...sandbox.env,
   COLORTERM: 'truecolor',
@@ -40,7 +46,7 @@ const env = {
 const nsq = (...args) =>
   spawnSync(process.execPath, [BIN, ...args], {
     env,
-    cwd: sandbox.project,
+    cwd: project,
     encoding: 'utf8',
     windowsHide: true
   })
@@ -53,7 +59,7 @@ if (arg('custom-provider')) {
     const child = spawn(
       process.execPath,
       [BIN, 'provider', 'add', arg('custom-provider'), '--url', `${fake.base}/v1`],
-      { env, cwd: sandbox.project, windowsHide: true }
+      { env, cwd: project, windowsHide: true }
     )
     child.on('close', resolveAdd)
   })
@@ -102,7 +108,7 @@ const term = pty.spawn(process.execPath, [BIN], {
   name: 'xterm-256color',
   cols,
   rows,
-  cwd: sandbox.project,
+  cwd: project,
   env,
   useConptyDll: true
 })

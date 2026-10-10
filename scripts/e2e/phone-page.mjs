@@ -46,7 +46,11 @@ const check = (name, ok, detail) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 
 const fake = await startFakeModel({ logFile: join(work, 'fake-requests.jsonl') })
-const sandbox = makeSandbox(work, fake.base, { binDirs: arg('bin') ? [resolve(arg('bin'))] : [] })
+// The project as ~/demo-shop of the sandbox's HOME: screenshots show `~/demo-shop`, no local path.
+const sandbox = makeSandbox(work, fake.base, {
+  binDirs: arg('bin') ? [resolve(arg('bin'))] : [],
+  projectInHome: 'demo-shop'
+})
 const nsq = (...args) =>
   spawnSync(process.execPath, [BIN, ...args], {
     env: sandbox.env,
