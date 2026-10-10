@@ -165,7 +165,12 @@ const list = () => {
 const agentNamed = (name) => list().find((agent) => agent.name === name)
 
 /** Polls until the agent's status is one of `kinds`; returns the agent and the statuses seen. */
-async function waitStatus(name, kinds, timeoutMs = 120_000) {
+/**
+ * `exitedGraceMs`: how long an `exited` agent may take to come back before this gives up early (a
+ * harness that crashed at start). After a daemon restart the agents resume one by one where
+ * their harness needs it (OpenCode shares one database), so a later one stays exited longer.
+ */
+async function waitStatus(name, kinds, timeoutMs = 120_000, exitedGraceMs = 5000) {
   const seen = []
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -178,13 +183,31 @@ async function waitStatus(name, kinds, timeoutMs = 120_000) {
     if (
       agent?.status === 'exited' &&
       !kinds.includes('exited') &&
-      Date.now() > deadline - timeoutMs + 5000
+      Date.now() > deadline - timeoutMs + exitedGraceMs
     ) {
       return { agent, seen, exited: true }
     }
     await sleep(400)
   }
   return { agent: agentNamed(name), seen, timedOut: true }
+}
+
+/**
+ * The agent's screen once it shows `pattern` (or the last screen after `timeoutMs`). A hook can
+ * report the turn finished before the TUI has drawn its answer (Codex on a slow runner), and a
+ * resumed TUI takes a while to draw on a cold start: wait for the screen, never assume it.
+ */
+/** A resumed TUI on a cold start (OpenCode on a macOS or Windows runner) can take half a minute. */
+const RESUME_SCREEN_MS = 60_000
+
+async function waitScreen(name, pattern, timeoutMs = 20_000, lines = 80) {
+  const deadline = Date.now() + timeoutMs
+  let screen = nsq('peek', name, '-n', String(lines)).stdout
+  while (!pattern.test(screen) && Date.now() < deadline) {
+    await sleep(500)
+    screen = nsq('peek', name, '-n', String(lines)).stdout
+  }
+  return screen
 }
 
 const runs = (step) => !only || only.has(step)
@@ -622,8 +645,8 @@ try {
         ...first.seen,
         ...done.seen
       ])
-      const peek = nsq('peek', name, '-n', '60').stdout
-      check(`${short}: the answer is on screen`, /NSQ_HELLO_DONE/.test(peek))
+      const peek = await waitScreen(name, /NSQ_HELLO_DONE/, 20_000, 60)
+      check(`${short}: the answer is on screen`, /NSQ_HELLO_DONE/.test(peek), peek.slice(-400))
     }
 
     if (runs('perm')) {
@@ -727,12 +750,8 @@ try {
       nsq('down')
       check(`${short}: daemon stopped`, list().length === 0)
       nsq('up')
-      const back = await waitStatus(name, ['idle', 'working', 'finished'], 60_000)
-      let peek = ''
-      for (let i = 0; i < 25 && !/NSQ_HELLO_DONE/.test(peek); i++) {
-        await sleep(1000)
-        peek = nsq('peek', name, '-n', '80').stdout
-      }
+      const back = await waitStatus(name, ['idle', 'working', 'finished'], 60_000, 45_000)
+      const peek = await waitScreen(name, /NSQ_HELLO_DONE/, RESUME_SCREEN_MS)
       check(`${short}: agent back after a daemon restart`, back.agent?.running === true, back.seen)
       check(
         `${short}: the resumed session shows the earlier turn`,
@@ -808,12 +827,8 @@ try {
         check(`${short}: the daemon restarted onto 0.1.1 by itself (agent idle)`, after !== null, {
           version: daemonState()?.version
         })
-        const back = await waitStatus(name, ['idle', 'working', 'finished'], 60_000)
-        let peek = ''
-        for (let i = 0; i < 25 && !/NSQ_HELLO_DONE/.test(peek); i++) {
-          await sleep(1000)
-          peek = nsq('peek', name, '-n', '80').stdout
-        }
+        const back = await waitStatus(name, ['idle', 'working', 'finished'], 60_000, 45_000)
+        const peek = await waitScreen(name, /NSQ_HELLO_DONE/, RESUME_SCREEN_MS)
         check(
           `${short}: the agent is back after the update`,
           back.agent?.running === true,
@@ -1023,7 +1038,7 @@ try {
         const lines = commandLines()
         const done = await waitStatus(name, ['finished'], 90_000)
         const turns = server.requests.slice(before).filter((r) => r.protocol && !r.probe)
-        const peek = nsq('peek', name, '-n', '60').stdout
+        const peek = await waitScreen(name, /NSQ_HELLO_DONE/, 20_000, 60)
         check(
           `${short} on ${provider}: the turn ran on that server (${path})`,
           started.status === 0 &&

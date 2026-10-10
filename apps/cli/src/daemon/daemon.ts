@@ -153,6 +153,15 @@ const READY_SETTLE_MS = 1500
 const READY_MARKERS: Partial<Record<AgentRecord['harness'], RegExp>> = {
   opencode: /ctrl\+p commands|Ask anything/
 }
+/**
+ * OpenCode agents of one user share one database (`opencode.db`). Two starting at the same moment
+ * (`nsq up` resuming several, a daemon restart) collide on it: the loser dies with "database is
+ * locked" (2.x: "Standalone server exited before reporting readiness"; measured on 2.0.26). So
+ * OpenCode starts go one at a time: the next waits until the previous one's TUI is up, it exited,
+ * or this long passed.
+ */
+const OPENCODE_START_GATE_MS = 20_000
+
 /** A model switch restarts the harness only after the person has not typed for this long… */
 const SWITCH_QUIET_MS = 3000
 /** …waiting at most this long; still typing then → it waits for the end of the turn instead. */
@@ -187,6 +196,8 @@ export class Daemon {
   private readonly ptys = new PtyHost()
   // Terminal replies go straight to the pty: not the person typing, not a submit.
   private readonly screens = new Screens((id, data) => this.ptys.reply(id, data))
+  /** The OpenCode start in progress (see OPENCODE_START_GATE_MS); resolves when it is up. */
+  private openCodeStart: Promise<void> = Promise.resolve()
   private readonly runtime = new Map<string, Runtime>()
   private readonly clients = new Set<Client>()
   private readonly usage = new UsageTracker()
@@ -688,6 +699,14 @@ export class Daemon {
     if (prompt && promptArgs(record.harness, openCodeV2, prompt).length === 0) {
       rt.pendingPrompt = prompt
     }
+    // One OpenCode start at a time (OPENCODE_START_GATE_MS): wait for the one before, then hold
+    // the next until this one is up.
+    let releaseGate: (() => void) | undefined
+    if (record.harness === 'opencode') {
+      const previous = this.openCodeStart
+      this.openCodeStart = new Promise<void>((resolve) => (releaseGate = resolve))
+      await previous
+    }
     try {
       await this.ptys.spawn(request(resumed, prompt), {
         onSessionNotFound: () => {
@@ -701,10 +720,12 @@ export class Daemon {
         }
       })
     } catch (error) {
+      releaseGate?.()
       // Never typed into a later start that did not ask for it.
       rt.pendingPrompt = undefined
       throw error
     }
+    if (releaseGate) void this.untilOpenCodeUp(record.id).finally(releaseGate)
     this.store.update(record.id, { sessionStarted: true, wantRunning: true })
     // A resumed agent sits at its prompt until a hook says otherwise.
     if (resumed && !agentStatusSnapshot(record.id)) {
@@ -714,6 +735,16 @@ export class Daemon {
     if (rt.pendingPrompt) this.deliverWhenReady(record.id)
     this.pushAgent(record.id)
     return warnings
+  }
+
+  /** Resolves once this OpenCode agent's TUI is on screen, it is gone, or OPENCODE_START_GATE_MS passed. */
+  private async untilOpenCodeUp(id: string): Promise<void> {
+    const marker = READY_MARKERS.opencode!
+    const deadline = Date.now() + OPENCODE_START_GATE_MS
+    while (Date.now() < deadline && this.ptys.isRunning(id)) {
+      if (marker.test(this.screens.tail(id, 60).join('\n'))) return
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
   }
 
   /** Submits the pending first prompt once the harness's output has been quiet for a moment. */
