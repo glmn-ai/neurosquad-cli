@@ -15,6 +15,7 @@ import {
   truncate
 } from './format.js'
 import { attach, parseDetachKey } from './attach.js'
+import { openCurrent } from './client/handover.js'
 import { readConfig, writeConfig, type NsqConfig } from './config.js'
 import { ensureDir, paths } from './paths.js'
 import type { AgentView, RunSpec } from './protocol.js'
@@ -32,9 +33,13 @@ const out = (line = ''): void => {
 
 async function withClient<T>(
   run: (client: DaemonClient) => Promise<T>,
-  autostart = true
+  autostart = true,
+  handover = true
 ): Promise<T> {
-  const client = await DaemonClient.open('cli', { autostart })
+  // An older daemon (the package was upgraded under it) is handed over to this copy first.
+  const client = handover
+    ? await openCurrent('cli', { autostart })
+    : await DaemonClient.open('cli', { autostart })
   try {
     return await run(client)
   } finally {
@@ -423,9 +428,13 @@ export async function cmdDown(): Promise<void> {
     out('the nsq daemon is not running')
     return
   }
-  await withClient(async (client) => {
-    await client.request({ t: 'shutdown', stopAgents: true })
-  }, false)
+  await withClient(
+    async (client) => {
+      await client.request({ t: 'shutdown', stopAgents: true })
+    },
+    false,
+    false
+  )
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline && (await daemonRunning()))
     await new Promise((r) => setTimeout(r, 150))
@@ -439,7 +448,18 @@ export async function cmdDoctor(): Promise<void> {
   out(`nsq ${VERSION} · node ${process.version} · ${process.platform}-${process.arch}`)
   out(`home: ${paths.home()}`)
   const running = await daemonRunning()
-  out(`daemon: ${running ? `running (pid ${readState()?.pid})` : 'not running'}`)
+  const daemon = running ? readState() : null
+  out(
+    `daemon: ${daemon ? `running (pid ${daemon.pid}, nsq ${daemon.version || '?'})` : running ? 'running' : 'not running'}`
+  )
+  if (daemon?.version && daemon.version !== VERSION) {
+    const { daemonIsOlder } = await import('./client/handover.js')
+    out(
+      daemonIsOlder(daemon.version)
+        ? `             VERSION MISMATCH: the daemon runs ${daemon.version}, this nsq is ${VERSION} — its agents run the old code; the next nsq command restarts it on ${VERSION} once no agent is busy (now: nsq down && nsq up)`
+        : `             the daemon runs ${daemon.version}, this nsq is ${VERSION} (an older copy: the daemon is not restarted on it)`
+    )
+  }
   for (const harness of ['claude-code', 'codex-cli', 'opencode'] as const) {
     const found = resolveHarnessCommand(harness)
     out(`${HARNESS_LABEL[harness].padEnd(12)} ${found ?? 'not found on PATH'}`)
@@ -518,8 +538,44 @@ export async function cmdOpenRouter(args: ParsedArgs): Promise<void> {
       )
       return
     }
+    case 'test': {
+      const model = args.positional[1]
+      if (!model)
+        throw new UsageError('nsq openrouter test <model> [--harness claude|codex|opencode]')
+      const harness = harnessFromAlias(flagString(args, 'harness') ?? 'claude')
+      const short =
+        harness === 'claude-code'
+          ? 'claude'
+          : harness === 'codex-cli'
+            ? 'codex'
+            : harness === 'opencode'
+              ? 'opencode'
+              : undefined
+      if (!short) throw new UsageError('--harness claude|codex|opencode')
+      const { openRouterKey } = await import('./daemon/secrets.js')
+      const key = await openRouterKey()
+      if (!key) throw new Error('no OpenRouter key (nsq openrouter set-key, or OPENROUTER_API_KEY)')
+      const { runOpenRouterTest } = await import('./openrouterTest.js')
+      const apiBase = process.env['NSQ_OPENROUTER_BASE_URL'] || undefined
+      out(`${model} on OpenRouter, the way ${HARNESS_LABEL[harness!]} sends it through nsq:`)
+      const report = await runOpenRouterTest(short, model, key, {
+        ...(apiBase ? { apiBase } : {}),
+        onResult: (result) => {
+          out(`${result.ok ? 'ok  ' : 'FAIL'} ${result.status || '—'}  ${result.request.label}`)
+          if (!result.ok || !result.request.label.startsWith('+'))
+            for (const line of result.detail.split('\n')) out(`       ${line}`)
+        }
+      })
+      if (report.rejected.length) {
+        out(`OpenRouter refuses for ${model}: ${report.rejected.join('; ')}`)
+      }
+      if (!report.ok) process.exitCode = 1
+      return
+    }
     default:
-      throw new UsageError('nsq openrouter set-key|clear-key|models [query]|status')
+      throw new UsageError(
+        'nsq openrouter set-key|clear-key|models [query]|status|test <model> [--harness claude|codex|opencode]'
+      )
   }
 }
 
@@ -789,7 +845,7 @@ export async function cmdPhone(args: ParsedArgs): Promise<void> {
         : "going online through a Cloudflare quick tunnel (the first time, cloudflared is downloaded from Cloudflare's GitHub releases and its sha256 checked)…\n"
     )
   }
-  const client = await DaemonClient.open('phone')
+  const client = await openCurrent('phone')
   try {
     const reply = (await client.request({
       t: 'phone',

@@ -113,6 +113,11 @@ export type Request =
   | { t: 'shutdown'; stopAgents?: boolean }
   /** Updates: the state, a check now, install now, or restart onto an installed one (when idle). */
   | { t: 'update'; action: 'status' | 'check' | 'install' | 'apply' }
+  /**
+   * A newer nsq connected (npx, a manual upgrade the updater does not know about): restart the
+   * daemon on that copy once no agent is busy — `now` (U in the dashboard): at once.
+   */
+  | { t: 'handover'; node: string; script: string; version: string; now?: boolean }
 
 export type RequestWithId = Request & { rid: number }
 

@@ -26,6 +26,35 @@ not yours to write — nsq never uses `sudo`; run the shown command the way you 
 installed update waits for a quiet moment: no busy agent, no dashboard open; **U** restarts now.
 [Updates](updates.md) has the details.
 
+## The daemon is older than nsq (an upgrade "did nothing")
+
+The daemon keeps running when you upgrade nsq — `npx neurosquad` picking a new release, or
+`npm i -g neurosquad` — and its agents keep running the old code until it restarts. `nsq doctor`
+shows `VERSION MISMATCH` then. The first command of the newer nsq (the dashboard, `nsq ls`,
+`nsq attach`…) restarts the daemon on itself the way an update does: the new daemon starts first,
+the agents come back on their sessions, with the model and provider their records hold. While an
+agent is working, needs you or has prompts queued it waits and says so
+(`the daemon is 0.2.0, this nsq is 0.2.1 — it restarts on it at the next nsq command once they
+are free`; a daemon of 0.2.1 or later does it by itself once they are free); in the dashboard
+**U** restarts now (a working agent's turn is cut off). `nsq down && nsq up` does the same by hand.
+
+## OpenRouter: "API Error: 400 …" or "There's an issue with the selected model"
+
+The CLI shows only a summary of OpenRouter's answer. Ask OpenRouter directly, the way the CLI
+does through nsq (same endpoint, headers and request shape, your stored key — never printed):
+
+```sh
+nsq openrouter test deepseek/deepseek-v4.1-flash                  # as Claude Code sends it
+nsq openrouter test openai/gpt-5.5 --harness codex                # or opencode
+```
+
+It prints OpenRouter's whole error (the JSON names the field or the reason: an unknown slug,
+no provider for the request, credits, a refused field). For Claude Code with a model that is not
+Claude's it also sends the full request Claude Code makes on its own and, if OpenRouter refuses
+that, each of its extras alone — and names the ones refused. nsq sends such models the plain
+request ([OpenRouter](openrouter.md#claude-code-with-other-models)); an agent started by nsq 0.2.0
+or earlier gets it after the restart above.
+
 ## The terminal backend does not load (node-pty)
 
 nsq runs each agent in a pseudo-terminal through a prebuilt `node-pty`; nothing is compiled. If

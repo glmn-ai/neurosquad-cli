@@ -38,6 +38,17 @@ you nothing — never in the middle of an agent's turn.
    in the last 5 minutes. Before it switches, it runs the new version once (`--version`): if that fails, the old daemon and every agent keep running and the dashboard says why. The restart is the same as `nsq down` + `nsq up`: agents come back on
    their sessions. Until then the dashboard shows **updated to x.y.z · U restart**.
 
+### A newer nsq meets an older daemon
+
+Upgrades the daemon did not make itself — `npx neurosquad` picking a new release, `npm i -g`,
+a Homebrew upgrade by hand — leave the old daemon running. The first command of the newer nsq
+restarts it on itself, the same way (the new version starts first, agents resume on their
+sessions), as soon as no agent is working, needs you, starts or has prompts queued; until then it
+says so, and a daemon of 0.2.1 or later does it by itself once they are free (an older one: at
+the next nsq command after that). An open dashboard or a recent
+keystroke does not hold it: you are at the newer nsq right now. **U** in the dashboard does it at
+once. An older nsq never restarts a newer daemon. `nsq doctor` shows a version mismatch.
+
 ## In the dashboard
 
 The header shows what is going on: `update 0.1.0 → 0.2.0`, `installing…`, `updated to 0.2.0 · U

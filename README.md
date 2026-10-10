@@ -121,6 +121,7 @@ nsq diff <agent>                      uncommitted changes (git diff HEAD) in its
 nsq peek <agent> [-n 20]              the last lines of its screen
 nsq cost [--since 7d] [--json]        what each agent spent
 nsq openrouter set-key|clear-key|models [query]|status
+nsq openrouter test <model> [--harness claude|codex|opencode]
 nsq provider add <name> --url <base> [--key-stdin|--ask-key]
                                       your own server: llama.cpp, Ollama, LM Studio,
                                       vLLM, SGLang, Unsloth Studio, any compatible API

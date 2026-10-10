@@ -48,6 +48,36 @@ export const CLAUDE_CLOUD_SWITCHES_OFF: Readonly<Record<string, string>> = {
   CLAUDE_CODE_SKIP_FOUNDRY_AUTH: ''
 }
 
+/**
+ * Claude Code on OpenRouter with a model that is not Claude's (`deepseek/…`, `openai/…`): the
+ * request in the plain Messages shape every Anthropic-compatible backend takes — what Claude Code
+ * itself sends a model it does not know on Bedrock or Vertex. Claude Code treats any model id it
+ * does not recognise behind `ANTHROPIC_BASE_URL` as a current Claude and sends it everything
+ * (2.1.296: `thinking: adaptive` with `display`, `output_config.effort`, `context_management`,
+ * `safeguards`, mid-conversation `role: "system"` messages, ten `anthropic-beta` values), and
+ * OpenRouter's translation for other providers answered "400 Invalid Anthropic Messages API
+ * request" — a rejection Claude Code does not recognise, so it never falls back by itself.
+ *
+ * - `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` (documented): no `context_management`, `safeguards`,
+ *   `thinking.display`, beta tool fields (`defer_loading`…) or pre-release betas.
+ * - `CLAUDE_CODE_MODEL_CAPABILITIES` (Claude Code's per-model capability switch; no `model=`
+ *   prefix = every model): no adaptive thinking (a fixed `budget_tokens` instead, which OpenRouter
+ *   maps to `reasoning.max_tokens`), no `output_config.effort`, and no mid-conversation system
+ *   messages (their text goes into the user turn, as before that beta).
+ *
+ * Checked against a recording server with Claude Code 2.1.296 (scripts/e2e, "models"). Claude's
+ * own models (`anthropic/…`) keep every feature.
+ */
+export const CLAUDE_CODE_PLAIN_MESSAGES: Readonly<Record<string, string>> = {
+  CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS: '1',
+  CLAUDE_CODE_MODEL_CAPABILITIES: '-adaptive_thinking,-effort,-mid_conv_system'
+}
+
+/** True for a slug served by Anthropic (`anthropic/…`, `~anthropic/…`): Claude Code's full feature set. */
+export function isAnthropicSlug(slug: string): boolean {
+  return /^~?anthropic\//i.test(slug)
+}
+
 /** A model slug safe for argv and config (OpenRouter slugs: `vendor/model[:variant]`, `~` aliases). */
 export const MODEL_ID_PATTERN = /^~?[A-Za-z0-9][\w.\-/:@+]{0,199}$/
 
@@ -198,7 +228,8 @@ export function openRouterLaunch(
                 ANTHROPIC_DEFAULT_OPUS_MODEL: slug,
                 ANTHROPIC_DEFAULT_SONNET_MODEL: slug,
                 ANTHROPIC_DEFAULT_HAIKU_MODEL: slug,
-                CLAUDE_CODE_SUBAGENT_MODEL: slug
+                CLAUDE_CODE_SUBAGENT_MODEL: slug,
+                ...(isAnthropicSlug(slug) ? {} : CLAUDE_CODE_PLAIN_MESSAGES)
               }
             : {})
         }

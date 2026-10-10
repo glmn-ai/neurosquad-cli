@@ -23,6 +23,9 @@ export class DaemonClient {
   private readonly listeners = new Set<(event: DaemonEvent) => void>()
   private closed = false
   private readonly closeListeners = new Set<() => void>()
+  /** The daemon's version and pid, from its hello. */
+  daemonVersion = ''
+  daemonPid = 0
 
   private constructor(private readonly socket: Socket) {
     socket.setEncoding('utf8')
@@ -54,12 +57,14 @@ export class DaemonClient {
         throw new Error(`could not start the nsq daemon (see ${paths.daemonLog()})`)
     }
     const client = new DaemonClient(socket)
-    await client.request({
+    const hello = await client.request<{ version?: string; pid?: number } | undefined>({
       t: 'hello',
       token: state!.token,
       version: PROTOCOL_VERSION,
       client: clientName
     })
+    client.daemonVersion = String(hello?.version ?? state!.version ?? '')
+    client.daemonPid = Number(hello?.pid ?? state!.pid ?? 0)
     return client
   }
 
@@ -97,6 +102,11 @@ export class DaemonClient {
     return () => this.listeners.delete(listener)
   }
 
+  /** The connection is gone. */
+  get isClosed(): boolean {
+    return this.closed
+  }
+
   onClose(listener: () => void): void {
     this.closeListeners.add(listener)
   }
@@ -131,11 +141,15 @@ function tryConnect(path: string): Promise<Socket | null> {
 }
 
 /** The script that runs the CLI (dist/bin.js). */
-function binScript(): string {
+export function binScript(): string {
   return fileURLToPath(new URL('../bin.js', import.meta.url))
 }
 
-export async function startDaemon(): Promise<void> {
+/**
+ * Starts a daemon of this copy, detached. `successorOf`: it waits for that daemon (pid) to exit
+ * first — a hand-over, where the old one still holds the lock.
+ */
+export function spawnDaemon(successorOf?: number): void {
   ensureDir(paths.home())
   const log = openSync(paths.daemonLog(), 'a')
   try {
@@ -144,12 +158,20 @@ export async function startDaemon(): Promise<void> {
       windowsHide: true,
       stdio: ['ignore', log, log],
       cwd: paths.home(),
-      env: { ...process.env, NSQ_DAEMON: '1' }
+      env: {
+        ...process.env,
+        NSQ_DAEMON: '1',
+        NSQ_SUCCESSOR_OF: successorOf ? String(successorOf) : undefined
+      }
     })
     child.unref()
   } finally {
     closeSync(log)
   }
+}
+
+export async function startDaemon(): Promise<void> {
+  spawnDaemon()
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 150))

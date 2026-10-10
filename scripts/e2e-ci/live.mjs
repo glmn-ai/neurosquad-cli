@@ -6,7 +6,8 @@
 //   claude | codex | opencode-1 | opencode-2
 //       run.mjs: hello, perm (needs you + inline answer), phone, resume after a
 //       daemon restart, cost vs the fake's log, OpenRouter attribution headers,
-//       worktree, custom providers (your own servers); extra.mjs: interrupt, question
+//       worktree, custom providers (your own servers), model switches, the hand-over of an
+//       older daemon; extra.mjs: interrupt, question
 //   dashboard
 //       tui-record.mjs (real pty, 3 agents, keys, BEL/OSC 9 ring, asciicast),
 //       dictation.mjs (synthesised speech → Whisper tiny.en → paste),
@@ -79,6 +80,9 @@ if (plan.harness) {
     'cost',
     'openrouter',
     ...(hasProviders ? ['custom'] : []),
+    // Model switches on the wire, and an older daemon handed over to this nsq.
+    'models',
+    'handover',
     'worktree'
   ]
   const runWork = join(out, 'run')

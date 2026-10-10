@@ -43,6 +43,8 @@ import {
 } from '@neurosquad/term-view'
 import { formatUsd, type HarnessId } from '@neurosquad/core'
 import { DaemonClient } from '../client/client.js'
+import { busyAgents, handOver, waitingText, type Handover } from '../client/handover.js'
+import { VERSION } from '../version.js'
 import { readConfig } from '../config.js'
 import { findDetachKey, parseDetachKey } from '../attach.js'
 import { HARNESS_LABEL, costLabel, elapsed } from '../format.js'
@@ -201,8 +203,13 @@ export class Dashboard {
   private toast: { text: string; until: number } | null = null
   private closed = false
   private resolveClosed: () => void = () => {}
-  /** How the dashboard ended: closed by the person, or handed over to an updated daemon. */
-  private outcome: 'quit' | 'restart' = 'quit'
+  /**
+   * How the dashboard ended: closed by the person, handed over to an updated daemon, or leaving
+   * so this (newer) nsq can restart an older daemon on itself (`handover-now`: U, busy or not).
+   */
+  private outcome: DashboardOutcome = 'quit'
+  /** The daemon is older than this nsq and waits for busy agents before it restarts on it. */
+  private handover: Extract<Handover, { kind: 'waiting' }> | null = null
   private update: UpdateView | null = null
   private announcedUpdate = false
   private logoSlots: { row: number; col: number; harness: string }[] = []
@@ -242,7 +249,26 @@ export class Dashboard {
 
   // ---- lifecycle --------------------------------------------------------------------
 
-  async run(): Promise<'quit' | 'restart'> {
+  /** Before run: the daemon is older and the hand-over waits for busy agents. */
+  waitForHandover(wait: Extract<Handover, { kind: 'waiting' }>): void {
+    this.handover = wait
+  }
+
+  /** Before run: a note to show once the dashboard is up. */
+  notice(text: string): void {
+    this.toastMessage(text)
+  }
+
+  /** An older daemon that the client restarts (before 0.2.1): as soon as no agent is busy. */
+  private considerHandover(): void {
+    const wait = this.handover
+    if (!wait || wait.byDaemon || this.closed) return
+    if (busyAgents([...this.agents.values()]).length) return
+    this.outcome = 'handover'
+    this.quit()
+  }
+
+  async run(): Promise<DashboardOutcome> {
     // Image logos: known terminals come from the environment; the rest (Windows Terminal, VS Code,
     // Konsole…) are asked once. The probe never holds the first frame back: it owns stdin for at
     // most its timeout (150 ms), then our input handler takes over with whatever was typed meanwhile.
@@ -425,9 +451,11 @@ export class Dashboard {
         for (const agent of event.agents) this.noteAgent(agent)
         for (const id of [...this.agents.keys()])
           if (!event.agents.some((a) => a.id === id)) this.dropAgent(id)
+        this.considerHandover()
         break
       case 'agent':
         this.noteAgent(event.agent)
+        this.considerHandover()
         break
       case 'removed':
         this.dropAgent(event.id)
@@ -697,6 +725,15 @@ export class Dashboard {
 
   /** The update, while there is something to say: found, installing, installed (U), failed. */
   private updateSegments(): Seg[] {
+    if (this.handover) {
+      const text = `daemon ${this.handover.from} → ${VERSION} when agents are free · U`
+      return [
+        seg(`${fitText(text, Math.max(16, Math.floor(this.width / 3)))}  `, {
+          fg: 'warning',
+          bg: 'headerBg'
+        })
+      ]
+    }
     const badge = updateBadge(this.update)
     if (!badge) return []
     return [
@@ -709,6 +746,24 @@ export class Dashboard {
 
   /** U: what the update is doing, and the way to apply or install it now. */
   private showUpdate(): void {
+    if (this.handover) {
+      const busy = busyAgents([...this.agents.values()])
+      this.modal = {
+        kind: 'confirm',
+        title: `Restart the daemon on ${VERSION} now?`,
+        body: [
+          `The daemon runs nsq ${this.handover.from}; this is ${VERSION}. It restarts on ${VERSION} by itself once no agent is busy.`,
+          'Running agents stop and come back on their sessions (like nsq down / nsq up).',
+          ...(busy.length ? [`Busy now: ${busy.join(', ')} — their current turn is cut off.`] : []),
+          'Other nsq windows (nsq attach) close; open them again after.'
+        ].join('\n'),
+        yes: () => {
+          this.outcome = 'handover-now'
+          this.quit()
+        }
+      }
+      return
+    }
     const update = this.update
     if (!update) return
     const agents = [...this.agents.values()].filter((agent) => agent.running)
@@ -2402,16 +2457,55 @@ export class Dashboard {
   }
 }
 
+export type DashboardOutcome = 'quit' | 'restart' | 'handover' | 'handover-now'
+
+/**
+ * An older daemon (the package was upgraded under it): restarted on this copy now when nothing
+ * is busy, else the dashboard says so and it happens once the agents are free (or on U).
+ */
+async function handOverForDashboard(
+  client: DaemonClient,
+  now: boolean
+): Promise<{ client: DaemonClient; wait?: Extract<Handover, { kind: 'waiting' }>; note?: string }> {
+  if (process.env['NSQ_NO_HANDOVER'] === '1') return { client }
+  try {
+    const result = await handOver(client, 'dashboard', { now })
+    if (result.kind === 'restarted') {
+      return {
+        client: result.client,
+        note: `the daemon was nsq ${result.from}; it now runs ${VERSION} (agents resumed on their sessions)`
+      }
+    }
+    if (result.kind === 'waiting') return { client, wait: result }
+    return { client }
+  } catch (error) {
+    const note = `could not restart the daemon on ${VERSION}: ${error instanceof Error ? error.message : String(error)}`
+    return { client: client.isClosed ? await DaemonClient.open('dashboard') : client, note }
+  }
+}
+
 export async function runDashboard(): Promise<void> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     throw new Error('the dashboard needs an interactive terminal (try `nsq ls`)')
   }
-  let client = await DaemonClient.open('dashboard')
+  let state = await handOverForDashboard(await DaemonClient.open('dashboard'), false)
   for (;;) {
-    const outcome = await new Dashboard(client).run()
-    if (outcome !== 'restart') return
-    process.stdout.write('nsq: the daemon is restarting on the new version…\n')
-    client = await reconnect()
+    const dashboard = new Dashboard(state.client)
+    if (state.wait) dashboard.waitForHandover(state.wait)
+    if (state.note) dashboard.notice(state.note)
+    else if (state.wait) dashboard.notice(waitingText(state.wait))
+    const outcome = await dashboard.run()
+    if (outcome === 'quit') return
+    if (outcome === 'restart') {
+      process.stdout.write('nsq: the daemon is restarting on the new version…\n')
+      state = { client: await reconnect() }
+      continue
+    }
+    process.stdout.write(`nsq: restarting the daemon on ${VERSION}…\n`)
+    state = await handOverForDashboard(
+      await DaemonClient.open('dashboard'),
+      outcome === 'handover-now'
+    )
   }
 }
 
