@@ -198,6 +198,8 @@ export class Daemon {
   private readonly screens = new Screens((id, data) => this.ptys.reply(id, data))
   /** The OpenCode start in progress (see OPENCODE_START_GATE_MS); resolves when it is up. */
   private openCodeStart: Promise<void> = Promise.resolve()
+  /** Per agent, how many times it was stopped: a start queued behind the gate checks it after. */
+  private readonly stopCounts = new Map<string, number>()
   private readonly runtime = new Map<string, Runtime>()
   private readonly clients = new Set<Client>()
   private readonly usage = new UsageTracker()
@@ -705,7 +707,14 @@ export class Daemon {
     if (record.harness === 'opencode') {
       const previous = this.openCodeStart
       this.openCodeStart = new Promise<void>((resolve) => (releaseGate = resolve))
+      const stops = this.stopCounts.get(record.id) ?? 0
       await previous
+      // Stopped or removed while it waited: that wins, nothing starts.
+      if ((this.stopCounts.get(record.id) ?? 0) !== stops || !this.store.get(record.id)) {
+        releaseGate?.()
+        rt.pendingPrompt = undefined
+        throw new Error(`${record.name} was stopped before it started`)
+      }
     }
     try {
       await this.ptys.spawn(request(resumed, prompt), {
@@ -952,6 +961,7 @@ export class Daemon {
   }
 
   private async stopAgent(id: string, keepWanted = false): Promise<void> {
+    this.stopCounts.set(id, (this.stopCounts.get(id) ?? 0) + 1)
     if (!keepWanted) this.store.update(id, { wantRunning: false })
     await this.ptys.kill(id)
   }
