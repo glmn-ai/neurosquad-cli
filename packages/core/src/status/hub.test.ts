@@ -51,11 +51,10 @@ const tick = (ms = 20): Promise<void> => new Promise((resolve) => setTimeout(res
 
 /**
  * Waits for real I/O (a transcript read) while the hub's timers are fake: yields to the event
- * loop until `done()` holds. Bounded by turns, not time.
+ * loop until `done()` holds. No limit of its own — a stalled read hits the test's timeout.
  */
 async function untilIo(done: () => boolean): Promise<void> {
-  for (let i = 0; i < 5000 && !done(); i++) await new Promise((resolve) => setImmediate(resolve))
-  expect(done()).toBe(true)
+  while (!done()) await new Promise((resolve) => setImmediate(resolve))
 }
 
 describe('status hub', () => {
