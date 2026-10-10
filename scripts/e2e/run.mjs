@@ -26,7 +26,7 @@
 //              provider (nsq 0.1.1) moves to OpenRouter at start; "default" goes back to the
 //              harness's own login. Checked on the wire: path, key, slug, attribution
 //   handover   a daemon of an older nsq (0.1.2, the real release from npm) with an agent on
-//              OpenRouter: the first command of this nsq waits while the agent works, then
+//              OpenRouter: the first command of this nsq waits while the agent needs you, then
 //              restarts the daemon on itself; the agent resumes its session on the stored model
 //   worktree   an agent in its own git worktree
 //   push       ntfy push: a needs-you notification with the name and question only, once
@@ -555,19 +555,21 @@ async function handoverScenario(short) {
       first?.version
     )
 
-    // Mid-turn: this nsq runs its command on the old daemon and says why it does not restart.
-    from = fake.requests.length
-    await run(old, 'send', name, '[nsq:slow] a long turn on 0.1.2')
-    for (let i = 0; i < 60 && !turnRequest(from, 'a long turn on 0.1.2'); i++) await sleep(250)
-    await waitOld(['working'], 30_000)
+    // Busy (waiting for an answer — a state that holds still, unlike a turn's few seconds of
+    // "working"): this nsq runs its command on the old daemon and says why it does not restart.
+    rmSync(join(sandbox.project, PERM_DIR), { recursive: true, force: true })
+    await run(old, 'send', name, '[nsq:perm] a question on 0.1.2')
+    const asked = await waitOld(['needs-input'], 120_000)
     const busy = await run(BIN, 'ls')
     check(
-      `${short}: a newer nsq does not restart the daemon while the agent works, and says so`,
+      `${short}: a newer nsq does not restart the daemon while the agent needs you, and says so`,
       busy.status === 0 &&
         /the daemon is 0\.1\.2, this nsq is .* once they are free \(.*is busy/.test(busy.stderr) &&
         daemonState()?.pid === first?.pid,
-      busy.stderr.trim()
+      { stderr: busy.stderr.trim(), status: asked?.status }
     )
+    await sleep(1500)
+    await run(old, 'answer', name, 'yes')
     await waitOld(['finished'])
 
     // Free: the next command hands the daemon over to this nsq.
@@ -583,7 +585,7 @@ async function handoverScenario(short) {
       { stderr: handed.stderr.trim(), version: after?.version }
     )
     let peek = ''
-    for (let i = 0; i < 40 && !/NSQ_SLOW_DONE/.test(peek); i++) {
+    for (let i = 0; i < 40 && !/NSQ_PERM_DONE/.test(peek); i++) {
       await sleep(1000)
       peek = (await run(BIN, 'peek', name, '-n', '80')).stdout
     }
@@ -597,7 +599,7 @@ async function handoverScenario(short) {
       `${short}: the agent resumed its session on the new daemon, on ${slug} through OpenRouter`,
       turn?.model === slug &&
         turn.path?.startsWith('/api/v1/') &&
-        turn.prompts.some((p) => p.includes('a long turn on 0.1.2')),
+        turn.prompts.some((p) => p.includes('a question on 0.1.2')),
       turn && { model: turn.model, path: turn.path, prompts: turn.prompts }
     )
   } finally {
