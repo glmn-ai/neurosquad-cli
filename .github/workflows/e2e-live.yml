@@ -108,6 +108,8 @@ jobs:
         run: |
           set_name=main
           if [ "$SUITE" = opencode-2 ]; then set_name=oc2; fi
+          # The dashboard records OpenCode 2 (tui-record.mjs --opencode-bin).
+          if [ "$SUITE" = dashboard ]; then set_name=main,oc2; fi
           node .e2e-ci/scripts/e2e-ci/install-clis.mjs \
             --prefix "$RUNNER_TEMP/clis" --channel "$CLI_CHANNEL" --sets "$set_name"
 

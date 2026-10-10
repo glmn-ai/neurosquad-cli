@@ -119,6 +119,9 @@ export function makeSandbox(work, fakeBase, options = {}) {
     XDG_DATA_HOME: join(home, '.local', 'share'),
     XDG_STATE_HOME: join(home, '.local', 'state'),
     XDG_CACHE_HOME: join(home, '.cache'),
+    // OpenCode's home (its `~` in the TUI, ~/.opencode lookups): its own override, read before
+    // os.homedir(), so it is the sandbox's on every OS whatever Bun makes of HOME/USERPROFILE.
+    OPENCODE_TEST_HOME: home,
     OPENCODE_DISABLE_AUTOUPDATE: '1',
     OPENCODE_DISABLE_MODELS_FETCH: '1',
     OPENCODE_DISABLE_LSP_DOWNLOAD: 'true',

@@ -14,6 +14,7 @@
 //
 //   node scripts/e2e-ci/tui-record.mjs --root <repo under test> --bin <dir with the CLIs>
 //        --out <dir> [--cols 140 --rows 38] [--native-notify] [--headless-check] [--display :99]
+//        [--opencode-bin <dir with another opencode, first on PATH>]
 //        [--project <dir>]
 //        [--agents "claude:api-fix:[nsq:hello] …,codex:reviewer:[nsq:perm] …,opencode:docs:[nsq:hello] …"]
 //
@@ -31,6 +32,7 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync
 } from 'node:fs'
@@ -80,7 +82,7 @@ if (has('native-notify')) process.env.NSQ_E2E_NOTIFY = '1'
 const e2e = await loadE2e(root)
 const fake = await e2e.startFakeModel({ logFile: join(out, 'fake-requests.jsonl') })
 const sandbox = e2e.makeSandbox(work, fake.base, {
-  binDirs: get('bin') ? [resolve(get('bin'))] : []
+  binDirs: [get('opencode-bin'), get('bin')].filter(Boolean).map((dir) => resolve(dir))
 })
 const env = {
   ...sandbox.env,
@@ -106,6 +108,15 @@ if (ownProject) {
     join(project, 'package.json'),
     `${JSON.stringify({ name: 'demo-shop', private: true, scripts: { test: 'node --test' } }, null, 2)}\n`
   )
+  // Trusted already: Claude Code's trust dialog prints the folder's absolute path ("Accessing
+  // workspace: /Users/runner/…"), which would end up in the recording.
+  const claudeJson = join(sandbox.claudeDir, '.claude.json')
+  const claudeState = JSON.parse(readFileSync(claudeJson, 'utf8'))
+  claudeState.projects = {
+    ...claudeState.projects,
+    [project.replaceAll('\\', '/')]: { hasTrustDialogAccepted: true }
+  }
+  writeFileSync(claudeJson, JSON.stringify(claudeState))
 }
 const { bin, nsq, waitStatus, agentNamed } = makeNsq(root, env, project, log)
 const pty = createRequire(join(root, 'apps', 'cli', 'package.json'))('node-pty')

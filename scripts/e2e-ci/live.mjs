@@ -36,7 +36,9 @@ const SUITES = {
   codex: { harness: 'codex', set: 'main' },
   'opencode-1': { harness: 'opencode', set: 'main' },
   'opencode-2': { harness: 'opencode', set: 'oc2' },
-  dashboard: { set: 'main' }
+  // The recording's OpenCode tile runs OpenCode 2: 1.x prints the absolute project folder under
+  // its prompt (never `~`), which would put a runner path into the README's pictures.
+  dashboard: { set: 'main', opencodeSet: 'oc2' }
 }
 const plan = SUITES[suite]
 if (!plan) throw new Error(`unknown suite ${suite}; one of ${Object.keys(SUITES).join(', ')}`)
@@ -111,6 +113,9 @@ if (plan.harness) {
       bin,
       '--out',
       recordOut,
+      ...(plan.opencodeSet && installed[plan.opencodeSet]?.bin
+        ? ['--opencode-bin', installed[plan.opencodeSet].bin]
+        : []),
       ...(process.platform === 'linux' ? ['--native-notify', '--headless-check'] : []),
       ...(get('display') ? ['--display', get('display')] : [])
     ],
@@ -141,7 +146,10 @@ const results = {
   arch: process.arch,
   node: process.version,
   suite,
-  versions: installed[plan.set]?.versions ?? {},
+  versions: {
+    ...(installed[plan.set]?.versions ?? {}),
+    ...(plan.opencodeSet ? (installed[plan.opencodeSet]?.versions ?? {}) : {})
+  },
   parts
 }
 // Failures of an open nsq bug (known.json) are reported with their issue, not failing the job.
