@@ -269,9 +269,6 @@ const turnRequest = (from, text) =>
 async function waitTurn(name, from, text) {
   for (let i = 0; i < 180 && !turnRequest(from, text); i++) await sleep(500)
   await waitStatus(name, ['finished'], 60_000)
-  // A beat, as a person would take: Claude Code's Stop hook can land after a prompt typed the
-  // instant the turn showed finished, and then marks the new turn finished too.
-  await sleep(2000)
   return turnRequest(from, text)
 }
 

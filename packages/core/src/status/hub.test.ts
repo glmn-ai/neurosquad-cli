@@ -1,4 +1,7 @@
-import { beforeAll, describe, expect, it } from 'vitest'
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   configureStatusHub,
   receiveHook,
@@ -15,6 +18,14 @@ const harness = new Map<string, HarnessId>()
 const dangerous = new Set<string>()
 const events: AgentHookEvent[] = []
 const sessions = new Map<string, string>()
+
+// Transcripts are only read under a `projects` folder (claudeReconciler.ts `plausible`).
+const transcriptRoot = mkdtempSync(join(tmpdir(), 'nsq-hub-'))
+const transcriptDir = join(transcriptRoot, 'projects', 'p')
+mkdirSync(transcriptDir, { recursive: true })
+afterAll(() =>
+  rmSync(transcriptRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+)
 
 beforeAll(() => {
   configureStatusHub({
@@ -128,6 +139,50 @@ describe('status hub', () => {
     expect(kinds(id)).toEqual(['working', 'needs-input', 'working', 'finished'])
     expect(sessions.get(id)).toBe('ses_abcdefgh1234')
   })
+
+  it('Claude Code: a held Stop decided after the next prompt was submitted does not end that turn', async () => {
+    // The race the live e2e hit: turn 1's Stop arrives while the transcript still shows the
+    // turn running, so it is held; the transcript then ends turn 1 (finished), a prompt is typed
+    // at once (UserPromptSubmit fires before Claude writes it), and the held Stop comes due.
+    const id = agent('claude-code')
+    const file = join(transcriptDir, `${id}.jsonl`)
+    writeFileSync(file, '')
+    const line = (entry: Record<string, unknown>): void =>
+      appendFileSync(
+        file,
+        `${JSON.stringify({ ...entry, timestamp: new Date().toISOString() })}
+`
+      )
+    const hook = (event: string): string =>
+      receiveHook(id, event, JSON.stringify({ transcript_path: file }))
+    hook('UserPromptSubmit')
+    await tick(20)
+    line({ type: 'user', message: { content: 'turn one' } })
+    await tick(20)
+    hook('Stop') // the transcript shows turn 1 busy: held for 1.5 s
+    await tick(20)
+    line({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'x' }], stop_reason: 'end_turn' }
+    })
+    line({ type: 'system', subtype: 'turn_duration' })
+    // The transcript poll (every second while working) ends turn 1.
+    for (let i = 0; i < 40 && agentStatusSnapshot(id)?.kind !== 'finished'; i++) await tick(50)
+    expect(kinds(id)).toEqual(['working', 'finished'])
+    hook('UserPromptSubmit') // turn 2, typed the instant turn 1 showed finished
+    await tick(1600) // past the held Stop's 1.5 s
+    expect(agentStatusSnapshot(id)?.kind).toBe('working')
+    expect(kinds(id)).toEqual(['working', 'finished', 'working'])
+    // Turn 2's own Stop still ends it.
+    line({ type: 'user', message: { content: 'turn two' } })
+    line({
+      type: 'assistant',
+      message: { content: [{ type: 'text', text: 'x' }], stop_reason: 'end_turn' }
+    })
+    hook('Stop')
+    await tick(100)
+    expect(kinds(id)).toEqual(['working', 'finished', 'working', 'finished'])
+  }, 10_000)
 
   it('drops hooks sent by a previous process', () => {
     const id = agent('opencode')

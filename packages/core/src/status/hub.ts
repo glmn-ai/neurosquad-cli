@@ -117,7 +117,7 @@ export function emitHookFact(
   agentId: string,
   kind: AgentHookKind,
   detail?: string,
-  options: { resumeOnly?: boolean; label?: string; life?: number } = {}
+  options: { resumeOnly?: boolean; label?: string; life?: number; reportedAt?: number } = {}
 ): void {
   if (options.life !== undefined && options.life !== statusLife(agentId)) return
   feed(
@@ -126,7 +126,8 @@ export function emitHookFact(
       type: 'hook',
       kind,
       ...(detail ? { detail } : {}),
-      ...(options.resumeOnly ? { resumeOnly: true } : {})
+      ...(options.resumeOnly ? { resumeOnly: true } : {}),
+      ...(options.reportedAt !== undefined ? { reportedAt: options.reportedAt } : {})
     },
     options.label ?? kind
   )
@@ -515,14 +516,16 @@ function receiveClaude(
  * the moment the turn ends, with no UserPromptSubmit of its own; "finished"
  * there would ring for an agent that is about to work on. With a queued
  * prompt (or the next turn already running) the Stop waits and is dropped if
- * a new turn shows.
+ * a new turn shows. Either way the "finished" is decided after the Stop
+ * arrived; it carries that moment, so a prompt submitted (or a question
+ * asked) in between is not ended by it (machine.ts `reportedAt`).
  */
 async function claudeStop(agentId: string, life: number): Promise<void> {
   const stopAt = Date.now()
   const view = await refreshTranscript(agentId)
   const running = view?.phase === 'busy' && view.turnStartedAt !== undefined
   if (!view || (view.queued === 0 && !running)) {
-    emitHookFact(agentId, 'finished', undefined, { label: 'Stop', life })
+    emitHookFact(agentId, 'finished', undefined, { label: 'Stop', life, reportedAt: stopAt })
     return
   }
   const nextTurnFrom =
@@ -538,7 +541,11 @@ async function claudeStop(agentId: string, life: number): Promise<void> {
         later.turnStartedAt >= nextTurnFrom &&
         (later.phase === 'busy' || later.phase === 'answered')
       if (continued) return
-      emitHookFact(agentId, 'finished', undefined, { label: 'Stop (held)', life })
+      emitHookFact(agentId, 'finished', undefined, {
+        label: 'Stop (held)',
+        life,
+        reportedAt: stopAt
+      })
     })
   }, STOP_HOLD_MS)
 }
