@@ -18,7 +18,7 @@ import {
   writeSync
 } from 'node:fs'
 import { execFile, spawn, spawnSync } from 'node:child_process'
-import { basename, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import { promisify } from 'node:util'
 import {
   PtyHost,
@@ -1498,7 +1498,7 @@ export class Daemon {
       typeof script !== 'string' ||
       typeof version !== 'string' ||
       !existsSync(node) ||
-      !existsSync(script)
+      !isNsqCopy(script, version)
     ) {
       throw new Error('handover: no such nsq')
     }
@@ -1658,6 +1658,26 @@ export class Daemon {
   /** For `emitHookFact` callers inside the daemon (tests). */
   fact(id: string, kind: 'working' | 'needs-input' | 'finished', detail?: string): void {
     emitHookFact(id, kind, detail)
+  }
+}
+
+/**
+ * `script` is the CLI entry of an nsq copy at `version`: `<package>/dist/bin.js` next to a
+ * package.json of this package with that version. Only such a copy is run for a hand-over (any
+ * client can ask; it is checked before anything executes).
+ */
+export function isNsqCopy(script: string, version: string): boolean {
+  if (!isAbsolute(script) || basename(script) !== 'bin.js') return false
+  const dist = dirname(script)
+  if (basename(dist) !== 'dist') return false
+  try {
+    const pkg = JSON.parse(readFileSync(join(dirname(dist), 'package.json'), 'utf8')) as {
+      name?: unknown
+      version?: unknown
+    }
+    return pkg.name === PACKAGE_NAME && pkg.version === version && statSync(script).isFile()
+  } catch {
+    return false
   }
 }
 
