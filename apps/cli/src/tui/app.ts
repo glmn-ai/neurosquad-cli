@@ -50,7 +50,7 @@ import { findDetachKey, parseDetachKey } from '../attach.js'
 import { HARNESS_LABEL, costLabel, elapsed } from '../format.js'
 import type { AgentView, DaemonEvent, PhoneView, UpdateView } from '../protocol.js'
 import { updateBadge } from '../update/describe.js'
-import { paths } from '../paths.js'
+import { expandTilde, paths, tildePath } from '../paths.js'
 import { Canvas } from './canvas.js'
 import {
   InputParser,
@@ -691,7 +691,7 @@ export class Dashboard {
       seg(' ', { bg: 'headerBg' }),
       ...compactMark(this.theme).map((s) => ({ ...s, bg: 'headerBg' as const })),
       seg(' neurosquad', { fg: 'text', bg: 'headerBg', bold: true }),
-      seg(ws ? `  ${ws.path}` : '', { fg: 'mutedText', bg: 'headerBg' })
+      seg(ws ? `  ${tildePath(ws.path)}` : '', { fg: 'mutedText', bg: 'headerBg' })
     ]
     const g = glyphSet(this.theme.unicode)
     const right: Line = [
@@ -2037,7 +2037,7 @@ export class Dashboard {
         field: 2,
         name: new TextField('', 'automatic'),
         prompt: new TextField('', 'optional first prompt'),
-        cwd: new TextField(selected?.workspace ?? this.launchCwd),
+        cwd: new TextField(tildePath(selected?.workspace ?? this.launchCwd)),
         model: new TextField('', 'default'),
         worktree: false,
         provider: '',
@@ -2432,7 +2432,7 @@ export class Dashboard {
           t: 'run',
           spec: {
             harness,
-            cwd: form.cwd.value.trim() || this.launchCwd,
+            cwd: expandTilde(form.cwd.value.trim()) || this.launchCwd,
             ...(form.name.value.trim() ? { name: form.name.value.trim() } : {}),
             ...(harness !== 'command' && prompt ? { prompt } : {}),
             ...(command ? { command } : {}),
