@@ -76,9 +76,10 @@ describe.skipIf(!built)('daemon lock', () => {
       windowsHide: true
     })
     expect(down.status).toBe(0)
-    // `nsq down` returns once the daemon process is gone, not just its socket (spawnSync blocks
-    // the loop, so ask the OS rather than wait for the child's exit event).
-    expect(() => process.kill(winner!, 0)).toThrow()
+    // On Windows `nsq down` returns once the daemon process is gone, not just its socket
+    // (spawnSync blocks the loop, so ask the OS rather than wait for the child's exit event).
+    // Elsewhere the exited daemon is our unreaped child (a zombie still answers kill -0).
+    if (process.platform === 'win32') expect(() => process.kill(winner!, 0)).toThrow()
     expect(existsSync(join(home, 'daemon.lock'))).toBe(false)
   }, 60_000)
 

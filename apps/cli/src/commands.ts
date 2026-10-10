@@ -442,10 +442,13 @@ export async function cmdDown(): Promise<void> {
     false,
     false
   )
-  // The socket closes before the daemon has finished: wait for the process itself to exit, so
-  // that "stopped" means its files are closed (Windows refuses to delete files a process holds).
+  // The socket closes before the daemon has finished. On Windows, wait for the process itself to
+  // exit too: Windows refuses to delete files a live process holds, so "stopped" must mean the
+  // nsq home can be removed. (Not elsewhere: there open files can be deleted, and a daemon whose
+  // parent has not reaped it yet still answers `kill -0` as a zombie.)
+  const waitForExit = process.platform === 'win32' && pid !== undefined
   const stopped = async (): Promise<boolean> =>
-    !(await daemonRunning()) && !(pid !== undefined && processAlive(pid))
+    !(await daemonRunning()) && !(waitForExit && processAlive(pid))
   const deadline = Date.now() + 15_000
   while (Date.now() < deadline && !(await stopped())) await new Promise((r) => setTimeout(r, 150))
   if (!(await stopped())) {
