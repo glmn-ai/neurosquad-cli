@@ -120,8 +120,10 @@ jobs:
             --root "$GITHUB_WORKSPACE" --clis "$RUNNER_TEMP/clis" --out "$RUNNER_TEMP/out" \
             --models "$RUNNER_TEMP/models" ${E2E_DISPLAY:+--display "$E2E_DISPLAY"}
 
+      # An artifact upload that fails on the runner's network (ENOTFOUND) is not a test result.
       - name: Upload results
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-${{ matrix.suite }}-${{ matrix.label }}
