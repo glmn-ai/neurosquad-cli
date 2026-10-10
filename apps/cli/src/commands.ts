@@ -446,7 +446,9 @@ export async function cmdDown(): Promise<void> {
   // exit too: Windows refuses to delete files a live process holds, so "stopped" must mean the
   // nsq home can be removed. (Not elsewhere: there open files can be deleted, and a daemon whose
   // parent has not reaped it yet still answers `kill -0` as a zombie.)
-  const waitForExit = process.platform === 'win32' && pid !== undefined
+  // Only a real pid: `kill(0, 0)` would probe our own process group and always answer.
+  const waitForExit =
+    process.platform === 'win32' && typeof pid === 'number' && Number.isInteger(pid) && pid > 0
   const stopped = async (): Promise<boolean> =>
     !(await daemonRunning()) && !(waitForExit && processAlive(pid))
   const deadline = Date.now() + 15_000
