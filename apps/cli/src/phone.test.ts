@@ -50,8 +50,8 @@ describe.skipIf(!built)('phone access', () => {
     } catch {
       // stopped
     }
-    rmSync(home, { recursive: true, force: true })
-    rmSync(work, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   })
 
   it('serves the agents to a paired phone, and rotate revokes it', async () => {

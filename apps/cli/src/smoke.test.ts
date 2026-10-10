@@ -64,8 +64,8 @@ describe.skipIf(!built)('daemon smoke', () => {
     } catch {
       // stopped
     }
-    rmSync(home, { recursive: true, force: true })
-    rmSync(work, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   })
 
   it('runs a command agent through its lifecycle', async () => {
