@@ -4,7 +4,13 @@ import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { resolveHarnessCommand, stripAnsi, type HarnessId } from '@neurosquad/core'
 import { flagBool, flagString, parseSince, type ParsedArgs } from './args.js'
-import { DaemonClient, daemonRunning, readState, startDaemon } from './client/client.js'
+import {
+  DaemonClient,
+  daemonRunning,
+  processAlive,
+  readState,
+  startDaemon
+} from './client/client.js'
 import {
   HARNESS_LABEL,
   costLabel,
@@ -428,6 +434,7 @@ export async function cmdDown(): Promise<void> {
     out('the nsq daemon is not running')
     return
   }
+  const pid = readState()?.pid
   await withClient(
     async (client) => {
       await client.request({ t: 'shutdown', stopAgents: true })
@@ -435,10 +442,18 @@ export async function cmdDown(): Promise<void> {
     false,
     false
   )
+  // The socket closes before the daemon has finished. On Windows, wait for the process itself to
+  // exit too: Windows refuses to delete files a live process holds, so "stopped" must mean the
+  // nsq home can be removed. (Not elsewhere: there open files can be deleted, and a daemon whose
+  // parent has not reaped it yet still answers `kill -0` as a zombie.)
+  // Only a real pid: `kill(0, 0)` would probe our own process group and always answer.
+  const waitForExit =
+    process.platform === 'win32' && typeof pid === 'number' && Number.isInteger(pid) && pid > 0
+  const stopped = async (): Promise<boolean> =>
+    !(await daemonRunning()) && !(waitForExit && processAlive(pid))
   const deadline = Date.now() + 15_000
-  while (Date.now() < deadline && (await daemonRunning()))
-    await new Promise((r) => setTimeout(r, 150))
-  if (await daemonRunning()) {
+  while (Date.now() < deadline && !(await stopped())) await new Promise((r) => setTimeout(r, 150))
+  if (!(await stopped())) {
     throw new Error(`the nsq daemon did not stop within 15 s (see ${paths.daemonLog()})`)
   }
   out('stopped the nsq daemon and its agents (they resume with `nsq up`)')

@@ -130,7 +130,7 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
     } catch {
       // already gone
     }
-    rmSync(work, { recursive: true, force: true })
+    rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 })
   })
 
   it('finds, installs and applies an update without losing an agent', async () => {

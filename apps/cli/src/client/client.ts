@@ -196,4 +196,14 @@ export function daemonRunning(): Promise<boolean> {
   })
 }
 
+/** Whether a process with this pid still runs (EPERM: it does, it is just not ours to signal). */
+export function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
 export { ipcPath }
