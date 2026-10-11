@@ -16,6 +16,11 @@ export interface HerdrPaneState {
   holder?: { source: string; agent: string }
   /** A turn was reported working (or blocked) and has not ended yet. */
   open?: boolean
+  /**
+   * The process reported a known state (idle, working, blocked): from then on its reports are its
+   * status, not its output. An `unknown` state alone does not take over.
+   */
+  reporting?: boolean
 }
 
 /**
@@ -75,6 +80,7 @@ export function applyHerdrReport(state: HerdrPaneState, report: HerdrReport): He
   switch (report.method) {
     case 'pane.release_agent': {
       if (!holds) return { state: { ...state, seqs }, applied: true }
+      // A release also ends `reporting`: the output says what follows.
       return { state: { seqs }, applied: true, resume: null, released: true }
     }
     case 'pane.report_agent_session':
@@ -89,10 +95,12 @@ export function applyHerdrReport(state: HerdrPaneState, report: HerdrReport): He
       let fact: HerdrFact | undefined
       switch (report.state) {
         case 'working':
+          next.reporting = true
           next.open = true
           fact = { kind: 'working' }
           break
         case 'blocked':
+          next.reporting = true
           next.open = true
           // herdr's `--message` explains the block; without one (Crush), at least who waits.
           fact = {
@@ -101,6 +109,7 @@ export function applyHerdrReport(state: HerdrPaneState, report: HerdrReport): He
           }
           break
         case 'idle':
+          next.reporting = true
           // The first report of every process is `idle` (it registers); only the end of a
           // turn that was seen to start is "finished".
           fact = state.open ? { kind: 'finished' } : { kind: 'ready' }

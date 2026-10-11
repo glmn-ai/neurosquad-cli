@@ -167,4 +167,15 @@ describe.skipIf(!built)('herdr status protocol', () => {
       await until(() => /fake: resumed fake-session-1/.test(nsq('peek', 'fake-socket').stdout))
     ).toBe(true)
   }, 120_000)
+
+  it('a resume command that fails is dropped: the next start runs the command again', async () => {
+    const run = nsq('run', '--name', 'fake-broken', '--', process.execPath, FAKE, '--broken-resume')
+    expect(run.status, run.stderr).toBe(0)
+    await turn('fake-broken')
+    expect(nsq('restart', 'fake-broken').status).toBe(0)
+    expect(await until(() => statusOf('fake-broken') === 'exited')).toBe(true)
+    expect(nsq('start', 'fake-broken').status).toBe(0)
+    expect(await until(() => /fake: ready/.test(nsq('peek', 'fake-broken').stdout))).toBe(true)
+    expect(await until(() => statusOf('fake-broken') === 'idle')).toBe(true)
+  }, 120_000)
 })

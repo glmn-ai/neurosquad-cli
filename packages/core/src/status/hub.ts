@@ -265,6 +265,8 @@ export function noteUserInput(agentId: string, data: string): void {
   const key = classifyUserKey(data)
   feed(agentId, { type: 'input', data }, key ? `key:${key}` : undefined)
   if (key === 'answer') codexAnswered(agentId)
+  const blocked = herdrBlocked.get(agentId)
+  if (blocked) blocked.typed = true
 }
 
 // ---- generic agents: status from the terminal alone -----------------------------
@@ -295,9 +297,18 @@ function genericOutput(agentId: string): void {
 
 const herdrPanes = new Map<string, HerdrPaneState>()
 
-/** The agent's process holds its herdr pane: its own reports replace the terminal heuristic. */
+/**
+ * A `working` this soon after `blocked`, with nothing typed into the agent in between, is not
+ * an answer: Crush (0.98) announces a permission request on two channels that its herdr bridge
+ * reads in parallel, and the "request pending" notice, read as "resolved", can arrive just after
+ * the request itself (measured on Linux: 4 ms). Nobody answers a question that fast.
+ */
+export const HERDR_BLOCKED_ECHO_MS = 1000
+const herdrBlocked = new Map<string, { at: number; typed: boolean }>()
+
+/** The agent's process reports its state over herdr: its reports replace the terminal heuristic. */
 function speaksHerdr(agentId: string): boolean {
-  return herdrPanes.get(agentId)?.holder !== undefined
+  return herdrPanes.get(agentId)?.reporting === true
 }
 
 /**
@@ -314,6 +325,20 @@ export function receiveHerdrReport(
   const machine = machines.get(agentId)
   if (!machine || machine.dead) return null
   const before = herdrPanes.get(agentId) ?? emptyHerdrPane()
+  const blocked = herdrBlocked.get(agentId)
+  if (
+    report.method === 'pane.report_agent' &&
+    report.state === 'working' &&
+    blocked &&
+    !blocked.typed &&
+    Date.now() - blocked.at < HERDR_BLOCKED_ECHO_MS
+  ) {
+    trace(
+      agentId,
+      `herdr working dropped: ${Date.now() - blocked.at} ms after blocked, no answer typed`
+    )
+    return null
+  }
   const effects = applyHerdrReport(before, report)
   if (effects.error) {
     trace(agentId, `herdr ${report.method} refused: ${effects.error.code}`)
@@ -324,7 +349,10 @@ export function receiveHerdrReport(
     return null
   }
   herdrPanes.set(agentId, effects.state)
-  if (before.holder === undefined && effects.state.holder !== undefined) {
+  if (effects.fact?.kind === 'needs-input')
+    herdrBlocked.set(agentId, { at: Date.now(), typed: false })
+  else if (effects.fact) herdrBlocked.delete(agentId)
+  if (!before.reporting && effects.state.reporting) {
     // From now on the agent's own reports say what it is doing, not its output.
     const timer = genericTimers.get(agentId)
     if (timer) clearTimeout(timer)
@@ -392,6 +420,7 @@ observePtys({
     codexWaiting.delete(agentId)
     genericBusy.delete(agentId)
     herdrPanes.delete(agentId)
+    herdrBlocked.delete(agentId)
     feed(agentId, { type: 'spawn' }, machines.has(agentId) ? 'spawn' : undefined)
   },
   onData(agentId, _generation, chunk) {
@@ -410,6 +439,7 @@ observePtys({
     codexOpenTurns.delete(agentId)
     codexWaiting.delete(agentId)
     herdrPanes.delete(agentId)
+    herdrBlocked.delete(agentId)
     feed(agentId, { type: 'exit' }, 'exit')
     clearSubagents(agentId)
   },
@@ -659,6 +689,7 @@ export function forgetAgentStatus(agentId: string): void {
   codexWaiting.delete(agentId)
   codexFailureTails.delete(agentId)
   herdrPanes.delete(agentId)
+  herdrBlocked.delete(agentId)
   clearSubagents(agentId)
   forgetTranscript(agentId)
 }

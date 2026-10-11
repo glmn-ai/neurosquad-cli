@@ -123,6 +123,8 @@ public static class NsqHerdrUnixListener {
   }
 
   public static void Run(string path, int parent) {
+    // The lines are relayed as they came (UTF-8), not in the console's OEM code page.
+    try { Console.OutputEncoding = new UTF8Encoding(false); } catch { }
     if (File.Exists(path)) File.Delete(path);
     Socket server = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
     server.Bind(new NsqHerdrUnixPath(path));

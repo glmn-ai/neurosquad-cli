@@ -74,6 +74,18 @@ writeFileSync(join(sandbox.project, 'AGENTS.md'), '# nsq e2e project\n')
 const { nsq, waitStatus, agentNamed } = makeNsq(root, sandbox.env, sandbox.project, log)
 const peek = (name, n = 60) => plain(nsq('peek', name, '-n', String(n)).stdout)
 
+/** The states the agent reported over herdr, in order (from the daemon's log). */
+function herdrReports() {
+  let text = ''
+  try {
+    text = readFileSync(join(sandbox.env.NSQ_HOME, 'daemon.log'), 'utf8')
+  } catch {
+    // no log yet
+  }
+  // Accepted reports only ("herdr working → working"; not "herdr working dropped: …").
+  return [...text.matchAll(/: herdr (idle|working|blocked|unknown) →/g)].map((m) => m[1])
+}
+
 /** Keys typed into an agent, as the person would (the daemon's client protocol). */
 async function type(name, data) {
   process.env.NSQ_HOME = sandbox.env.NSQ_HOME
@@ -110,11 +122,17 @@ try {
   // Crush's permission dialog: "Allow" is focused, Enter confirms.
   await type(name, '\r')
   const done = await waitStatus(name, ['finished'], 120_000)
-  const seen = [...asked.seen, ...done.seen]
+  // The answer (the person's key) moves it on at once, and Crush's own idle ends the turn. (Its
+  // working after the answer can be shorter than a poll, or never sent: Crush 0.98 may already
+  // have reported working right after the question — nsq drops that echo.)
+  const reports = herdrReports()
+  const afterQuestion = reports.slice(reports.lastIndexOf('blocked') + 1)
   check(
     'crush: answered → working → finished',
-    done.agent?.status === 'finished' && seen.some((s) => s.startsWith('working')),
-    { seen }
+    done.agent?.status === 'finished' &&
+      !done.seen[0]?.startsWith('needs-input') &&
+      afterQuestion.includes('idle'),
+    { seen: done.seen, reports }
   )
   check(
     'crush: the command ran',

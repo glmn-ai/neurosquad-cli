@@ -13,6 +13,7 @@
 //   quit   releases the pane and exits
 //
 // --env-out writes the four HERDR_* variables it was given (as JSON) to a file.
+// --broken-resume: the resume command it reports fails (exits at once, reporting nothing).
 import { spawn } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { connect } from 'node:net'
@@ -26,6 +27,8 @@ const option = (name) => {
 const mode = option('mode') ?? 'cli'
 const resumed = option('resume')
 const envOut = option('env-out')
+if (argv.includes('--exit-at-once')) process.exit(3)
+const brokenResume = argv.includes('--broken-resume')
 const SESSION = resumed ?? 'fake-session-1'
 const env = {
   HERDR_ENV: process.env.HERDR_ENV,
@@ -44,7 +47,8 @@ const resumeArgv = () => [
   mode,
   '--resume',
   SESSION,
-  ...(envOut ? ['--env-out', envOut] : [])
+  ...(envOut ? ['--env-out', envOut] : []),
+  ...(brokenResume ? ['--exit-at-once'] : [])
 ]
 
 function viaCli(args) {

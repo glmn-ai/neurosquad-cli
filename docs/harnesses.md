@@ -104,8 +104,14 @@ agent with its own integration (Claude Code, Codex, OpenCode) are ignored.
 | `agent_session_id` | the agent's `harnessSessionId`                                  |
 | `resume_argv`      | `resumeCommand` in agents.json: what a resume runs              |
 
-From the first state report of a process on, its reports replace the output heuristic; a new
-process is on the heuristic again until it registers. Verified live with Crush 0.98
+From the first known state a process reports (`unknown` does not count), its reports replace the
+output heuristic; a new process is on the heuristic again until it registers. A `working` within
+1 s of `blocked` with nothing typed into the agent is dropped (`HERDR_BLOCKED_ECHO_MS`): Crush 0.98
+announces a permission request on two channels its herdr bridge reads in parallel, and the
+"request pending" notice, which it reports as resolved, can arrive just after the request
+(measured on Linux: 4 ms). The answer itself is the person's key, which moves the agent on. A
+resume command whose process exits without reporting once is dropped: the next start runs the
+command itself. Verified live with Crush 0.98
 (`scripts/e2e-ci/herdr.mjs`, the `herdr` suite of the live e2e) and with a scripted agent
 (`scripts/e2e/fake-herdr-agent.mjs`, `apps/cli/src/herdr.e2e.test.ts`).
 

@@ -132,6 +132,10 @@ interface Runtime {
   lastInputAt?: number
   /** A model/provider change waiting for the current turn to end (then: restart on the same session). */
   switchPending?: boolean
+  /** A plain command started with the resume command it reported over herdr. */
+  resumedByCommand?: boolean
+  /** Its process has reported over herdr (a resume command that never does is dropped). */
+  herdrReported?: boolean
 }
 
 interface Client {
@@ -338,6 +342,7 @@ export class Daemon {
       },
       onExit: (id, generation) => {
         const rt = this.rt(id)
+        this.dropFailedResumeCommand(id)
         rt.status = 'exited'
         rt.statusAt = Date.now()
         this.approvals.exited(id)
@@ -695,7 +700,24 @@ export class Daemon {
       return herdrError(request.id, 'pane_not_found', `pane ${report.paneId} not found`)
     }
     const refused = receiveHerdrReport(agentId, report)
+    if (!refused) this.rt(agentId).herdrReported = true
     return refused ? herdrError(request.id, refused.code, refused.message) : herdrOk(request.id)
+  }
+
+  /**
+   * A process started with its reported resume command exited without reporting once (the
+   * session is gone, the command fails): the next start runs the command itself again.
+   */
+  private dropFailedResumeCommand(id: string): void {
+    const rt = this.rt(id)
+    if (!rt.resumedByCommand) return
+    rt.resumedByCommand = false
+    const record = this.store.get(id)
+    if (rt.herdrReported || !record?.resumeCommand) return
+    this.store.update(id, { resumeCommand: undefined })
+    this.log(
+      `${record.name}: its resume command exited without reporting; the next start runs the command afresh`
+    )
   }
 
   private async closeHerdr(): Promise<void> {
@@ -877,6 +899,8 @@ export class Daemon {
         throw new Error(`${record.name} was stopped before it started`)
       }
     }
+    rt.resumedByCommand = record.harness === 'command' && resumeCommand !== undefined
+    rt.herdrReported = false
     try {
       await this.ptys.spawn(request(resumed, prompt), {
         onSessionNotFound: () => {

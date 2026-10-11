@@ -17,7 +17,12 @@ import {
 import { applyHerdrReport, emptyHerdrPane, type HerdrPaneState } from './pane.js'
 import { herdrCliReply, parseHerdrCli } from './cli.js'
 import { sendHerdrRequest, startHerdrServer } from './server.js'
-import { configureStatusHub, agentStatusSnapshot, receiveHerdrReport } from '../status/hub.js'
+import {
+  configureStatusHub,
+  agentStatusSnapshot,
+  noteUserInput,
+  receiveHerdrReport
+} from '../status/hub.js'
 import { emitPtyData, emitPtyExit, emitPtySpawn } from '../pty/events.js'
 import { prepareCommandLaunch } from '../harnesses/launch.js'
 import type { AgentHookEvent } from '../status/types.js'
@@ -392,6 +397,7 @@ describe('herdr reports in the status hub', () => {
       kind: 'needs-input',
       detail: 'Crush wants to run: mkdir x'
     })
+    noteUserInput(id, 'y')
     send(id, report('working', { seq: 4 }))
     send(id, report('idle', { seq: 5, resume_argv: ['crush', '--session', 'sess'] }))
     expect(published(id)).toEqual([
@@ -410,6 +416,31 @@ describe('herdr reports in the status hub', () => {
     emitPtyExit(id, 1)
     expect(send(id, report('working', { seq: 7 }))).toBeNull()
     expect(agentStatusSnapshot(id)).toBeNull()
+  })
+
+  it("a working right after blocked, nothing typed, is Crush's echo, not an answer", () => {
+    const id = agent()
+    send(id, report('idle', { seq: 1 }))
+    send(id, report('working', { seq: 2 }))
+    send(id, report('blocked', { seq: 3 }))
+    send(id, report('working', { seq: 4 }))
+    expect(agentStatusSnapshot(id)?.kind).toBe('needs-input')
+    // The person answers: their key moves it on, and the agent's own reports count again.
+    noteUserInput(id, '\r')
+    expect(agentStatusSnapshot(id)?.kind).toBe('working')
+    send(id, report('blocked', { seq: 5, message: 'again?' }))
+    noteUserInput(id, 'y')
+    send(id, report('working', { seq: 6 }))
+    send(id, report('idle', { seq: 7 }))
+    expect(published(id).slice(-3)).toEqual(['needs-input:again?', 'working', 'finished'])
+  })
+
+  it('an unknown state alone leaves the output heuristic on', () => {
+    const id = agent()
+    send(id, report('unknown', { seq: 1 }))
+    expect(agentStatusSnapshot(id)).toBeNull()
+    emitPtyData(id, 1, 'output')
+    expect(agentStatusSnapshot(id)?.kind).toBe('working')
   })
 
   it('reports for a harness with its own integration are ignored', () => {
