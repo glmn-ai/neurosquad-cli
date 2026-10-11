@@ -23,7 +23,7 @@ import {
   noteUserInput,
   receiveHerdrReport
 } from '../status/hub.js'
-import { emitPtyData, emitPtyExit, emitPtySpawn } from '../pty/events.js'
+import { emitPtyData, emitPtyExit, emitPtySpawn, emitPtySubmit } from '../pty/events.js'
 import { prepareCommandLaunch } from '../harnesses/launch.js'
 import type { AgentHookEvent } from '../status/types.js'
 import type { HarnessId } from '../harnesses/types.js'
@@ -433,6 +433,19 @@ describe('herdr reports in the status hub', () => {
     send(id, report('working', { seq: 6 }))
     send(id, report('idle', { seq: 7 }))
     expect(published(id).slice(-3)).toEqual(['needs-input:again?', 'working', 'finished'])
+  })
+
+  it("a working right after the turn ended, nothing sent, is Crush's late message, not a turn", () => {
+    const id = agent()
+    send(id, report('idle', { seq: 1 }))
+    send(id, report('working', { seq: 2 }))
+    send(id, report('idle', { seq: 3 }))
+    send(id, report('working', { seq: 4 }))
+    expect(agentStatusSnapshot(id)?.kind).toBe('finished')
+    // A prompt sent into it: the next working is a new turn.
+    emitPtySubmit(id)
+    send(id, report('working', { seq: 5 }))
+    expect(agentStatusSnapshot(id)?.kind).toBe('working')
   })
 
   it('an unknown state alone leaves the output heuristic on', () => {
