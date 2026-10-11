@@ -1032,7 +1032,31 @@ export class Daemon {
     return { sent: true }
   }
 
-  private async answerPrompt(record: AgentRecord, key: AnswerKey, by: ApprovalBy): Promise<void> {
+  /** Answers being typed, per agent: one key sequence at a time. */
+  private readonly answers = new Map<string, Promise<void>>()
+
+  /**
+   * One answer at a time per agent: a second one (the dashboard and a phone at once; OpenCode's
+   * "always" takes three presses 400 ms apart) waits for the first, then finds the question
+   * answered and is refused — its keys never mix with the first's, and the log names whoever's
+   * keys went in.
+   */
+  private answerPrompt(record: AgentRecord, key: AnswerKey, by: ApprovalBy): Promise<void> {
+    const before = this.answers.get(record.id) ?? Promise.resolve()
+    const run = before.then(() => this.answerPromptNow(record, key, by))
+    const settled = run.catch(() => {})
+    this.answers.set(record.id, settled)
+    void settled.then(() => {
+      if (this.answers.get(record.id) === settled) this.answers.delete(record.id)
+    })
+    return run
+  }
+
+  private async answerPromptNow(
+    record: AgentRecord,
+    key: AnswerKey,
+    by: ApprovalBy
+  ): Promise<void> {
     const keys = answerKeys(record.harness, key)
     if (!keys) throw new Error(`${record.harness} has no permission prompt to answer`)
     // Only into a prompt that is open: elsewhere the keys would land in its input box.

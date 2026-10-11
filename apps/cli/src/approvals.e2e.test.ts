@@ -205,7 +205,12 @@ describe.skipIf(!built)('the approvals log', () => {
     const { DaemonClient } = await import('./client/client.js')
     const dashboard = await DaemonClient.open('dashboard', { autostart: false })
     try {
-      await dashboard.request({ t: 'answer', id, key: 'always' })
+      // Two answers at once: one at a time — the second finds the question answered.
+      const both = await Promise.allSettled([
+        dashboard.request({ t: 'answer', id, key: 'always' }),
+        dashboard.request({ t: 'answer', id, key: 'no' })
+      ])
+      expect(both.map((result) => result.status)).toEqual(['fulfilled', 'rejected'])
     } finally {
       dashboard.close()
       delete process.env['NSQ_HOME']
