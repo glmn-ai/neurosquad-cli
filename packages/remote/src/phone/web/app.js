@@ -579,7 +579,8 @@ function fitScreen() {
   if (room <= 0) return
   const fit = room / (state.screenCols * measureChar())
   const base = state.fit === 'fit' ? Math.min(15, fit) : Math.max(READABLE_PX, Math.min(15, fit))
-  const size = Math.max(4, base * state.zoom)
+  // Fit width is exactly the width, however small; readable never goes under 4 px when pinched.
+  const size = state.fit === 'fit' ? base * state.zoom : Math.max(4, base * state.zoom)
   $('term').style.fontSize = `${size.toFixed(2)}px`
 }
 

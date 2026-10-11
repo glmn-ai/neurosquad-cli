@@ -156,8 +156,8 @@ const FACTS = `(() => {
       return r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom
     })(),
     mode: document.querySelector('[data-fit][aria-pressed="true"]')?.dataset.fit ?? null,
-    fits: term.scrollWidth <= screen.clientWidth + 1,
-    scrollWidth: term.scrollWidth,
+    fits: screen.scrollWidth <= screen.clientWidth + 1,
+    scrollWidth: screen.scrollWidth,
     clientWidth: screen.clientWidth
   }
 })()`
@@ -289,7 +289,7 @@ try {
   // Readable by default: a font a phone can read; a wider agent scrolls sideways, the newest
   // line and the cursor stay in view.
   check('readable by default', f.mode === 'readable', f.mode)
-  check('readable: font at least 11 CSS px', f.fontPx >= 11, f.fontPx)
+  check('readable: font at least 12 CSS px', f.fontPx >= 12, f.fontPx)
   check('readable: the newest line is in view (anchored at the bottom)', f.lastLineVisible)
   check('readable: the cursor is in view', f.cursorInView)
   const sideways = await evaluate(
@@ -347,7 +347,7 @@ try {
   await evaluate("document.getElementById('size-readable').click()")
   await sleep(300)
   const back = await evaluate(FACTS)
-  check('readable again', back.mode === 'readable' && back.fontPx >= 11, back.fontPx)
+  check('readable again', back.mode === 'readable' && back.fontPx >= 12, back.fontPx)
   check('no page errors or CSP violations', problems.length === 0, problems)
 } catch (error) {
   check('phone-screen.mjs: ran', false, String(error?.stack ?? error))
