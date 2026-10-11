@@ -27,6 +27,9 @@ When the process is gone the machine publishes nothing more and `agentStatusSnap
    started after the Stop arrived: a prompt typed the instant the agent showed `finished` stays
    `working`.
 5. **Subagents** — while a subagent runs inside an agent, the parent's own turn end is held.
+6. **herdr status reports** — a plain command that speaks the herdr status protocol reports
+   `working`, `blocked` and `idle` itself ([harnesses.md](harnesses.md#the-herdr-status-protocol)).
+   Its first `idle` is the `ready` signal: idle, never a turn end, so nothing rings.
 
 The rules live in `packages/core/src/status/machine.ts` (pure, fully unit-tested) and the wiring in
 `packages/core/src/status/hub.ts`.

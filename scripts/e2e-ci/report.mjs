@@ -19,7 +19,7 @@ const walk = (at) => {
 }
 walk(dir)
 
-const SUITE_ORDER = ['claude', 'codex', 'opencode-1', 'opencode-2', 'dashboard']
+const SUITE_ORDER = ['claude', 'codex', 'opencode-1', 'opencode-2', 'herdr', 'dashboard']
 const oses = [...new Set(found.map((r) => r.os))].sort()
 const suites = [...new Set(found.map((r) => r.suite))].sort(
   (a, b) => SUITE_ORDER.indexOf(a) - SUITE_ORDER.indexOf(b)

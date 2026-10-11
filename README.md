@@ -82,6 +82,10 @@ In the dashboard, select an agent with the arrows, press **Enter** to work in it
 
 Supported: **Claude Code**, **Codex**, **OpenCode** (1.x and 2.x), and **any command**
 (`nsq run -- <command>`; it has no hooks, so it shows working / finished, never "needs you").
+Agents that support the [herdr](https://herdr.dev) status protocol (Crush, Kiro CLI, Command Code
+and others) work in nsq out of the box with `nsq run -- <agent>`: they report working, needs you
+and finished themselves, and nsq resumes their session
+([how](docs/guide/agents.md#agents-that-speak-the-herdr-status-protocol)).
 Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/new?template=harness_request.yml).
 
 ## Keys

@@ -21,6 +21,11 @@ export interface AgentRecord {
   harnessSessionId?: string
   /** Every session the agent used (for its cost). */
   sessionIds?: string[]
+  /**
+   * A plain command that speaks the herdr status protocol: the command it
+   * reported to reopen its session (run instead of `command` on a resume).
+   */
+  resumeCommand?: string[]
   /** A process was spawned at least once: the next start resumes. */
   sessionStarted?: boolean
   /** Should run: restarted by `nsq up` and when the daemon starts. */

@@ -7,7 +7,8 @@ name: Live e2e
 # finished), inline answer, interrupt, resume after a daemon restart, worktree, cost against the
 # fake's log, OpenRouter attribution headers, the phone API; plus the dashboard in a real pty
 # (recorded: GIF/MP4/PNG per OS), its BEL/OSC 9 ring when no desktop notification can show, and
-# dictation from synthesised speech through Whisper tiny.en. Not a required check: it takes a
+# dictation from synthesised speech through Whisper tiny.en; and Crush, an agent that speaks the
+# herdr status protocol, as a plain command (`herdr` suite). Not a required check: it takes a
 # while and depends on upstream CLIs. See scripts/e2e-ci/live.mjs.
 
 on:
@@ -53,7 +54,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [macos-15, macos-15-intel, ubuntu-24.04, windows-2025]
-        suite: [claude, codex, opencode-1, opencode-2, dashboard]
+        suite: [claude, codex, opencode-1, opencode-2, herdr, dashboard]
         include:
           - { os: macos-15, label: macos-arm64 }
           - { os: macos-15-intel, label: macos-x64 }
@@ -108,6 +109,7 @@ jobs:
         run: |
           set_name=main
           if [ "$SUITE" = opencode-2 ]; then set_name=oc2; fi
+          if [ "$SUITE" = herdr ]; then set_name=herdr; fi
           # The dashboard records OpenCode 2 (tui-record.mjs --opencode-bin).
           if [ "$SUITE" = dashboard ]; then set_name=main,oc2; fi
           node .e2e-ci/scripts/e2e-ci/install-clis.mjs \

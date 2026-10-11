@@ -51,6 +51,8 @@ import { OPENCODE_PERMISSION_HOOK_EVENT } from '../harnesses/opencode/pluginV2.j
 import { openCodePermissionReply } from '../harnesses/opencode/launch.js'
 import { stripAnsi } from '../pty/plainText.js'
 import type { HarnessId } from '../harnesses/types.js'
+import { applyHerdrReport, emptyHerdrPane, type HerdrPaneState } from '../herdr/pane.js'
+import type { HerdrReport } from '../herdr/protocol.js'
 
 export interface StatusHubHost {
   /** The agent's harness, or undefined for an unknown agent. */
@@ -65,6 +67,11 @@ export interface StatusHubHost {
   onStatus(event: AgentHookEvent): void
   /** The running subagents of an agent changed. */
   onSubagents?(agentId: string, running: SubagentRun[]): void
+  /**
+   * A plain command that speaks the herdr status protocol reported the command
+   * that resumes its session (an array), or released its pane (null).
+   */
+  onResumeCommand?(agentId: string, argv: readonly string[] | null): void
   /** A retry OpenCode reported (rate limit…). */
   onRetry?(agentId: string, message: string): void
   /** Diagnostics, never the payloads themselves. */
@@ -284,6 +291,68 @@ function genericOutput(agentId: string): void {
   genericTimers.set(agentId, timer)
 }
 
+// ---- plain commands that speak the herdr status protocol ----------------------------
+
+const herdrPanes = new Map<string, HerdrPaneState>()
+
+/** The agent's process holds its herdr pane: its own reports replace the terminal heuristic. */
+function speaksHerdr(agentId: string): boolean {
+  return herdrPanes.get(agentId)?.holder !== undefined
+}
+
+/**
+ * A herdr report from a plain command's process (../herdr): `agentId` is the
+ * agent its pane id names (already checked). Returns the error to answer
+ * with, or null for ok. Reports for an agent that is not a plain command, or
+ * whose process is gone, are answered ok and ignored.
+ */
+export function receiveHerdrReport(
+  agentId: string,
+  report: HerdrReport
+): { code: string; message: string } | null {
+  if (host?.harnessOf(agentId) !== 'command') return null
+  const machine = machines.get(agentId)
+  if (!machine || machine.dead) return null
+  const before = herdrPanes.get(agentId) ?? emptyHerdrPane()
+  const effects = applyHerdrReport(before, report)
+  if (effects.error) {
+    trace(agentId, `herdr ${report.method} refused: ${effects.error.code}`)
+    return effects.error
+  }
+  if (!effects.applied) {
+    trace(agentId, `herdr ${report.method} dropped: stale seq`)
+    return null
+  }
+  herdrPanes.set(agentId, effects.state)
+  if (before.holder === undefined && effects.state.holder !== undefined) {
+    // From now on the agent's own reports say what it is doing, not its output.
+    const timer = genericTimers.get(agentId)
+    if (timer) clearTimeout(timer)
+    genericTimers.delete(agentId)
+    genericBusy.delete(agentId)
+  }
+  if (effects.sessionId) host?.onSessionId?.(agentId, effects.sessionId)
+  if (effects.resume !== undefined) {
+    try {
+      host?.onResumeCommand?.(agentId, effects.resume)
+    } catch {
+      // non-fatal
+    }
+  }
+  const label = `herdr ${report.state ?? report.method}`
+  const fact = effects.fact
+  if (!fact) {
+    trace(agentId, `${label} → no change`)
+  } else if (fact.kind === 'ready') {
+    feed(agentId, { type: 'ready' }, label)
+  } else if (fact.kind === 'needs-input') {
+    emitHookFact(agentId, 'needs-input', fact.detail, { label })
+  } else {
+    emitHookFact(agentId, fact.kind, undefined, { label })
+  }
+  return null
+}
+
 // ---- Codex: open turns and the failed-turn line --------------------------------
 
 const codexOpenTurns = new Set<string>()
@@ -322,13 +391,14 @@ observePtys({
     codexOpenTurns.delete(agentId)
     codexWaiting.delete(agentId)
     genericBusy.delete(agentId)
+    herdrPanes.delete(agentId)
     feed(agentId, { type: 'spawn' }, machines.has(agentId) ? 'spawn' : undefined)
   },
   onData(agentId, _generation, chunk) {
     if (machines.get(agentId)?.pending) lastOutputAt.set(agentId, Date.now())
     const harness = host?.harnessOf(agentId)
     if (harness === 'codex-cli') codexOutput(agentId, chunk)
-    else if (harness === 'command') genericOutput(agentId)
+    else if (harness === 'command' && !speaksHerdr(agentId)) genericOutput(agentId)
   },
   onExit(agentId, generation) {
     if (liveGeneration.get(agentId) !== generation) return
@@ -339,6 +409,7 @@ observePtys({
     genericBusy.delete(agentId)
     codexOpenTurns.delete(agentId)
     codexWaiting.delete(agentId)
+    herdrPanes.delete(agentId)
     feed(agentId, { type: 'exit' }, 'exit')
     clearSubagents(agentId)
   },
@@ -587,6 +658,7 @@ export function forgetAgentStatus(agentId: string): void {
   codexOpenTurns.delete(agentId)
   codexWaiting.delete(agentId)
   codexFailureTails.delete(agentId)
+  herdrPanes.delete(agentId)
   clearSubagents(agentId)
   forgetTranscript(agentId)
 }

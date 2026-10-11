@@ -4,6 +4,7 @@
 // clients (the dashboard, `nsq attach`, `nsq ls`…) over a local socket.
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import { randomBytes, randomUUID } from 'node:crypto'
+import { tmpdir } from 'node:os'
 import {
   chmodSync,
   closeSync,
@@ -12,6 +13,7 @@ import {
   openSync,
   readFileSync,
   renameSync,
+  mkdtempSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -25,6 +27,7 @@ import {
   addWorktree,
   agentStatusSnapshot,
   configureStatusHub,
+  createHerdrPanes,
   decideNotification,
   emitHookFact,
   findOnPath,
@@ -38,7 +41,15 @@ import {
   openCodeVersionOf,
   isOpenCodeV2,
   prepareLaunch,
+  receiveHerdrReport,
   receiveHook,
+  herdrError,
+  herdrOk,
+  herdrUnsupported,
+  parseHerdrRequest,
+  startHerdrServer,
+  MAX_HERDR_SOCKET_PATH,
+  type HerdrServer,
   readCodexUserConfig,
   removeWorktree,
   resolveHarnessCommand,
@@ -185,9 +196,12 @@ const UPDATE_QUIET_MS = 5 * 60 * 1000
 /** How often a pending update looks for a moment to restart in. */
 const UPDATE_POLL_MS = 15_000
 
-/** An agent that comes back on its own session after a daemon restart (not a plain command). */
+/**
+ * An agent that comes back on its own session after a daemon restart: a harness, or a plain
+ * command that reported its resume command over the herdr status protocol.
+ */
 function resumable(record: AgentRecord): boolean {
-  if (record.harness === 'command') return false
+  if (record.harness === 'command') return record.resumeCommand !== undefined
   return record.harness === 'claude-code'
     ? record.sessionStarted === true
     : record.harnessSessionId !== undefined
@@ -213,6 +227,10 @@ export class Daemon {
   private readonly config = readConfig()
   private server: Server | null = null
   private hooks: HookServer | null = null
+  /** Pane ids for the herdr status protocol (plain commands): HMAC'd per agent, per run. */
+  private readonly herdrPanes = createHerdrPanes(randomBytes(32))
+  /** The herdr socket and shim, started with the first plain command (null: unavailable). */
+  private herdr: Promise<{ server: HerdrServer; binPath: string; dir: string } | null> | null = null
   private readonly token = randomBytes(24).toString('hex')
   private stopping = false
   private locked = false
@@ -287,6 +305,10 @@ export class Daemon {
         readCodexUserConfig(process.env['CODEX_HOME'] || undefined).approvalsReviewer ===
         'auto_review',
       onSessionId: (id, sessionId) => this.adoptSession(id, sessionId),
+      onResumeCommand: (id, argv) => {
+        if (this.store.get(id))
+          this.store.update(id, { resumeCommand: argv ? [...argv] : undefined })
+      },
       onStatus: (event) => this.onStatus(event),
       onSubagents: (id) => this.pushAgent(id)
     })
@@ -596,11 +618,88 @@ export class Daemon {
     }
   }
 
+  // ---- the herdr status protocol (plain commands) ---------------------------------------
+
+  /**
+   * The herdr socket and the shim at HERDR_BIN_PATH, started on first use. A plain command is
+   * told it runs in a herdr pane (https://herdr.dev/docs/add-herdr-support/): an agent that
+   * speaks the protocol (Crush, Kiro CLI…) then reports working / blocked / idle, its session and
+   * the command that resumes it. Null when the socket cannot run here (the command then gets the
+   * terminal-output status, as before).
+   */
+  private ensureHerdr(): Promise<{ server: HerdrServer; binPath: string; dir: string } | null> {
+    this.herdr ??= this.startHerdr().catch((error: unknown) => {
+      this.log(`herdr status protocol unavailable: ${String(error)}`)
+      return null
+    })
+    return this.herdr
+  }
+
+  private async startHerdr(): Promise<{ server: HerdrServer; binPath: string; dir: string }> {
+    // A Unix socket path holds ~100 bytes: the temp folder, not the nsq home. A private folder
+    // of its own (0700): only this user reaches the socket, and the pane id is checked anyway.
+    const dir = mkdtempSync(join(tmpdir(), 'nsq-h-'))
+    if (process.platform !== 'win32') chmodSync(dir, 0o700)
+    const socketPath = join(dir, 'herdr.sock')
+    if (Buffer.byteLength(socketPath) > MAX_HERDR_SOCKET_PATH) {
+      rmSync(dir, { recursive: true, force: true })
+      throw new Error(`the temp folder's path is too long for a socket: ${socketPath}`)
+    }
+    const binPath = this.writeHerdrShim()
+    const server = await startHerdrServer({
+      socketPath,
+      handle: (line) => this.herdrRequest(line),
+      log: (line) => this.log(line)
+    })
+    return { server, binPath, dir }
+  }
+
+  /** HERDR_BIN_PATH: a launcher for dist/herdrShim.js on this Node. */
+  private writeHerdrShim(): string {
+    const binDir = ensureDir(join(paths.home(), 'herdr'))
+    const shim = join(PACKAGE_DIR, 'dist', 'herdrShim.js')
+    const node = process.execPath
+    if (process.platform === 'win32') {
+      const file = join(binDir, 'herdr.cmd')
+      // `%*` passes the arguments on as the caller quoted them.
+      writeFileSync(file, `@"${node}" "${shim}" %*\r\n`)
+      return file
+    }
+    const quote = (value: string): string => `'${value.replaceAll("'", `'\\''`)}'`
+    const file = join(binDir, 'herdr')
+    writeFileSync(file, `#!/bin/sh\nexec ${quote(node)} ${quote(shim)} "$@"\n`, { mode: 0o755 })
+    chmodSync(file, 0o755)
+    return file
+  }
+
+  /** One request line from an agent's herdr client; the reply line. */
+  private herdrRequest(line: string): string {
+    const request = parseHerdrRequest(line)
+    if (!request) return herdrError('', 'invalid_request', 'invalid request')
+    if (request.invalid)
+      return herdrError(request.id, request.invalid.code, request.invalid.message)
+    const report = request.report
+    if (!report) return herdrUnsupported(request.id, request.method)
+    const agentId = this.herdrPanes.agentOf(report.paneId)
+    if (!agentId || !this.store.get(agentId)) {
+      return herdrError(request.id, 'pane_not_found', `pane ${report.paneId} not found`)
+    }
+    const refused = receiveHerdrReport(agentId, report)
+    return refused ? herdrError(request.id, refused.code, refused.message) : herdrOk(request.id)
+  }
+
+  private async closeHerdr(): Promise<void> {
+    const herdr = await this.herdr?.catch(() => null)
+    if (!herdr) return
+    await herdr.server.close().catch(() => {})
+    rmSync(herdr.dir, { recursive: true, force: true })
+  }
+
   // ---- agents --------------------------------------------------------------------------
 
-  private async resolveExecutable(record: AgentRecord): Promise<string> {
+  private async resolveExecutable(record: AgentRecord, argv = record.command): Promise<string> {
     if (record.harness === 'command') {
-      const argv0 = record.command?.[0]
+      const argv0 = argv?.[0]
       if (!argv0) throw new Error('no command to run')
       const found = findOnPath(argv0, process.env['PATH'] ?? process.env['Path'])
       if (!found) throw new Error(`command not found: ${argv0}`)
@@ -631,7 +730,24 @@ export class Daemon {
   ): Promise<string[]> {
     if (this.ptys.isRunning(record.id)) return []
     const warnings: string[] = []
-    const executable = await this.resolveExecutable(record)
+    // A plain command that reported how to reopen its session (herdr protocol) resumes with it.
+    let commandArgv = record.command
+    let resumeCommand =
+      record.harness === 'command' && !options.fresh && record.sessionStarted === true
+        ? record.resumeCommand
+        : undefined
+    let executable: string
+    try {
+      executable = await this.resolveExecutable(record, resumeCommand ?? commandArgv)
+      if (resumeCommand) commandArgv = resumeCommand
+    } catch (error) {
+      if (!resumeCommand) throw error
+      warnings.push(
+        `${resumeCommand[0]} (its resume command) was not found: ${record.name} starts over`
+      )
+      resumeCommand = undefined
+      executable = await this.resolveExecutable(record)
+    }
     let openCodeV2 = false
     if (record.harness === 'opencode') {
       openCodeV2 = isOpenCodeV2(await openCodeVersionOf(openCodeExecutable(executable)))
@@ -666,11 +782,12 @@ export class Daemon {
       )
     }
     const resumed =
-      !options.fresh &&
-      record.sessionStarted === true &&
-      record.harness !== 'command' &&
-      (record.harness === 'claude-code' || record.harnessSessionId !== undefined)
-    if (resumed && record.provider === undefined && !launchModel) {
+      record.harness === 'command'
+        ? resumeCommand !== undefined
+        : !options.fresh &&
+          record.sessionStarted === true &&
+          (record.harness === 'claude-code' || record.harnessSessionId !== undefined)
+    if (resumed && record.harness !== 'command' && record.provider === undefined && !launchModel) {
       // Back from OpenRouter on the same session: the CLI would resume on the session's slug.
       const own = ownModelOnResume(record.harness, record.harnessSessionId ?? record.id)
       if (own.model) launchModel = own.model
@@ -678,6 +795,7 @@ export class Daemon {
     }
     const rt = this.rt(record.id)
     const hookBase = this.hooks!.baseFor(record.id)
+    const herdr = record.harness === 'command' ? await this.ensureHerdr() : null
     const context = (resume: boolean): LaunchContext => ({
       agent: {
         id: record.id,
@@ -687,13 +805,22 @@ export class Daemon {
         ...(record.provider ? { provider: record.provider } : {}),
         ...(record.customProviderId ? { customProviderId: record.customProviderId } : {}),
         ...(launchModel ? { model: launchModel } : {}),
-        ...(record.command ? { command: record.command } : {})
+        ...(commandArgv ? { command: commandArgv } : {})
       },
       executable,
       cwd: record.cwd,
       hookBase,
       layerDir: paths.layers(record.harness),
       resumed: resume,
+      ...(herdr
+        ? {
+            herdr: {
+              paneId: this.herdrPanes.paneIdFor(record.id),
+              socketPath: herdr.server.socketPath,
+              binPath: herdr.binPath
+            }
+          }
+        : {}),
       ...(key ? { openRouterKey: key } : {}),
       ...(customProvider ? { customProvider } : {}),
       ...(process.env['NSQ_OPENROUTER_BASE_URL']
@@ -1772,6 +1899,7 @@ export class Daemon {
       this.server ? this.server.close(() => resolve()) : resolve()
     )
     await this.hooks?.close()
+    await this.closeHerdr()
     await this.custom.close()
     rmSync(paths.daemonState(), { force: true })
     if (this.locked && ownsDaemonLock(lockPath())) rmSync(lockPath(), { force: true })

@@ -728,3 +728,25 @@ describe('Claude Code: reconciliation with the transcript (measured on 2.1.287)'
     expect(kinds(published)).toEqual(['working:hook', 'needs-input:hook', 'idle:user'])
   })
 })
+
+describe('ready (a harness at its prompt, e.g. a herdr agent registering)', () => {
+  it('is idle, never a turn end, and repeats are dropped', () => {
+    const { published } = play([
+      [0, { type: 'spawn' }],
+      [10, { type: 'ready' }],
+      [20, { type: 'ready' }],
+      [30, hook('working')],
+      [40, { type: 'ready' }]
+    ])
+    expect(kinds(published)).toEqual(['idle:hook', 'working:hook', 'idle:hook'])
+  })
+
+  it('is dropped once the process is gone', () => {
+    const { published } = play([
+      [0, hook('working')],
+      [10, { type: 'exit' }],
+      [20, { type: 'ready' }]
+    ])
+    expect(kinds(published)).toEqual(['working:hook'])
+  })
+})

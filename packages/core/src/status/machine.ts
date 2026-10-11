@@ -146,6 +146,12 @@ export type StatusSignal =
       reportedAt?: number
     }
   | { type: 'input'; data: string }
+  /**
+   * The harness says it sits at its prompt with nothing new to tell (a herdr
+   * agent's first `idle`, or a block resolved with no turn running): idle,
+   * never a turn end — nothing rings.
+   */
+  | { type: 'ready' }
   | { type: 'quiet' }
   | { type: 'spawn' }
   | { type: 'exit' }
@@ -424,6 +430,10 @@ function stepCore(state: MachineState, signal: StatusSignal, now: number): StepR
     }
     case 'exit':
       return drop({ ...(state.kind ? { kind: state.kind, since: state.since } : {}), dead: true })
+    case 'ready': {
+      if (state.dead || state.kind === 'idle') return drop(state)
+      return become('idle', now, 'hook')
+    }
     case 'quiet': {
       if (!state.pending || state.dead) return drop(state)
       if (state.kind === 'idle') return drop({ kind: 'idle', since: state.since })
