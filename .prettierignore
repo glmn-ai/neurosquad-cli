@@ -5,3 +5,5 @@ coverage
 package-lock.json
 # Templates with {{PLACEHOLDERS}} (not valid YAML until filled)
 packaging/winget
+# Scoop lints manifests with 4-space indentation (its .editorconfig); prettier would make it 2
+packaging/scoop
