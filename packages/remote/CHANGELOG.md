@@ -1,5 +1,11 @@
 # @neurosquad/remote
 
+## 0.4.0
+
+### Minor Changes
+
+- [#61](https://github.com/glmn-ai/neurosquad-cli/pull/61) [`79d1d86`](https://github.com/glmn-ai/neurosquad-cli/commit/79d1d862dd9f40635d64267a6e9ab4484d631ac5) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - The phone page shows the agent's screen as a real terminal view instead of plain text: colours (16, 256 and truecolor, in nsq's palette), bold, italic, underline, dim, inverse and strikethrough, the cursor, box drawing and wide characters (CJK, emoji), fitted to the phone's width with pinch to zoom. The daemon sends the screen as styled runs from its headless terminal (`/api/agent/<id>/screen?format=styled`, with `since=<version>` for an unchanged screen and gzip), and the page builds it from DOM nodes — agent output is never treated as HTML. The daemon's screens now measure character widths like the dashboard (Unicode graphemes: emoji and CJK two cells).
+
 ## 0.3.0
 
 ### Minor Changes

@@ -1,5 +1,18 @@
 # neurosquad
 
+## 0.4.0
+
+### Minor Changes
+
+- [#60](https://github.com/glmn-ai/neurosquad-cli/pull/60) [`c29f94a`](https://github.com/glmn-ai/neurosquad-cli/commit/c29f94a5b31e335aa076feb2f527d4d1546b58f3) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Phone panel in the dashboard (Q): the pairing QR code right in the terminal (half-block characters, black on white so a phone camera reads it off the monitor), with the link, the mode (this computer / local network / ONLINE through a quick or named tunnel), when the token expires and who is connected; go online / offline, LAN on / off and a new token from the panel, with the cloudflared download and errors shown in it. Going online with O opens it. Its Notifications tab sets up ntfy push in one key (a new random topic, kept in the OS keyring) and shows the QR that subscribes the phone — `ntfy://` for the Android app, the topic's https address and name for an iPhone — then sends a test and shows the last push result. The pairing link and the topic are shown only in this panel.
+
+- [#61](https://github.com/glmn-ai/neurosquad-cli/pull/61) [`79d1d86`](https://github.com/glmn-ai/neurosquad-cli/commit/79d1d862dd9f40635d64267a6e9ab4484d631ac5) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - The phone page shows the agent's screen as a real terminal view instead of plain text: colours (16, 256 and truecolor, in nsq's palette), bold, italic, underline, dim, inverse and strikethrough, the cursor, box drawing and wide characters (CJK, emoji), fitted to the phone's width with pinch to zoom. The daemon sends the screen as styled runs from its headless terminal (`/api/agent/<id>/screen?format=styled`, with `since=<version>` for an unchanged screen and gzip), and the page builds it from DOM nodes — agent output is never treated as HTML. The daemon's screens now measure character widths like the dashboard (Unicode graphemes: emoji and CJK two cells).
+
+### Patch Changes
+
+- Updated dependencies [[`79d1d86`](https://github.com/glmn-ai/neurosquad-cli/commit/79d1d862dd9f40635d64267a6e9ab4484d631ac5)]:
+  - @neurosquad/remote@0.4.0
+
 ## 0.3.0
 
 ### Minor Changes
