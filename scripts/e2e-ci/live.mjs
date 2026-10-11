@@ -8,6 +8,9 @@
 //       daemon restart, cost vs the fake's log, OpenRouter attribution headers,
 //       worktree, custom providers (your own servers), model switches, the hand-over of an
 //       older daemon; extra.mjs: interrupt, question
+//   herdr
+//       herdr.mjs: Crush (an agent that speaks the herdr status protocol) as a plain
+//       command — its own state reports, needs you, finished, its session id
 //   dashboard
 //       tui-record.mjs (real pty, 3 agents, keys, BEL/OSC 9 ring, asciicast),
 //       dictation.mjs (synthesised speech → Whisper tiny.en → paste),
@@ -38,7 +41,8 @@ const SUITES = {
   'opencode-2': { harness: 'opencode', set: 'oc2' },
   // The recording's OpenCode tile runs OpenCode 2: 1.x prints the absolute project folder under
   // its prompt (never `~`), which would put a runner path into the README's pictures.
-  dashboard: { set: 'main', opencodeSet: 'oc2' }
+  dashboard: { set: 'main', opencodeSet: 'oc2' },
+  herdr: { set: 'herdr', herdr: true }
 }
 const plan = SUITES[suite]
 if (!plan) throw new Error(`unknown suite ${suite}; one of ${Object.keys(SUITES).join(', ')}`)
@@ -72,7 +76,23 @@ function part(name, script, scriptArgs, work) {
   parts.push({ part: name, exit: result.status, seconds: (Date.now() - started) / 1000, checks })
 }
 
-if (plan.harness) {
+if (plan.herdr) {
+  const herdrWork = join(out, 'herdr')
+  const crush = join(
+    bin,
+    '..',
+    '@charmland',
+    'crush',
+    'bin',
+    process.platform === 'win32' ? 'crush.exe' : 'crush'
+  )
+  part(
+    'herdr.mjs',
+    join(HERE, 'herdr.mjs'),
+    ['--root', root, '--crush', crush, '--work', herdrWork],
+    herdrWork
+  )
+} else if (plan.harness) {
   const steps = [
     'hello',
     'perm',

@@ -85,7 +85,11 @@ Windows 11.
   `nsq doctor` checks it.
 - **Old CLI version:** update the CLI. OpenCode 1.x and 2.x are both supported.
 - **A command started with `nsq run --`** has no hooks: it shows working while it prints and
-  finished after 2.5 s of silence, and never "needs you". That is by design.
+  finished after 2.5 s of silence, and never "needs you". That is by design. An agent that speaks
+  the [herdr status protocol](agents.md#agents-that-speak-the-herdr-status-protocol) reports its
+  own state instead; if one does not, check that it supports the protocol. On Windows nsq listens
+  for agents that dial the socket directly (Crush) through a small Windows PowerShell process; where
+  PowerShell is blocked, those agents fall back to the output.
 - Check `~/.neurosquad-cli/daemon.log` and `nsq peek <agent>`.
 
 ## Notifications do not appear

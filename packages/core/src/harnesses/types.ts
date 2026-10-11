@@ -69,6 +69,12 @@ export interface LaunchContext {
     key?: string
     codexGateway?: { baseUrl: string; key: string }
   }
+  /**
+   * A plain command's herdr pane (../herdr): the command is told it runs in a
+   * herdr pane, so an agent that speaks the herdr status protocol reports its
+   * state, session and resume command to the host.
+   */
+  herdr?: { paneId: string; socketPath: string; binPath: string }
   /** The environment the harness would inherit (for merging a user's own config variables). */
   env?: Readonly<Record<string, string | undefined>>
   platform?: NodeJS.Platform

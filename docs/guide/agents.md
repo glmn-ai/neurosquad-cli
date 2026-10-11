@@ -29,13 +29,13 @@ The folder you run from (or `--cwd`) is the agent's working directory; agents in
 
 ## Supported CLIs
 
-| Harness      | Status from                        | Interrupt    | Dangerous mode                                                |
-| ------------ | ---------------------------------- | ------------ | ------------------------------------------------------------- |
-| Claude Code  | its hooks + the session transcript | Escape       | live — switch on/off at any time                              |
-| Codex        | its hooks                          | Escape       | at launch (restart to change); also turns off Codex's sandbox |
-| OpenCode 1.x | an OpenCode plugin                 | Escape twice | at launch (restart to change)                                 |
-| OpenCode 2.x | an OpenCode plugin                 | Escape twice | live — switch on/off at any time                              |
-| any command  | output and silence                 | Ctrl+C       | —                                                             |
+| Harness      | Status from                                                                                             | Interrupt    | Dangerous mode                                                |
+| ------------ | ------------------------------------------------------------------------------------------------------- | ------------ | ------------------------------------------------------------- |
+| Claude Code  | its hooks + the session transcript                                                                      | Escape       | live — switch on/off at any time                              |
+| Codex        | its hooks                                                                                               | Escape       | at launch (restart to change); also turns off Codex's sandbox |
+| OpenCode 1.x | an OpenCode plugin                                                                                      | Escape twice | at launch (restart to change)                                 |
+| OpenCode 2.x | an OpenCode plugin                                                                                      | Escape twice | live — switch on/off at any time                              |
+| any command  | output and silence, or its own reports ([herdr protocol](#agents-that-speak-the-herdr-status-protocol)) | Ctrl+C       | —                                                             |
 
 nsq tells OpenCode 1.x and 2.x apart by `opencode --version`. The technical details for each CLI —
 flags, environment, hook events — are in [docs/harnesses.md](../harnesses.md).
@@ -57,13 +57,46 @@ servers keep working.
 
 These are facts from the CLI's own hooks, not guesses from the screen. A command started with
 `nsq run --` has no hooks: output means working, 2.5 seconds of silence means finished, and it never
-claims "needs you". More: [docs/status.md](../status.md).
+claims "needs you", unless it reports its own state (below). More: [docs/status.md](../status.md).
+
+### Agents that speak the herdr status protocol
+
+Agents that support the herdr status protocol work in nsq out of the box. [herdr](https://herdr.dev)
+is a terminal multiplexer for coding agents; it publishes a small protocol an agent uses to report
+its own state ([Add Herdr support to your agent](https://herdr.dev/docs/add-herdr-support/)), and several agents
+implement it: Crush, Kiro CLI, Command Code, Muse Code, Prime Agent, and more as they add it. nsq
+speaks the receiving end of that protocol, so you start such an agent as a plain command:
+
+```sh
+nsq run -- crush
+```
+
+nsq tells the command it runs in a herdr pane (`HERDR_ENV`, `HERDR_PANE_ID`, `HERDR_SOCKET_PATH`,
+`HERDR_BIN_PATH`). An agent that speaks the protocol then reports to nsq, and nsq stops guessing
+from its output:
+
+| It reports            | nsq shows                                                                       |
+| --------------------- | ------------------------------------------------------------------------------- |
+| `working`             | working                                                                         |
+| `blocked` (+ message) | needs you, with its message ("crush is waiting for your decision" without one)  |
+| `idle` after a turn   | finished                                                                        |
+| `idle` on start       | idle                                                                            |
+| its session id        | recorded, like a harness's own session                                          |
+| a resume command      | used by `nsq restart` and after `nsq down` / `nsq up`, instead of starting over |
+
+Answer it in the agent itself (Enter, or `nsq attach`): its permission dialog is its own, so the
+dashboard's **y / a / n** keys do not apply. Each agent gets its own pane id, so one agent cannot
+report for another. Only the agent state reports are implemented (`pane report-agent`,
+`report-agent-session`, `release-agent`); the rest of herdr (splits, waits, events) is herdr's own.
+Commands that do not speak the protocol ignore the variables. Thanks to herdr for publishing the
+protocol.
 
 ## Sessions and resume
 
 Each agent keeps its CLI session. `nsq restart <agent>` (or **r**) and a restart of the daemon
-resume it: Claude Code with `--resume`, Codex with `codex resume`, OpenCode with its session id. If
-the session no longer exists, a fresh one starts.
+resume it: Claude Code with `--resume`, Codex with `codex resume`, OpenCode with its session id, and
+a plain command with the resume command it reported over the herdr status protocol (others start
+over). If the session no longer exists, a fresh one starts.
 
 `nsq down` stops the daemon and its agents; `nsq up` — or simply `nsq` — starts it again and every
 agent that was running comes back on its own session. That includes after a reboot.

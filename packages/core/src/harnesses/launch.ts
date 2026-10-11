@@ -13,6 +13,7 @@ import {
 import { nativeModelLaunch, openRouterLaunch } from '../providers/openrouter.js'
 import { customProviderLaunch } from '../providers/custom.js'
 import type { LaunchContext, LaunchPlan } from './types.js'
+import { HERDR_BIN_PATH, HERDR_ENV, HERDR_PANE_ID, HERDR_SOCKET_PATH } from '../herdr/protocol.js'
 
 /** Claude Code's folder-trust prompt, answered: Down (off "No, exit") then Enter. */
 export const CLAUDE_TRUST_PROMPT = { marker: 'Quick safety check', keys: '\x1b[B\r' }
@@ -78,13 +79,25 @@ export function prepareClaudeLaunch(
   }
 }
 
-/** A plain command: no hooks, the status comes from the terminal's output alone. */
+/**
+ * A plain command: no hooks; the status comes from the terminal's output — or,
+ * for an agent that speaks the herdr status protocol, from its own reports
+ * (`ctx.herdr`: the pane it is told it runs in).
+ */
 export function prepareCommandLaunch(ctx: LaunchContext): LaunchPlan {
   const argv = ctx.agent.command ?? []
+  const herdr = ctx.herdr
   return {
     command: ctx.executable,
     args: argv.slice(1),
-    env: {},
+    env: herdr
+      ? {
+          [HERDR_ENV]: '1',
+          [HERDR_PANE_ID]: herdr.paneId,
+          [HERDR_SOCKET_PATH]: herdr.socketPath,
+          [HERDR_BIN_PATH]: herdr.binPath
+        }
+      : {},
     useConptyDll: false
   }
 }

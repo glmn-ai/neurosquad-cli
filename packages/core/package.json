@@ -18,6 +18,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./herdr": {
+      "types": "./dist/herdr/index.d.ts",
+      "default": "./dist/herdr/index.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [

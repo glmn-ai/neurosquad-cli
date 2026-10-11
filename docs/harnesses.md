@@ -62,6 +62,59 @@ OpenCode 1.x (npm `opencode-ai`) and OpenCode 2 (npm `@opencode/cli`) are told a
 `nsq run -- <command…>` runs anything in a terminal. It has no hooks: output marks it working, and
 `GENERIC_QUIET_MS` (2.5 s) of silence marks it finished. It never claims "needs you".
 
+### The herdr status protocol
+
+A plain command is also told it runs in a [herdr](https://herdr.dev) pane, so an agent that
+implements herdr's status protocol ([Add Herdr support to your agent](https://herdr.dev/docs/add-herdr-support/),
+and the socket API's "Agent state reporting") reports its own state. The code
+(`packages/core/src/herdr/`) is written from that public documentation and the request and reply
+shapes of herdr's socket API; no herdr code is copied.
+
+| Variable            | Value                                                                                                                  |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `HERDR_ENV`         | `1`                                                                                                                    |
+| `HERDR_PANE_ID`     | `<agent id>.<HMAC>`, keyed by a secret of this daemon run: a pane id names one agent and cannot be made up for another |
+| `HERDR_SOCKET_PATH` | `<temp>/nsq-h-XXXXXX/herdr.sock` (a private folder; a Unix socket path holds about 100 bytes)                          |
+| `HERDR_BIN_PATH`    | `~/.neurosquad-cli/herdr/herdr` (`herdr.cmd` on Windows): runs `dist/herdrShim.js` on nsq's own Node                   |
+
+The socket takes herdr's newline-delimited JSON, one request per connection: `pane.report_agent`,
+`pane.report_agent_session` and `pane.release_agent`; anything else answers `unknown_method`. On
+Unix it is a Unix domain socket (0600). On Windows herdr's socket is a named pipe named after the
+path (`\\.\pipe\<path>`), which nsq serves: the shim and pipe clients use it. A Go client like
+Crush dials AF_UNIX at the path instead (Windows 10 1803+), which Node cannot listen on, so a Windows
+PowerShell process (a .NET socket with `AddressFamily.Unix`) accepts those connections, relays each
+line to the daemon and answers ok itself; it exits with the daemon. The shim implements
+`pane report-agent`, `report-agent-session` and `release-agent` with herdr's arguments and exit
+codes (0, 1 refused, 2 usage) and refuses the rest of herdr's CLI with a message.
+
+herdr's rules are kept: a report whose `seq` (a u64; Crush seeds it from the clock in nanoseconds,
+so it is kept exact) is not above the last one of its source is ignored; a resume command is taken
+only from the source that holds the pane through a state report (`resume_not_accepted` otherwise)
+and must follow herdr's rules (a plain command name first, at most 64 arguments and 8 KiB, no
+apostrophes or control characters: `invalid_resume_argv`); a release forgets it. Reports for an
+agent with its own integration (Claude Code, Codex, OpenCode) are ignored.
+
+| Report             | Status                                                          |
+| ------------------ | --------------------------------------------------------------- |
+| `working`          | working                                                         |
+| `blocked`          | needs you: `message`, or "<agent> is waiting for your decision" |
+| `idle` (turn open) | finished                                                        |
+| `idle` (otherwise) | idle (the status machine's `ready` signal: nothing rings)       |
+| `unknown`          | no change                                                       |
+| `agent_session_id` | the agent's `harnessSessionId`                                  |
+| `resume_argv`      | `resumeCommand` in agents.json: what a resume runs              |
+
+From the first known state a process reports (`unknown` does not count), its reports replace the
+output heuristic; a new process is on the heuristic again until it registers. A `working` within
+1 s of `blocked` or of the turn's end, with nothing typed or sent into the agent, is dropped
+(`HERDR_ECHO_MS`): Crush 0.98 feeds its herdr bridge from several event streams read in
+parallel, so a permission's "request pending" notice (which it reports as resolved) can land just
+after the request, and the turn's last message just after its end (measured on Linux: 1–7 ms). The answer itself is the person's key, which moves the agent on. A
+resume command whose process exits without reporting once is dropped: the next start runs the
+command itself. Verified live with Crush 0.98
+(`scripts/e2e-ci/herdr.mjs`, the `herdr` suite of the live e2e) and with a scripted agent
+(`scripts/e2e/fake-herdr-agent.mjs`, `apps/cli/src/herdr.e2e.test.ts`).
+
 ## OpenRouter attribution
 
 Every OpenRouter request an agent makes carries:

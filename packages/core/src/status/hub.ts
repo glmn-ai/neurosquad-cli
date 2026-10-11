@@ -51,6 +51,13 @@ import { OPENCODE_PERMISSION_HOOK_EVENT } from '../harnesses/opencode/pluginV2.j
 import { openCodePermissionReply } from '../harnesses/opencode/launch.js'
 import { stripAnsi } from '../pty/plainText.js'
 import type { HarnessId } from '../harnesses/types.js'
+import {
+  applyHerdrReport,
+  emptyHerdrPane,
+  recordHerdrSeq,
+  type HerdrPaneState
+} from '../herdr/pane.js'
+import type { HerdrReport } from '../herdr/protocol.js'
 
 export interface StatusHubHost {
   /** The agent's harness, or undefined for an unknown agent. */
@@ -65,6 +72,11 @@ export interface StatusHubHost {
   onStatus(event: AgentHookEvent): void
   /** The running subagents of an agent changed. */
   onSubagents?(agentId: string, running: SubagentRun[]): void
+  /**
+   * A plain command that speaks the herdr status protocol reported the command
+   * that resumes its session (an array), or released its pane (null).
+   */
+  onResumeCommand?(agentId: string, argv: readonly string[] | null): void
   /** A retry OpenCode reported (rate limit…). */
   onRetry?(agentId: string, message: string): void
   /** Diagnostics, never the payloads themselves. */
@@ -258,6 +270,8 @@ export function noteUserInput(agentId: string, data: string): void {
   const key = classifyUserKey(data)
   feed(agentId, { type: 'input', data }, key ? `key:${key}` : undefined)
   if (key === 'answer') codexAnswered(agentId)
+  const echo = herdrEcho.get(agentId)
+  if (echo) echo.typed = true
 }
 
 // ---- generic agents: status from the terminal alone -----------------------------
@@ -282,6 +296,98 @@ function genericOutput(agentId: string): void {
   }, GENERIC_QUIET_MS)
   timer.unref?.()
   genericTimers.set(agentId, timer)
+}
+
+// ---- plain commands that speak the herdr status protocol ----------------------------
+
+const herdrPanes = new Map<string, HerdrPaneState>()
+
+/**
+ * A `working` this soon after `blocked` or after the turn ended, with nothing typed or sent into
+ * the agent in between, is an echo, not news. Crush (0.98) feeds its herdr bridge from several
+ * event streams read in parallel, so their order is not kept: the "request pending" notice of a
+ * permission (read as "resolved") can land just after the request, and the turn's last assistant
+ * message just after its end (both measured on Linux: 1–7 ms). Nobody answers that fast, and no
+ * turn starts by itself.
+ */
+export const HERDR_ECHO_MS = 1000
+const herdrEcho = new Map<string, { after: 'blocked' | 'finished'; at: number; typed: boolean }>()
+
+/** The agent's process reports its state over herdr: its reports replace the terminal heuristic. */
+function speaksHerdr(agentId: string): boolean {
+  return herdrPanes.get(agentId)?.reporting === true
+}
+
+/**
+ * A herdr report from a plain command's process (../herdr): `agentId` is the
+ * agent its pane id names (already checked). Returns the error to answer
+ * with, or null for ok. Reports for an agent that is not a plain command, or
+ * whose process is gone, are answered ok and ignored.
+ */
+export function receiveHerdrReport(
+  agentId: string,
+  report: HerdrReport
+): { code: string; message: string } | null {
+  if (host?.harnessOf(agentId) !== 'command') return null
+  const machine = machines.get(agentId)
+  if (!machine || machine.dead) return null
+  const before = herdrPanes.get(agentId) ?? emptyHerdrPane()
+  const echo = herdrEcho.get(agentId)
+  if (
+    report.method === 'pane.report_agent' &&
+    report.state === 'working' &&
+    echo &&
+    !echo.typed &&
+    Date.now() - echo.at < HERDR_ECHO_MS
+  ) {
+    trace(
+      agentId,
+      `herdr working dropped: ${Date.now() - echo.at} ms after ${echo.after}, nothing typed`
+    )
+    herdrPanes.set(agentId, recordHerdrSeq(before, report))
+    return null
+  }
+  const effects = applyHerdrReport(before, report)
+  if (effects.error) {
+    trace(agentId, `herdr ${report.method} refused: ${effects.error.code}`)
+    return effects.error
+  }
+  if (!effects.applied) {
+    trace(agentId, `herdr ${report.state ?? report.method} dropped: stale seq ${report.seq}`)
+    return null
+  }
+  herdrPanes.set(agentId, effects.state)
+  if (effects.fact?.kind === 'needs-input' || effects.fact?.kind === 'finished') {
+    const after = effects.fact.kind === 'finished' ? 'finished' : 'blocked'
+    herdrEcho.set(agentId, { after, at: Date.now(), typed: false })
+  } else if (effects.fact) herdrEcho.delete(agentId)
+  if (!before.reporting && effects.state.reporting) {
+    // From now on the agent's own reports say what it is doing, not its output.
+    const timer = genericTimers.get(agentId)
+    if (timer) clearTimeout(timer)
+    genericTimers.delete(agentId)
+    genericBusy.delete(agentId)
+  }
+  if (effects.sessionId) host?.onSessionId?.(agentId, effects.sessionId)
+  if (effects.resume !== undefined) {
+    try {
+      host?.onResumeCommand?.(agentId, effects.resume)
+    } catch {
+      // non-fatal
+    }
+  }
+  const label = `herdr ${report.state ?? report.method}`
+  const fact = effects.fact
+  if (!fact) {
+    trace(agentId, `${label} → no change`)
+  } else if (fact.kind === 'ready') {
+    feed(agentId, { type: 'ready' }, label)
+  } else if (fact.kind === 'needs-input') {
+    emitHookFact(agentId, 'needs-input', fact.detail, { label })
+  } else {
+    emitHookFact(agentId, fact.kind, undefined, { label })
+  }
+  return null
 }
 
 // ---- Codex: open turns and the failed-turn line --------------------------------
@@ -322,13 +428,15 @@ observePtys({
     codexOpenTurns.delete(agentId)
     codexWaiting.delete(agentId)
     genericBusy.delete(agentId)
+    herdrPanes.delete(agentId)
+    herdrEcho.delete(agentId)
     feed(agentId, { type: 'spawn' }, machines.has(agentId) ? 'spawn' : undefined)
   },
   onData(agentId, _generation, chunk) {
     if (machines.get(agentId)?.pending) lastOutputAt.set(agentId, Date.now())
     const harness = host?.harnessOf(agentId)
     if (harness === 'codex-cli') codexOutput(agentId, chunk)
-    else if (harness === 'command') genericOutput(agentId)
+    else if (harness === 'command' && !speaksHerdr(agentId)) genericOutput(agentId)
   },
   onExit(agentId, generation) {
     if (liveGeneration.get(agentId) !== generation) return
@@ -339,8 +447,15 @@ observePtys({
     genericBusy.delete(agentId)
     codexOpenTurns.delete(agentId)
     codexWaiting.delete(agentId)
+    herdrPanes.delete(agentId)
+    herdrEcho.delete(agentId)
     feed(agentId, { type: 'exit' }, 'exit')
     clearSubagents(agentId)
+  },
+  onSubmit(agentId) {
+    // A prompt sent into the agent (a queued one, `nsq send`): a turn may start right away.
+    const echo = herdrEcho.get(agentId)
+    if (echo) echo.typed = true
   },
   onInterrupt(agentId) {
     if (machines.has(agentId)) feed(agentId, { type: 'input', data: '\x1b' }, 'interrupt')
@@ -587,6 +702,8 @@ export function forgetAgentStatus(agentId: string): void {
   codexOpenTurns.delete(agentId)
   codexWaiting.delete(agentId)
   codexFailureTails.delete(agentId)
+  herdrPanes.delete(agentId)
+  herdrEcho.delete(agentId)
   clearSubagents(agentId)
   forgetTranscript(agentId)
 }

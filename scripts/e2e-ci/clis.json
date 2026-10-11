@@ -16,6 +16,10 @@
     "oc2": {
       "pinned": { "@opencode/cli": "2.0.26" },
       "latest": { "@opencode/cli": "2" }
+    },
+    "herdr": {
+      "pinned": { "@charmland/crush": "0.98.1" },
+      "latest": { "@charmland/crush": "latest" }
     }
   }
 }
