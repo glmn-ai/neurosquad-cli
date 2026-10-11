@@ -738,8 +738,16 @@ export class Daemon {
 
   private async resolveExecutable(record: AgentRecord, argv = record.command): Promise<string> {
     if (record.binary) {
-      // The CLI the person named by its path (`nsq run -- ./bin/codex`).
-      const found = findOnPath(record.binary, process.env['PATH'] ?? process.env['Path'])
+      // The CLI the person named by its path (`nsq run -- ./bin/codex`). Windows: `bin/codex`
+      // means codex.exe or npm's codex.cmd, before an extensionless shell script of that name.
+      const exts =
+        process.platform === 'win32' && !/\.[A-Za-z0-9]+$/.test(record.binary)
+          ? (process.env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+          : []
+      const path = process.env['PATH'] ?? process.env['Path']
+      const found = [...exts.map((ext) => record.binary + ext.toLowerCase()), record.binary]
+        .map((candidate) => findOnPath(candidate, path))
+        .find((candidate): candidate is string => candidate !== null)
       if (!found) throw new Error(`${record.binary} not found`)
       return found
     }

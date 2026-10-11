@@ -142,7 +142,13 @@ try {
   if (runs('dashdash')) {
     // The CLI as a plain command line, with a harmless flag of its own (Claude Code, Codex) and a
     // prompt (OpenCode's own --prompt).
-    const cli = { claude: 'claude', codex: 'codex', opencode: 'opencode' }[short]
+    // Codex by its path in the CLI folder (on Windows an extensionless sh script sits next to
+    // npm's codex.cmd there: the .cmd must win), the others by name.
+    const cli = {
+      claude: 'claude',
+      codex: get('bin') ? join(resolve(get('bin')), 'codex') : 'codex',
+      opencode: 'opencode'
+    }[short]
     const own = {
       claude: ['--effort', 'low', '[nsq:hello] say hi'],
       codex: ['-c', 'hide_agent_reasoning=true', '[nsq:hello] say hi'],
@@ -153,7 +159,7 @@ try {
     const done = await waitStatus(name, ['finished'], 120_000)
     const agent = done.agent
     check(
-      `${short}: nsq run -- ${cli} … runs as the harness (hooks, the prompt sent)`,
+      `${short}: nsq run -- ${short === 'codex' ? '<path>/codex' : short} … runs as the harness (hooks, the prompt sent)`,
       run.status === 0 &&
         agent?.harness === HARNESSES[short] &&
         agent?.status === 'finished' &&
@@ -163,10 +169,11 @@ try {
     )
     if (agent?.status !== 'finished') log(peek(name).slice(-1500))
     nsq('rm', name)
-    const raw = nsq('run', '--raw', '--name', `${short}-raw`, '--', cli, '--version')
+    // By name: a plain command runs exactly what it is given (no PATHEXT for a path).
+    const raw = nsq('run', '--raw', '--name', `${short}-raw`, '--', short, '--version')
     const rawAgent = (await waitStatus(`${short}-raw`, ['finished', 'exited'], 60_000)).agent
     check(
-      `${short}: nsq run --raw -- ${cli} stays a plain command`,
+      `${short}: nsq run --raw -- ${short} stays a plain command`,
       raw.status === 0 && rawAgent?.harness === 'command',
       { harness: rawAgent?.harness, stderr: raw.stderr }
     )
