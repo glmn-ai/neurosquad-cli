@@ -38,6 +38,7 @@ off).
 cd ~/code/my-app
 nsq run claude "fix the flaky checkout test" --worktree   # an agent on its own branch
 nsq run codex --name reviewer                             # a second agent
+nsq run -- claude --effort high                           # or the CLI's own command line
 nsq run -- npm run dev                                    # any command, as an agent
 nsq                                                       # the dashboard
 ```

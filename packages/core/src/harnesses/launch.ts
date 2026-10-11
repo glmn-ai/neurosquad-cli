@@ -148,7 +148,7 @@ export function prepareLaunch(ctx: LaunchContext, options: PrepareOptions = {}):
     default:
       return prepareCommandLaunch(ctx)
   }
-  let args = [...plan.args, ...provider.args]
+  let args = [...plan.args, ...provider.args, ...(agent.args ?? [])]
   let env = {
     ...plan.env,
     ...(agent.harness === 'claude-code' ? claudeRecipeEnv(provider.env) : provider.env)

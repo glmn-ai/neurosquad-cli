@@ -41,6 +41,11 @@ export interface AgentLaunchSpec {
   model?: string
   /** `command` harness: the argv to run. */
   command?: readonly string[]
+  /**
+   * A harness: extra arguments for its CLI (`nsq run -- claude --effort high`), after the
+   * launch's own, on every start.
+   */
+  args?: readonly string[]
 }
 
 export interface LaunchContext {

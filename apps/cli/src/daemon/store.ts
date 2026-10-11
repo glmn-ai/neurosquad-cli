@@ -11,6 +11,10 @@ export interface AgentRecord {
   cwd: string
   worktree?: { path: string; branch: string; repo: string }
   command?: string[]
+  /** A harness: extra arguments for its CLI, passed on every start. */
+  args?: string[]
+  /** A harness: the CLI's executable, when the person named a path. */
+  binary?: string
   provider?: 'openrouter' | 'custom'
   /** `custom`: the id of the user's provider (providers.json). */
   customProviderId?: string

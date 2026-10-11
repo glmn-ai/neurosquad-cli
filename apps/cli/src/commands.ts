@@ -28,6 +28,7 @@ import type { AgentView, RunSpec } from './protocol.js'
 import { VERSION } from './version.js'
 import { providerNameProblem } from './providers.js'
 import { modelSwitchText, type ModelSwitchApplied } from './modelRules.js'
+import { commandRun } from './knownClis.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -76,7 +77,27 @@ export async function cmdRun(args: ParsedArgs): Promise<void> {
   if (args.rest) {
     if (args.rest.length === 0)
       throw new UsageError('nsq run -- <command…>: the command is missing')
-    spec = { harness: 'command', command: args.rest, ...common }
+    // `nsq run -- claude|codex|opencode …` runs that CLI as its harness (hooks, session); --raw
+    // keeps it a plain command.
+    const provider = providerFlag(
+      flagString(args, 'provider') ?? (flagBool(args, 'openrouter') ? 'openrouter' : undefined)
+    )
+    const run = commandRun(
+      args.rest,
+      {
+        ...common,
+        ...(provider?.provider
+          ? {
+              provider: provider.provider,
+              ...(provider.customProviderId ? { customProviderId: provider.customProviderId } : {})
+            }
+          : {})
+      },
+      flagBool(args, 'raw')
+    )
+    if ('error' in run) throw new UsageError(run.error)
+    if (run.note) process.stderr.write(`nsq: ${run.note}\n`)
+    spec = run.spec
   } else {
     const alias = args.positional[0]
     if (!alias)

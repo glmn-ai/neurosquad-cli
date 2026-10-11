@@ -8,6 +8,7 @@ nsq run claude "fix the flaky test"            # Claude Code
 nsq run codex --name reviewer                   # Codex
 nsq run opencode --model anthropic/claude-sonnet-4.5
 nsq run --name web -- npm run dev               # any command
+nsq run -- claude --effort high "fix the test"  # a CLI's own command line
 ```
 
 | Option                  |                                                                                                   |
@@ -21,6 +22,28 @@ nsq run --name web -- npm run dev               # any command
 | `--dangerous`           | approve its permission prompts automatically (see below)                                          |
 | `--attach`, `-a`        | open it full screen right away                                                                    |
 | `--json`                | print the new agent as JSON                                                                       |
+| `--raw`                 | with `-- <command…>`: run `claude` / `codex` / `opencode` as a plain command (see below)          |
+
+### Your CLI's own command line
+
+`nsq run -- claude …`, `nsq run -- codex …` and `nsq run -- opencode …` (also by path, e.g.
+`./node_modules/.bin/codex`) start that CLI **as its harness**: hooks or plugin, status, session
+tracking and resume, exactly like `nsq run claude`. Its own flags are passed through on every start
+(`--effort high`, `-c key=value`, `--agent build`…), and nsq reads out what it manages itself:
+
+| The CLI's own                                                                                                  | nsq takes it as                               |
+| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| the prompt (Claude Code, Codex: the positional; OpenCode: `--prompt`)                                          | the first prompt (sent once, not on a resume) |
+| `--model` / `-m`                                                                                               | the agent's model (`m` in the dashboard)      |
+| `--dangerously-skip-permissions`, `--dangerously-bypass-approvals-and-sandbox` / `--yolo`, OpenCode's `--auto` | dangerous mode (`d`)                          |
+| OpenCode's `[project]`                                                                                         | the folder to start in                        |
+
+Not accepted, because nsq keeps the agent's session itself (`nsq restart` resumes it):
+`--resume`, `--continue`, `--session-id`, `--fork-session`, `codex resume` / `codex fork`, OpenCode's
+`--session`, `--continue` and `--fork`; and what would switch off nsq's status: Claude Code's
+`--settings` and `--bare`, OpenCode's `--pure`. A run that is not an interactive session
+(`claude -p`, `codex exec`, `opencode run`, `--version`, `mcp`…) runs as a plain command. `--raw`
+(`nsq run --raw -- claude …`) runs any of them as a plain command, exactly as written.
 
 Harness names also accept `cc` / `claude-code`, `codex-cli` and `oc`.
 

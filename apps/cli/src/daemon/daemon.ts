@@ -200,6 +200,13 @@ const UPDATE_QUIET_MS = 5 * 60 * 1000
 /** How often a pending update looks for a moment to restart in. */
 const UPDATE_POLL_MS = 15_000
 
+/** `value` when it is an array of strings (a run spec from the socket). */
+function stringList(value: unknown): string[] | undefined {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+    ? (value as string[])
+    : undefined
+}
+
 /**
  * An agent that comes back on its own session after a daemon restart: a harness, or a plain
  * command that reported its resume command over the herdr status protocol.
@@ -730,6 +737,20 @@ export class Daemon {
   // ---- agents --------------------------------------------------------------------------
 
   private async resolveExecutable(record: AgentRecord, argv = record.command): Promise<string> {
+    if (record.binary) {
+      // The CLI the person named by its path (`nsq run -- ./bin/codex`). Windows: `bin/codex`
+      // means codex.exe or npm's codex.cmd, before an extensionless shell script of that name.
+      const exts =
+        process.platform === 'win32' && !/\.[A-Za-z0-9]+$/.test(record.binary)
+          ? (process.env['PATHEXT'] ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+          : []
+      const path = process.env['PATH'] ?? process.env['Path']
+      const found = [...exts.map((ext) => record.binary + ext.toLowerCase()), record.binary]
+        .map((candidate) => findOnPath(candidate, path))
+        .find((candidate): candidate is string => candidate !== null)
+      if (!found) throw new Error(`${record.binary} not found`)
+      return found
+    }
     if (record.harness === 'command') {
       const argv0 = argv?.[0]
       if (!argv0) throw new Error('no command to run')
@@ -837,7 +858,8 @@ export class Daemon {
         ...(record.provider ? { provider: record.provider } : {}),
         ...(record.customProviderId ? { customProviderId: record.customProviderId } : {}),
         ...(launchModel ? { model: launchModel } : {}),
-        ...(commandArgv ? { command: commandArgv } : {})
+        ...(commandArgv ? { command: commandArgv } : {}),
+        ...(record.args?.length ? { args: record.args } : {})
       },
       executable,
       cwd: record.cwd,
@@ -1116,6 +1138,12 @@ export class Daemon {
       cwd,
       ...(worktree ? { worktree } : {}),
       ...(spec.command ? { command: spec.command } : {}),
+      ...(spec.harness !== 'command' && stringList(spec.args)?.length
+        ? { args: [...spec.args!] }
+        : {}),
+      ...(spec.harness !== 'command' && typeof spec.binary === 'string' && spec.binary
+        ? { binary: spec.binary }
+        : {}),
       ...(spec.provider ? { provider: spec.provider } : {}),
       ...(spec.provider === 'custom' && spec.customProviderId
         ? { customProviderId: spec.customProviderId }
