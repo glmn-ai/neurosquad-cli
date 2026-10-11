@@ -58,6 +58,10 @@ In the dashboard, select an agent with the arrows, press **Enter** to work in it
   _Claude wants to run: npm test_.
 - **Answer inline.** `y` / `a` / `n` (yes / always / no) on a permission prompt, `i` to interrupt,
   `s` to send a prompt — or `S` to send it when the current turn ends.
+- **An approvals log.** Every "needs you" question and how it ended, for all agents, in one file:
+  which agent asked, the exact question (tool, command / path / url), the answer, and who gave it
+  from where — the dashboard, `nsq answer`, the phone (this machine, the Wi-Fi or the internet,
+  and the device), the agent's own terminal, or the CLI itself. `nsq log approvals`.
 - **Notifications and sound.** A native notification on Windows, macOS and Linux when an agent
   needs you or finishes — one per agent, withdrawn when it works again. Over SSH or without a
   desktop, the dashboard rings its own terminal instead (bell + OSC 9).
@@ -120,6 +124,8 @@ nsq set <agent> [--dangerous on|off] [--model id|none]
 nsq diff <agent>                      uncommitted changes (git diff HEAD) in its folder
 nsq peek <agent> [-n 20]              the last lines of its screen
 nsq cost [--since 7d] [--json]        what each agent spent
+nsq log approvals [--agent x] [--since 2h] [--json]
+                                      every "needs you" question, its answer and who gave it
 nsq openrouter set-key|clear-key|models [query]|status
 nsq openrouter test <model> [--harness claude|codex|opencode]
 nsq provider add <name> --url <base> [--key-stdin|--ask-key]
@@ -212,6 +218,9 @@ Windows arm64.
   sign in. Plus the update check: every 6 hours one request to the npm registry for nsq's public
   package metadata, with nothing about you in it (`NSQ_NO_UPDATE=1` or
   `nsq config set autoUpdate false` turns it off — [updates](docs/guide/updates.md)).
+- The approvals log (`logs/approvals.jsonl`) keeps the questions and answers on your machine only:
+  no environment, tokens or prompts, secret-looking parts of commands masked
+  (`nsq config set approvalsLog false` turns it off — [agents](docs/guide/agents.md#the-approvals-log)).
 
 ## Platforms
 

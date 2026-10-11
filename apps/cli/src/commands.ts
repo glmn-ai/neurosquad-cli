@@ -611,6 +611,7 @@ const CONFIG_KEYS: Record<string, { values: string; parse: (text: string) => unk
   },
   notifications: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
   sound: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
+  approvalsLog: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
   logos: {
     values: 'auto | images | glyphs | neutral',
     parse: (text) => (['auto', 'images', 'glyphs', 'neutral'].includes(text) ? text : undefined)

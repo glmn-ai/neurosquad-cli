@@ -80,6 +80,47 @@ nsq interrupt api-fix
 In the dashboard: **s** / **S** and **y** / **a** / **n**. "Always" is the CLI's own "don't ask
 again" choice, so it follows that CLI's rules.
 
+## The approvals log
+
+Every "needs you" question, across all agents, and how it ended goes into one append-only file,
+`~/.neurosquad-cli/logs/approvals.jsonl` — so after a bad call you can see which agent asked, what
+exactly, and who said yes from where.
+
+```sh
+nsq log approvals                          # the last 50, newest last
+nsq log approvals --agent api-fix --since 2h
+nsq log approvals --json                   # every field, for scripts (-n 20: the last 20)
+```
+
+```text
+TIME            AGENT    HARNESS      ANSWER       BY                             QUESTION
+10-11 14:02:07  api-fix  Claude Code  yes          dashboard                      Bash: npm test
+10-11 14:05:31  api-fix  Claude Code  always       phone (LAN, iPhone · Safari)   Edit: src/db.ts
+10-11 14:09:12  docs     Codex        no           terminal (attach)              Bash: rm -rf dist
+10-11 14:12:40  docs     Codex        interrupted  nsq interrupt                  Bash: git push
+```
+
+One JSON line per question: when it was asked and when it ended; the agent's id and name, its CLI
+and folder (your home shown as `~`); the question as the CLI put it — its text (what the dashboard
+shows) and, where the CLI says, the tool and its command, path or url; and the outcome:
+
+| Outcome       | What happened                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `answered`    | **yes / always / no** through nsq — `by` says who: the dashboard's key, `nsq answer`, or the phone (`local` / `lan` / `internet`, and the device) |
+| `terminal`    | someone typed into the agent's own terminal (the dashboard's full-screen view, `nsq attach`); the answer when the key says it — Escape is "no"    |
+| `cli`         | the CLI went on by itself (its own rule, an automatic approval)                                                                                   |
+| `ended`       | the turn ended with no answer (the CLI gave up, timed out or failed)                                                                              |
+| `interrupted` | an interrupt ended the turn while it waited — `by` says whose                                                                                     |
+| `exited`      | the agent stopped, restarted or was removed while it waited                                                                                       |
+| `unanswered`  | nsq itself stopped while it waited                                                                                                                |
+
+Never in it: the environment, keys or tokens, your prompts — only the question. Secret-looking parts
+of a command (`--token …`, `API_KEY=…`, `Authorization: …`, `user:password@`, known key formats)
+are masked and long text is cut. The file is readable only by you on macOS/Linux; at 10 MB it moves
+to `approvals.1.jsonl` and three old files are kept. Questions dangerous mode approves are not
+questions and are not logged. `nsq config set approvalsLog false` stops writing it (what is there
+stays); `true` turns it back on — at once, no restart.
+
 ## Dangerous mode
 
 Dangerous mode approves an agent's permission prompts for you. Use it only where the agent cannot

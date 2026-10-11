@@ -71,6 +71,17 @@ export type PhoneEvent =
       at: number
     }
 
+/**
+ * Who sent a request that acts on an agent: where it came from and the device label — never the
+ * token or the address. `local`: this machine (loopback); `lan`: another device on the local
+ * network; `internet`: through the online tunnel.
+ */
+export interface PhoneCaller {
+  origin: 'local' | 'lan' | 'internet'
+  /** A short label from the User-Agent ("iPhone · Safari"), as in the connections list. */
+  device: string
+}
+
 /** The three answers a permission prompt takes; the host maps them to the harness's keys. */
 export type PhoneAnswer = 'yes' | 'always' | 'no'
 
@@ -124,9 +135,9 @@ export interface PhoneHost {
   screen(agentId: string, lines: number): string | null | Promise<string | null>
   /** Paste the text and press Enter — the same path a programmatic prompt takes in the daemon. */
   submit(agentId: string, text: string): void | Promise<void>
-  /** Answer the agent's pending permission prompt. */
-  answer(agentId: string, answer: PhoneAnswer): void | Promise<void>
+  /** Answer the agent's pending permission prompt. `caller`: who answered (the host may log it). */
+  answer(agentId: string, answer: PhoneAnswer, caller?: PhoneCaller): void | Promise<void>
   /** The harness's own interrupt key(s) — Escape for most, never a Ctrl+C that quits the CLI. */
-  interrupt(agentId: string): void | Promise<void>
+  interrupt(agentId: string, caller?: PhoneCaller): void | Promise<void>
   subscribe(listener: (event: PhoneHostEvent) => void): () => void
 }

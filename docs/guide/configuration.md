@@ -3,7 +3,7 @@
 nsq works without any configuration. Settings live in **`~/.neurosquad-cli/config.json`**; every
 field is optional, and a missing or malformed file means the defaults. `nsq config` prints it;
 `nsq config set <key> <value>` / `unset <key>` change `autoUpdate`, `notifications`, `sound`,
-`logos`, `color`, `layout` and `detachKey`. The dashboard reads it when
+`approvalsLog`, `logos`, `color`, `layout` and `detachKey`. The dashboard reads it when
 it opens; the daemon (notifications, sound, phone) when it starts — after changing those,
 `nsq down` and `nsq up` (the agents resume).
 
@@ -26,6 +26,7 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `detachKey`     | `"Ctrl+]"`                         | the key that leaves a full-screen agent: `Ctrl+` and a letter or one of `@ [ \ ] ^ _`; anything else falls back to Ctrl+]                  |
 | `dictation`     | on, `CommandOrControl+Shift+Space` | `enabled`, `hotkey`, `mode` (default: a tap toggles, a hold records; or `toggle` / `hold`), `model` ([dictation](dictation.md))            |
 | `phone`         | off                                | written by `nsq phone on` / `nsq phone off` ([phone](phone.md))                                                                            |
+| `approvalsLog`  | `true`                             | the [approvals log](agents.md#the-approvals-log) of every "needs you" question; `false` stops writing it (takes effect at once)            |
 | `autoUpdate`    | `true`                             | `true`: check and install new releases by itself; `"notify"`: only show them; `false`: never check ([updates](updates.md))                 |
 
 ## Environment variables
@@ -69,6 +70,7 @@ where the daemon starts — the first `nsq` command that needs it — or restart
 | `cloud.json`                     | account state when signed in (no tokens)                         |
 | `update.json`                    | the last update check and install ([updates](updates.md))        |
 | `logs/update.log`                | the installer's output                                           |
+| `logs/approvals.jsonl`           | every "needs you" question and its answer (owner-only)           |
 | `nsq.sock`                       | the daemon socket on macOS/Linux when `XDG_RUNTIME_DIR` is unset |
 
 Secrets (the OpenRouter key, your servers' keys, the ntfy push topic and token, the optional account session) are kept

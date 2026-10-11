@@ -50,7 +50,7 @@ import {
   type LaunchContext,
   type SpawnRequest
 } from '@neurosquad/core'
-import { ensureDir, ipcPath, paths } from '../paths.js'
+import { ensureDir, ipcPath, paths, tildePath } from '../paths.js'
 import { readConfig, writeConfig } from '../config.js'
 import {
   LineDecoder,
@@ -69,6 +69,7 @@ import { createNotifier, type Notifier } from './notify.js'
 import { openRouterKey, setSecret, OPENROUTER_SECRET } from './secrets.js'
 import { UsageTracker } from './usage.js'
 import { KEY_GAP_MS, answerKeys, type AnswerKey } from './answers.js'
+import { ApprovalLog, type ApprovalBy } from './approvals.js'
 import { fetchOpenRouterModels } from './models.js'
 import { CustomProviderRuntime, checkCustomChoice } from './customProviders.js'
 import {
@@ -80,7 +81,12 @@ import {
 import { PACKAGE_DIR, PACKAGE_NAME, VERSION } from '../version.js'
 import { Updater, type UpdateView } from '../update/updater.js'
 import { compareVersions, isDevVersion } from '../update/semver.js'
-import { PhoneHostError, type PhoneAnswer, type PhoneHost } from '@neurosquad/remote'
+import {
+  PhoneHostError,
+  type PhoneAnswer,
+  type PhoneCaller,
+  type PhoneHost
+} from '@neurosquad/remote'
 import { PhoneAccess, PhoneSuperseded, quickTunnelBlocker } from './phone.js'
 import { NtfyPush } from './push.js'
 import { lanAddresses } from '@neurosquad/remote'
@@ -213,6 +219,13 @@ export class Daemon {
   private costTimer: ReturnType<typeof setTimeout> | null = null
 
   private readonly phone: PhoneAccess
+  /** Every "needs you" question and how it ended (logs/approvals.jsonl; off: approvalsLog false). */
+  private readonly approvals = new ApprovalLog({
+    dir: paths.logs(),
+    enabled: () => readConfig().approvalsLog !== false,
+    showPath: (path) => tildePath(path),
+    log: (line) => this.log(line)
+  })
   private readonly push = new NtfyPush((line) => this.log(line))
   private readonly updater = new Updater({
     version: VERSION,
@@ -261,7 +274,11 @@ export class Daemon {
     this.hooks = await startHookServer({
       knows: (id) => this.store.get(id) !== undefined,
       arrive: (id) => statusLife(id),
-      handle: (id, event, body, life) => receiveHook(id, event, body, life)
+      handle: (id, event, body, life) => {
+        const harness = this.store.get(id)?.harness
+        if (harness) this.approvals.hook(id, harness, event, body)
+        return receiveHook(id, event, body, life)
+      }
     })
     configureStatusHub({
       harnessOf: (id) => this.store.get(id)?.harness,
@@ -297,6 +314,7 @@ export class Daemon {
         const rt = this.rt(id)
         rt.status = 'exited'
         rt.statusAt = Date.now()
+        this.approvals.exited(id)
         this.phone.emit({ type: 'status', agentId: id, status: 'exited', at: rt.statusAt })
         this.notifier.close(id)
         this.broadcast({ t: 'exit', id, generation })
@@ -472,6 +490,12 @@ export class Daemon {
     rt.status = event.kind
     rt.statusAt = event.at
     rt.detail = event.detail
+    this.approvals.status(event, {
+      id: record.id,
+      name: record.name,
+      harness: record.harness,
+      workspace: record.workspace
+    })
     this.pushAgent(event.agentId)
     this.phone.emit({ type: 'status', agentId: event.agentId, status: event.kind, at: event.at })
     if (event.kind !== 'needs-input') this.push.answered(event.agentId)
@@ -970,6 +994,7 @@ export class Daemon {
     const record = this.store.get(id)
     if (!record) return
     await this.stopAgent(id)
+    this.approvals.exited(id)
     this.notifier.close(id)
     forgetAgentStatus(id)
     this.screens.dispose(id)
@@ -1007,13 +1032,15 @@ export class Daemon {
     return { sent: true }
   }
 
-  private async answerPrompt(record: AgentRecord, key: AnswerKey): Promise<void> {
+  private async answerPrompt(record: AgentRecord, key: AnswerKey, by: ApprovalBy): Promise<void> {
     const keys = answerKeys(record.harness, key)
     if (!keys) throw new Error(`${record.harness} has no permission prompt to answer`)
     // Only into a prompt that is open: elsewhere the keys would land in its input box.
     if (agentStatusSnapshot(record.id)?.kind !== 'needs-input') {
       throw new Error(`${record.name} is not waiting for an answer`)
     }
+    // Logged before the keys go in: they move the agent on as the person's own input.
+    this.approvals.answered(record.id, key, by)
     for (const [index, press] of keys.entries()) {
       if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
       this.ptys.write(record.id, press)
@@ -1060,15 +1087,16 @@ export class Daemon {
           refusal(error)
         }
       },
-      answer: async (id, answer: PhoneAnswer) => {
+      answer: async (id, answer: PhoneAnswer, caller?: PhoneCaller) => {
         try {
-          await this.answerPrompt(running(id), answer)
+          await this.answerPrompt(running(id), answer, phoneBy(caller))
         } catch (error) {
           refusal(error)
         }
       },
-      interrupt: (id) => {
+      interrupt: (id, caller?: PhoneCaller) => {
         const record = running(id)
+        this.approvals.interrupting(record.id, phoneBy(caller))
         this.ptys.interrupt(record.id, interruptKeys(record.harness))
       }
     }
@@ -1294,6 +1322,12 @@ export class Daemon {
         const record = this.need(message.id)
         this.rt(record.id).lastInputAt = Date.now()
         this.lastInputAt = Date.now()
+        this.approvals.typed(
+          record.id,
+          record.harness,
+          message.data,
+          client.name === 'cli' ? 'attach' : client.name
+        )
         this.ptys.write(record.id, message.data)
         noteUserInput(record.id, message.data)
         return undefined
@@ -1311,10 +1345,11 @@ export class Daemon {
         return this.sendPrompt(this.need(message.id), message.text, message.whenDone === true)
       case 'answer':
         this.lastInputAt = Date.now()
-        await this.answerPrompt(this.need(message.id), message.key)
+        await this.answerPrompt(this.need(message.id), message.key, clientBy(client))
         return undefined
       case 'interrupt': {
         const record = this.need(message.id)
+        this.approvals.interrupting(record.id, clientBy(client))
         this.ptys.interrupt(record.id, interruptKeys(record.harness))
         return undefined
       }
@@ -1679,6 +1714,8 @@ export class Daemon {
     this.stopping = true
     this.updater.stop()
     if (this.updatePoll) clearInterval(this.updatePoll)
+    // Questions still waiting: nsq stopped before anyone answered them.
+    this.approvals.closeAll()
     if (stopAgents) {
       // Keep `wantRunning`: `nsq up` (or the next daemon) brings them back.
       await this.ptys.killAll()
@@ -1699,6 +1736,20 @@ export class Daemon {
   /** For `emitHookFact` callers inside the daemon (tests). */
   fact(id: string, kind: 'working' | 'needs-input' | 'finished', detail?: string): void {
     emitHookFact(id, kind, detail)
+  }
+}
+
+/** Who acted through a local client: the dashboard, or a command (`nsq answer`, `nsq interrupt`). */
+function clientBy(client: Client): ApprovalBy {
+  return { via: client.name === 'dashboard' ? 'dashboard' : 'cli', from: 'local' }
+}
+
+/** Who acted through the phone server: from where, and the device label. */
+function phoneBy(caller: PhoneCaller | undefined): ApprovalBy {
+  return {
+    via: 'phone',
+    from: caller?.origin ?? 'local',
+    ...(caller?.device ? { device: caller.device } : {})
   }
 }
 

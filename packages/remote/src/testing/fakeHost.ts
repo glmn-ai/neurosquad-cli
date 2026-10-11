@@ -2,6 +2,7 @@
 import {
   PhoneHostError,
   type PhoneAnswer,
+  type PhoneCaller,
   type PhoneHost,
   type PhoneHostAgent,
   type PhoneHostEvent
@@ -16,6 +17,8 @@ export interface FakeHostCall {
 export class FakePhoneHost implements PhoneHost {
   readonly agents: PhoneHostAgent[] = []
   readonly calls: FakeHostCall[] = []
+  /** Who sent each answer and interrupt, in order. */
+  readonly callers: { kind: 'answer' | 'interrupt'; caller?: PhoneCaller }[] = []
   readonly screens = new Map<string, string>()
   private readonly listeners = new Set<(event: PhoneHostEvent) => void>()
 
@@ -37,12 +40,14 @@ export class FakePhoneHost implements PhoneHost {
     this.calls.push({ kind: 'submit', agentId, value: text })
   }
 
-  answer(agentId: string, answer: PhoneAnswer): void {
+  answer(agentId: string, answer: PhoneAnswer, caller?: PhoneCaller): void {
     this.calls.push({ kind: 'answer', agentId, value: answer })
+    this.callers.push({ kind: 'answer', ...(caller ? { caller } : {}) })
   }
 
-  interrupt(agentId: string): void {
+  interrupt(agentId: string, caller?: PhoneCaller): void {
     this.calls.push({ kind: 'interrupt', agentId })
+    this.callers.push({ kind: 'interrupt', ...(caller ? { caller } : {}) })
   }
 
   subscribe(listener: (event: PhoneHostEvent) => void): () => void {

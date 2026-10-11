@@ -20,6 +20,11 @@ export interface NsqConfig {
    * `"notify"` only shows that one exists; `false` never checks (NSQ_NO_UPDATE=1 does the same).
    */
   autoUpdate?: boolean | 'notify'
+  /**
+   * The approvals log (`logs/approvals.jsonl`, `nsq log approvals`): every "needs you" question
+   * and how it ended. Default on; `false` stops writing it (what is there stays).
+   */
+  approvalsLog?: boolean
   /** Default layout of the dashboard. */
   layout?: 'grid' | 'focus'
   /** Phone access (`nsq phone on`). */
