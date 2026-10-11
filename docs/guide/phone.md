@@ -25,8 +25,8 @@ scroll back. It fits the agent's whole width to the phone; pinch to zoom in (it 
 then), double-tap to fit again. It refreshes about once a second while the page is open — an
 unchanged screen costs a few bytes, a changed one is sent gzipped. The agent's output is only ever
 shown as text: the page builds it from DOM nodes, never as HTML, so nothing an agent prints can run
-in the page. (On Windows, the system's ConPTY redraws what an agent writes and drops dim — the
-dashboard shows the same.)
+in the page. (On Windows, ConPTY redraws what an agent writes; older versions drop dim and turn
+inverse into plain colours — the dashboard shows the same.)
 
 The phone has to reach your computer: the same Wi-Fi, or a network you already have between them
 (a VPN such as Tailscale, an SSH tunnel). Without `--lan`, nsq listens on this machine only. The

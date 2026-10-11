@@ -128,7 +128,10 @@ const FACTS = `(() => {
     strike: css('STRIKE', 'textDecorationLine'),
     inverse: find('INVERSE')?.className ?? null,
     wideRatio: wide ? wide.getBoundingClientRect().width / cell : null,
-    textCells: find('RED') ? find('RED').getBoundingClientRect().width / cell : null,
+    // Cells per character of a text run (ConPTY may carry a trailing space in the same run).
+    textCells: find('RED')
+      ? find('RED').getBoundingClientRect().width / cell / find('RED').textContent.length
+      : null,
     emoji: find('🚀') ? find('🚀').getBoundingClientRect().width / cell : null,
     rows3: [...term.children].slice(4, 7).map((r) => r.lastElementChild ? Math.round(r.lastElementChild.getBoundingClientRect().right * 10) / 10 : 0),
     box: spans.some((s) => s.textContent.includes('┌──────────┬──────┐')),
@@ -235,10 +238,10 @@ try {
     [f.blueBg, f.blueFg]
   )
   check('bold', Number(f.bold) >= 700, f.bold)
-  // Windows ConPTY re-renders what the agent wrote: it drops faint, turns inverse into explicit
-  // colours and bold into bold bright white — the same screen nsq's dashboard shows there.
+  // Windows ConPTY re-renders what the agent wrote; some versions drop faint, turn inverse into
+  // explicit colours and bold into bold bright white — the same screen nsq's dashboard shows.
   const conpty = process.platform === 'win32'
-  if (conpty) skip('dim', 'ConPTY drops SGR 2')
+  if (conpty && Number(f.dim) === 1) skip('dim', 'this ConPTY drops SGR 2')
   else check('dim', f.dim !== null && Number(f.dim) < 1, f.dim)
   check('italic', f.italic === 'italic', f.italic)
   check('underline', /underline/.test(f.under), f.under)
@@ -250,7 +253,11 @@ try {
     f.inverse
   )
   check('a CJK character is two cells wide', f.wideRatio > 1.8 && f.wideRatio < 2.2, f.wideRatio)
-  check('text keeps the cell grid (a monospace font)', Math.abs(f.textCells - 3) < 0.1, f.textCells)
+  check(
+    'text keeps the cell grid (a monospace font)',
+    Math.abs(f.textCells - 1) < 0.05,
+    f.textCells
+  )
   check('an emoji is two cells wide', f.emoji > 1.8 && f.emoji < 2.2, f.emoji)
   check(
     'the box lines up (its three rows end at the same column)',
