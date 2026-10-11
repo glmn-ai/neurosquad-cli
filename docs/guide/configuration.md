@@ -43,6 +43,8 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `NSQ_AMBIGUOUS_WIDE=1`           | for CJK terminals set to "ambiguous width = wide": switches to ASCII so borders line up             |
 | `NSQ_NO_NOTIFY=1`                | notifications off: no desktop notifications, and the dashboard does not ring its terminal either    |
 | `NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN` | the ntfy push topic URL and token when there is no OS keyring ([phone](phone.md))                   |
+| `NSQ_NTFY_SERVER`                | the ntfy server new topics are made on (default `https://ntfy.sh`), e.g. your own                   |
+| `NSQ_KEYRING=memory`             | keep secrets in the daemon's memory only, never the OS keyring (for tests; gone on restart)         |
 | `NSQ_OPENROUTER_BASE_URL`        | another OpenRouter-compatible API base (`…/api/v1`)                                                 |
 | `NSQ_PROVIDER_KEY_<NAME>`        | the key of your own server `<name>` when there is no OS keyring ([providers](providers.md))         |
 | `NSQ_NO_BROWSER=1`               | `nsq login` prints the link instead of opening a browser                                            |
@@ -50,7 +52,7 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `NSQ_UPDATE_REGISTRY`            | another npm registry for the update check (`https://…`)                                             |
 
 Variables that affect the daemon (`OPENROUTER_API_KEY`, `NSQ_OPENROUTER_BASE_URL`, `NSQ_PROVIDER_KEY_<NAME>`, `NSQ_NO_NOTIFY`,
-`NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN`, `NSQ_NO_UPDATE`, `NSQ_HOME`) must be set
+`NSQ_NTFY_URL`, `NSQ_NTFY_TOKEN`, `NSQ_NTFY_SERVER`, `NSQ_KEYRING`, `NSQ_NO_UPDATE`, `NSQ_HOME`) must be set
 where the daemon starts — the first `nsq` command that needs it — or restart it with `nsq down` /
 `nsq up`.
 

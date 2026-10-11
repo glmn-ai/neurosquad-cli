@@ -84,6 +84,8 @@ export interface PhoneStatus {
   /** The tunnel, while online (or trying to be). */
   online?: TunnelStatus
   expireHours?: number
+  /** When the current pairing token was made (the dashboard's phone panel shows when it expires). */
+  tokenIssuedAt?: number
 }
 
 /** The keyring entry (secrets.ts) that holds a named tunnel's token. */
@@ -133,13 +135,19 @@ export function forgetPhoneToken(): void {
   rmSync(tokenFile(), { force: true })
 }
 
-/** How old the pairing token is (its file's age), or undefined. */
-function tokenAgeMs(now = Date.now()): number | undefined {
+/** When the pairing token was written (its file's time), or undefined. */
+function tokenIssuedAt(): number | undefined {
   try {
-    return now - statSync(tokenFile()).mtimeMs
+    return Math.floor(statSync(tokenFile()).mtimeMs)
   } catch {
     return undefined
   }
+}
+
+/** How old the pairing token is (its file's age), or undefined. */
+function tokenAgeMs(now = Date.now()): number | undefined {
+  const issued = tokenIssuedAt()
+  return issued === undefined ? undefined : now - issued
 }
 
 /** Runs the phone server for a host; at most one at a time. */
@@ -380,12 +388,15 @@ export class PhoneAccess {
     const token = generatePairingToken()
     writePhoneToken(token)
     this.server?.rotateToken(token)
+    // Whoever shows the pairing QR (the dashboard's phone panel) asks for the new link.
+    this.changed()
   }
 
   status(): PhoneStatus {
     if (!this.server) return { running: false, lan: false, connections: 0, phones: [] }
     const { address, port } = this.server.address()
     const online = this.tunnel.status()
+    const issued = tokenIssuedAt()
     return {
       running: true,
       lan: this.lan,
@@ -394,7 +405,8 @@ export class PhoneAccess {
       connections: this.server.connectionCount(),
       phones: this.server.connections(),
       ...(online.state !== 'off' ? { online } : {}),
-      ...(this.expireHours ? { expireHours: this.expireHours } : {})
+      ...(this.expireHours ? { expireHours: this.expireHours } : {}),
+      ...(issued !== undefined ? { tokenIssuedAt: issued } : {})
     }
   }
 

@@ -15,6 +15,8 @@
 //       tui-record.mjs (real pty, 3 agents, keys, BEL/OSC 9 ring, asciicast),
 //       dictation.mjs (synthesised speech → Whisper tiny.en → paste),
 //       online.mjs (verified cloudflared download; nsq phone on --online with a fake connector)
+//       phone-panel.mjs (the dashboard's phone panel: its QR codes read off the screen — pairing,
+//       online, a new token, the ntfy subscribe link — and a test push to a local ntfy)
 //
 // Writes <out>/results.json: { os, arch, suite, versions, parts: [{ part, exit, checks }] }.
 //
@@ -55,6 +57,7 @@ const usage = help()
 const hasPhone = /nsq phone/.test(usage)
 const hasOnline = /--online/.test(usage)
 const hasProviders = /nsq provider add/.test(usage)
+const hasPhonePanel = existsSync(join(root, 'apps', 'cli', 'src', 'tui', 'phonePanel.ts'))
 
 const parts = []
 function part(name, script, scriptArgs, work) {
@@ -157,6 +160,15 @@ if (plan.herdr) {
   if (hasOnline) {
     const onlineWork = join(out, 'online')
     part('online.mjs', join(HERE, 'online.mjs'), ['--root', root, '--work', onlineWork], onlineWork)
+  }
+  if (hasPhonePanel) {
+    const panelWork = join(out, 'phone-panel')
+    part(
+      'phone-panel.mjs',
+      join(HERE, 'phone-panel.mjs'),
+      ['--root', root, '--work', panelWork],
+      panelWork
+    )
   }
 }
 

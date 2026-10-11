@@ -70,6 +70,7 @@ import {
   type Rect
 } from './layout.js'
 import { PickList, TextField, fitText } from './widgets.js'
+import { PhonePanel, type PanelTab } from './phonePanel.js'
 import { bindDictation, type DictationBinding } from '../dictation.js'
 import {
   endpointsLabel,
@@ -121,6 +122,7 @@ type Modal =
       busy?: string
     }
   | { kind: 'provider-add'; form: ProviderForm }
+  | { kind: 'phone'; panel: PhonePanel }
 
 interface NewAgentForm {
   harness: number
@@ -484,6 +486,7 @@ export class Dashboard {
         break
       case 'phones':
         this.phone = event.phone
+        if (this.modal?.kind === 'phone') this.modal.panel.phoneChanged()
         break
       case 'update':
         this.update = event.update
@@ -868,7 +871,7 @@ export class Dashboard {
           : online?.state === 'starting'
             ? [seg('going online…  ', { fg: 'accentText', bg: 'headerBg' })]
             : online?.state === 'error'
-              ? [seg('online failed (p)  ', { fg: 'danger', bg: 'headerBg' })]
+              ? [seg('online failed (Q)  ', { fg: 'danger', bg: 'headerBg' })]
               : []
     if (!phones.length) {
       if (reach.length) return reach
@@ -919,7 +922,7 @@ export class Dashboard {
     this.modal = {
       kind: 'confirm',
       title: `Phone access — ${phone.lan ? 'local network' : 'this machine only'}, port ${phone.port ?? '?'}`,
-      body: `${lines.join('\n')}\n\n${onlineLines.join('\n')}\n\nNew pairing token? Every connected phone is cut off (nsq phone pair shows the new link).`,
+      body: `${lines.join('\n')}\n\n${onlineLines.join('\n')}\n\nNew pairing token? Every connected phone is cut off (Q shows the new QR).`,
       yes: () =>
         this.request(this.client.request({ t: 'phone', action: 'rotate' }), 'new pairing token')
     }
@@ -955,7 +958,7 @@ export class Dashboard {
         'Phone access from anywhere through a Cloudflare tunnel (https): your named',
         'tunnel if you set one up, else a quick tunnel.',
         'Anyone with this link and the pairing token can control your agents.',
-        "A quick tunnel's address changes every time it starts: pair with nsq phone pair.",
+        "A quick tunnel's address changes every time it starts: the QR to pair is shown next (Q).",
         'The first time, cloudflared is downloaded (sha256-checked) into the nsq home.',
         'Turn it off: O again, or nsq phone off.'
       ].join('\n'),
@@ -971,11 +974,15 @@ export class Dashboard {
           .then(
             (data) => {
               const status = (data as { status?: { online?: PhoneView['online'] } }).status
-              this.toastMessage(
-                status?.online?.state === 'running'
-                  ? `ONLINE at ${status.online.url} — scan the QR from: nsq phone pair`
-                  : `could not go online: ${status?.online?.error ?? 'the tunnel did not start'}`
-              )
+              if (status?.online?.state === 'running') {
+                // Online is pairing: the QR, right here (unless another dialog is open now).
+                if (!this.modal) this.openPhonePanel()
+                else this.toastMessage(`ONLINE at ${status.online.url} — the QR: Q`)
+              } else {
+                this.toastMessage(
+                  `could not go online: ${status?.online?.error ?? 'the tunnel did not start'}`
+                )
+              }
               this.schedule()
             },
             (error: unknown) => {
@@ -1340,6 +1347,9 @@ export class Dashboard {
       if (row < r.height) canvas.put(r.x, r.y + row, line, r.width)
     }
     switch (modal.kind) {
+      case 'phone':
+        modal.panel.draw(canvas, this.theme, { width: this.width, height: this.height })
+        return
       case 'help': {
         const rows: [string, string][] = [
           ['↑↓←→ hjkl, Tab', 'select an agent'],
@@ -1359,6 +1369,7 @@ export class Dashboard {
           ['v', 'dictate into the agent (also the global hotkey) — pasted, never sent'],
           ['p', 'phones: who is connected; a new pairing token cuts them off'],
           ['O', 'online on/off: phone access from anywhere (Cloudflare tunnel)'],
+          ['Q', 'phone panel: the pairing QR, online / LAN, notifications (ntfy)'],
           ['U', 'update: install it now, or restart onto an installed one'],
           ['q', 'quit — agents keep running (nsq down stops them)']
         ]
@@ -1855,6 +1866,9 @@ export class Dashboard {
       case 'O':
         this.toggleOnline()
         return
+      case 'Q':
+        this.openPhonePanel()
+        return
       case 'U':
         this.showUpdate()
         return
@@ -2284,7 +2298,8 @@ export class Dashboard {
       key?.name === 'escape' &&
       modal.kind !== 'models' &&
       modal.kind !== 'providers' &&
-      modal.kind !== 'provider-add'
+      modal.kind !== 'provider-add' &&
+      modal.kind !== 'phone'
     ) {
       this.modal = null
       return
@@ -2331,6 +2346,31 @@ export class Dashboard {
       case 'provider-add':
         this.handleProviderForm(modal.form, event as KeyEvent)
         return
+      case 'phone':
+        if (key && modal.panel.handleKey(key) === 'close') this.closeModal()
+        return
+    }
+  }
+
+  /** Closes the dialog; the phone panel forgets the links it held. */
+  private closeModal(): void {
+    if (this.modal?.kind === 'phone') this.modal.panel.close()
+    this.modal = null
+  }
+
+  /** Q: the phone panel — the pairing QR, online / LAN, notifications. */
+  private openPhonePanel(tab: PanelTab = 'pairing'): void {
+    if (this.modal?.kind === 'phone') this.modal.panel.close()
+    this.modal = {
+      kind: 'phone',
+      panel: new PhonePanel(
+        {
+          request: (request) => this.client.request(request),
+          phone: () => this.phone,
+          redraw: () => this.schedule()
+        },
+        tab
+      )
     }
   }
 

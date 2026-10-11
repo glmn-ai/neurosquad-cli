@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   NtfyPush,
   checkTokenTransport,
+  defaultNtfyServer,
+  ntfySubscribeLinks,
   ntfyMessage,
   parseNtfyUrl,
   randomNtfyUrl
@@ -120,5 +122,50 @@ describe('ntfy push', () => {
     expect(await first).toBe(true)
     expect(await push.needsYou(event)).toBe(true)
     expect(calls).toBe(2)
+  })
+
+  it('subscribe links: ntfy:// for the Android app, the https topic for the web app', () => {
+    expect(ntfySubscribeLinks(parseNtfyUrl('https://ntfy.sh/nsq-abc'))).toEqual({
+      android: 'ntfy://ntfy.sh/nsq-abc?display=nsq',
+      web: 'https://ntfy.sh/nsq-abc'
+    })
+    expect(ntfySubscribeLinks(parseNtfyUrl('http://192.168.1.5:8080/alerts')).android).toBe(
+      'ntfy://192.168.1.5:8080/alerts?display=nsq&secure=false'
+    )
+  })
+
+  it('new topics go to ntfy.sh unless NSQ_NTFY_SERVER names another server', () => {
+    const before = process.env['NSQ_NTFY_SERVER']
+    try {
+      delete process.env['NSQ_NTFY_SERVER']
+      expect(defaultNtfyServer()).toBe('https://ntfy.sh')
+      process.env['NSQ_NTFY_SERVER'] = 'http://127.0.0.1:9999/'
+      expect(parseNtfyUrl(randomNtfyUrl()).server).toBe('http://127.0.0.1:9999')
+    } finally {
+      if (before === undefined) delete process.env['NSQ_NTFY_SERVER']
+      else process.env['NSQ_NTFY_SERVER'] = before
+    }
+  })
+
+  it('remembers the last push (delivered, refused, unreachable), never the topic', async () => {
+    let status = 200
+    const push = new NtfyPush(
+      () => {},
+      (async () => {
+        if (status === 0) throw new TypeError('fetch failed')
+        return new Response('{}', { status })
+      }) as unknown as typeof fetch,
+      () => 42
+    )
+    const target = { server: 'https://ntfy.example', topic: 'nsq-secret' }
+    await push.send(target, undefined, {}, 'test')
+    expect(push.lastResult).toEqual({ at: 42, ok: true, kind: 'test' })
+    status = 403
+    await push.send(target, undefined, {})
+    expect(push.lastResult).toEqual({ at: 42, ok: false, kind: 'needs-you', error: 'HTTP 403' })
+    status = 0
+    await push.send(target, undefined, {}, 'test')
+    expect(push.lastResult?.error).toBe('could not reach the server')
+    expect(JSON.stringify(push.lastResult)).not.toContain('secret')
   })
 })

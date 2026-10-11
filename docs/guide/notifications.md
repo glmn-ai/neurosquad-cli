@@ -32,7 +32,8 @@ notification would show on the remote machine. So keep the dashboard open in a t
 SSH.
 
 For notifications on your phone (a push through ntfy when an agent needs you), see
-[Phone](phone.md).
+[Phone](phone.md#push-notifications-optional) — in the dashboard, **Q** → **Notifications** sets it up
+and shows a QR code that subscribes the phone.
 
 ## Turning it off
 

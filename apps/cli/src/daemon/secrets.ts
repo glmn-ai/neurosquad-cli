@@ -17,8 +17,36 @@ function account(name: string): string {
 type KeyringModule = typeof import('@napi-rs/keyring')
 let keyring: KeyringModule | null | undefined
 
+/**
+ * NSQ_KEYRING=memory: secrets live in this process only and are gone when it exits — for the
+ * end-to-end tests, which must not write to the OS keyring of the machine they run on.
+ */
+function memoryKeyring(): KeyringModule {
+  const values = new Map<string, string>()
+  class Entry {
+    private readonly key: string
+    constructor(service: string, user: string) {
+      this.key = `${service}\u0000${user}`
+    }
+    getPassword(): string | null {
+      return values.get(this.key) ?? null
+    }
+    setPassword(value: string): void {
+      values.set(this.key, value)
+    }
+    deletePassword(): boolean {
+      return values.delete(this.key)
+    }
+  }
+  return { Entry } as unknown as KeyringModule
+}
+
 async function load(): Promise<KeyringModule | null> {
   if (keyring !== undefined) return keyring
+  if (process.env['NSQ_KEYRING'] === 'memory') {
+    keyring = memoryKeyring()
+    return keyring
+  }
   try {
     keyring = (await import('@napi-rs/keyring')) as KeyringModule
   } catch {
