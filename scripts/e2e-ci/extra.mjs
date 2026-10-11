@@ -172,10 +172,16 @@ try {
     // By name: a plain command runs exactly what it is given (no PATHEXT for a path).
     const raw = nsq('run', '--raw', '--name', `${short}-raw`, '--', short, '--version')
     const rawAgent = (await waitStatus(`${short}-raw`, ['finished', 'exited'], 60_000)).agent
+    // It ran the CLI's own --version: its version number is on the screen.
+    let rawScreen = ''
+    for (let i = 0; i < 20 && !/\d+\.\d+\.\d+/.test(rawScreen); i++) {
+      rawScreen = peek(`${short}-raw`, 20)
+      if (!/\d+\.\d+\.\d+/.test(rawScreen)) await sleep(500)
+    }
     check(
       `${short}: nsq run --raw -- ${short} stays a plain command`,
-      raw.status === 0 && rawAgent?.harness === 'command',
-      { harness: rawAgent?.harness, stderr: raw.stderr }
+      raw.status === 0 && rawAgent?.harness === 'command' && /\d+\.\d+\.\d+/.test(rawScreen),
+      { harness: rawAgent?.harness, stderr: raw.stderr, screen: rawScreen.slice(-300) }
     )
     nsq('rm', `${short}-raw`)
   }
