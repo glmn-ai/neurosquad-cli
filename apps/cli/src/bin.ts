@@ -26,7 +26,8 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq run <claude|codex|opencode> [prompt]
         [--name n] [--worktree] [--model id] [--provider name|openrouter]
         [--dangerous] [--attach]
-  nsq run [--name n] -- <command…>      any command
+  nsq run [--name n] -- <command…>      any command; claude / codex / opencode with their own
+                                        flags run as that agent (--raw: as a plain command)
   nsq ls [--json]                       agents and their status
   nsq attach <agent>                    full-screen terminal (Ctrl+] to detach)
   nsq send <agent> "prompt" [--when-done]

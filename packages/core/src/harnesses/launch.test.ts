@@ -204,6 +204,23 @@ describe('OpenCode launch', () => {
   })
 })
 
+describe('extra CLI arguments (nsq run -- claude --effort high)', () => {
+  it('come after the launch own arguments, on a fresh start and on a resume', () => {
+    const args = ['--effort', 'high']
+    const fresh = prepareLaunch(ctx({ harness: 'claude-code', args, model: 'opus' }))
+    expect(fresh.args.slice(-2)).toEqual(args)
+    expect(fresh.args).toContain('--settings')
+    const resumed = prepareLaunch(ctx({ harness: 'claude-code', args }, { resumed: true }))
+    expect(resumed.args.slice(0, 2)).toEqual(['--resume', ID])
+    expect(resumed.args.slice(-2)).toEqual(args)
+    const codex = prepareLaunch(
+      ctx({ harness: 'codex-cli', args: ['--search'], harnessSessionId: ID }, { resumed: true })
+    )
+    expect(codex.args[0]).toBe('resume')
+    expect(codex.args.at(-1)).toBe('--search')
+  })
+})
+
 describe('command launch', () => {
   it('runs argv as is', () => {
     const plan = prepareLaunch(

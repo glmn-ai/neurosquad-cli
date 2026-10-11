@@ -6,6 +6,8 @@
 //              the scripted answer never shows, and a next prompt runs a turn
 //   ask        the model asks a question (AskUserQuestion / question tool):
 //              "needs you" carries the question text
+//   dashdash   `nsq run -- <cli> <its own flag> <prompt>` runs as the harness (hooks: working →
+//              finished, the prompt sent), the flag passed through; `--raw` keeps a plain command
 //
 //   node scripts/e2e-ci/extra.mjs --root <repo under test> --harness claude|codex|opencode
 //        --bin <dir with the CLIs> --work <scratch> [--only interrupt,ask]
@@ -135,6 +137,40 @@ try {
     nsq('interrupt', name)
     await sleep(1500)
     nsq('stop', name)
+  }
+
+  if (runs('dashdash')) {
+    // The CLI as a plain command line, with a harmless flag of its own (Claude Code, Codex) and a
+    // prompt (OpenCode's own --prompt).
+    const cli = { claude: 'claude', codex: 'codex', opencode: 'opencode' }[short]
+    const own = {
+      claude: ['--effort', 'low', '[nsq:hello] say hi'],
+      codex: ['-c', 'hide_agent_reasoning=true', '[nsq:hello] say hi'],
+      opencode: ['--prompt', '[nsq:hello] say hi']
+    }[short]
+    const name = `${short}-dd`
+    const run = nsq('run', '--name', name, '--', cli, ...own)
+    const done = await waitStatus(name, ['finished'], 120_000)
+    const agent = done.agent
+    check(
+      `${short}: nsq run -- ${cli} … runs as the harness (hooks, the prompt sent)`,
+      run.status === 0 &&
+        agent?.harness === HARNESSES[short] &&
+        agent?.status === 'finished' &&
+        done.seen.some((s) => s.startsWith('working')) &&
+        /NSQ_HELLO_DONE/.test(peek(name, 80)),
+      { harness: agent?.harness, seen: done.seen, stderr: run.stderr }
+    )
+    if (agent?.status !== 'finished') log(peek(name).slice(-1500))
+    nsq('rm', name)
+    const raw = nsq('run', '--raw', '--name', `${short}-raw`, '--', cli, '--version')
+    const rawAgent = (await waitStatus(`${short}-raw`, ['finished', 'exited'], 60_000)).agent
+    check(
+      `${short}: nsq run --raw -- ${cli} stays a plain command`,
+      raw.status === 0 && rawAgent?.harness === 'command',
+      { harness: rawAgent?.harness, stderr: raw.stderr }
+    )
+    nsq('rm', `${short}-raw`)
   }
 } catch (error) {
   check('extra.mjs: crashed', false, String(error?.stack ?? error))

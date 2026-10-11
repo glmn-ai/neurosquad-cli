@@ -59,6 +59,10 @@ export interface RunSpec {
   dangerousMode?: boolean
   /** `command` harness: argv. */
   command?: string[]
+  /** A harness: extra arguments for its CLI, passed on every start (`nsq run -- claude --effort high`). */
+  args?: string[]
+  /** A harness: the CLI's executable when the person named a path (`nsq run -- ./bin/codex`). */
+  binary?: string
   cols?: number
   rows?: number
 }
