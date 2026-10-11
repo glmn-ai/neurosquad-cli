@@ -1,5 +1,13 @@
 # @neurosquad/core
 
+## 0.3.0
+
+### Minor Changes
+
+- [#57](https://github.com/glmn-ai/neurosquad-cli/pull/57) [`ac1765a`](https://github.com/glmn-ai/neurosquad-cli/commit/ac1765a36b1f4aa4048521de05bdc3be991c3a29) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Agents that support the herdr status protocol (Crush, Kiro CLI, Command Code…) work out of the box with `nsq run -- <agent>`: they report working, needs you (with their message) and finished themselves, their session id is recorded, and a resume command they report brings them back on `nsq restart` and after a daemon restart.
+
+- [#59](https://github.com/glmn-ai/neurosquad-cli/pull/59) [`4c7c248`](https://github.com/glmn-ai/neurosquad-cli/commit/4c7c24861230ef4f424de5512724e6bc05910473) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - `nsq run -- claude|codex|opencode …` runs that CLI as its agent (hooks, status, session tracking and resume) instead of a plain command, with its own flags passed through; its prompt, model and dangerous-mode flags become nsq's own. `nsq run --raw -- …` keeps the plain command.
+
 ## 0.2.1
 
 ### Patch Changes

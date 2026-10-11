@@ -1,5 +1,21 @@
 # neurosquad
 
+## 0.3.0
+
+### Minor Changes
+
+- [#56](https://github.com/glmn-ai/neurosquad-cli/pull/56) [`764aa00`](https://github.com/glmn-ai/neurosquad-cli/commit/764aa00df79fc6f3656a064e62a7cf897a97ce76) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - An approvals log: every "needs you" question, across all agents, and how it ended goes into `~/.neurosquad-cli/logs/approvals.jsonl` — the agent, its CLI and folder, the question as the CLI put it (tool, command / path / url, its text), the answer (yes / always / no) and who gave it from where: the dashboard, `nsq answer`, the phone (this machine, the Wi-Fi or the internet tunnel, and the device), the agent's own terminal, or that the CLI went on by itself, the turn ended, it was interrupted or the agent exited. No environment, tokens or prompts; secret-looking parts of commands are masked, long text cut; rotated at 10 MB. `nsq log approvals [--agent x] [--since 2h] [--json]` prints it; `nsq config set approvalsLog false` turns it off. The phone server tells its host who answered or interrupted (`PhoneCaller`: origin and device label).
+
+- [#57](https://github.com/glmn-ai/neurosquad-cli/pull/57) [`ac1765a`](https://github.com/glmn-ai/neurosquad-cli/commit/ac1765a36b1f4aa4048521de05bdc3be991c3a29) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Agents that support the herdr status protocol (Crush, Kiro CLI, Command Code…) work out of the box with `nsq run -- <agent>`: they report working, needs you (with their message) and finished themselves, their session id is recorded, and a resume command they report brings them back on `nsq restart` and after a daemon restart.
+
+- [#59](https://github.com/glmn-ai/neurosquad-cli/pull/59) [`4c7c248`](https://github.com/glmn-ai/neurosquad-cli/commit/4c7c24861230ef4f424de5512724e6bc05910473) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - `nsq run -- claude|codex|opencode …` runs that CLI as its agent (hooks, status, session tracking and resume) instead of a plain command, with its own flags passed through; its prompt, model and dangerous-mode flags become nsq's own. `nsq run --raw -- …` keeps the plain command.
+
+### Patch Changes
+
+- Updated dependencies [[`764aa00`](https://github.com/glmn-ai/neurosquad-cli/commit/764aa00df79fc6f3656a064e62a7cf897a97ce76), [`ac1765a`](https://github.com/glmn-ai/neurosquad-cli/commit/ac1765a36b1f4aa4048521de05bdc3be991c3a29), [`4c7c248`](https://github.com/glmn-ai/neurosquad-cli/commit/4c7c24861230ef4f424de5512724e6bc05910473)]:
+  - @neurosquad/remote@0.3.0
+  - @neurosquad/core@0.3.0
+
 ## 0.2.1
 
 ### Patch Changes
