@@ -43,6 +43,7 @@ import {
   PhoneHostError,
   type PhoneAgentSummary,
   type PhoneAnswer,
+  type PhoneCaller,
   type PhoneEvent,
   type PhoneHost,
   type PhoneHostAgent,
@@ -120,6 +121,12 @@ export interface PhoneConnection {
 
 /** How long a client counts as connected after its last call when it holds nothing open. */
 export const PHONE_CONNECTION_IDLE_MS = 60_000
+
+/** A loopback address as a socket reports it (IPv4, IPv6, IPv4-mapped IPv6). */
+export function isLoopback(address: string): boolean {
+  const plain = address.startsWith('::ffff:') ? address.slice(7) : address
+  return plain === '::1' || /^127\./.test(plain)
+}
 
 /** "iPhone · Safari", "Android · Chrome", "Windows · Firefox", "curl"… — never the raw string. */
 export function deviceLabel(userAgent: string | undefined): string {
@@ -629,7 +636,13 @@ export class PhoneServer {
     }
     try {
       // Counted as open only while a stream or a held poll actually keeps the response.
-      await this.route(req, res, method, path, url.searchParams, () => this.hold(client, res))
+      const caller: PhoneCaller = {
+        origin: via === 'internet' ? 'internet' : isLoopback(origin.address) ? 'local' : 'lan',
+        device: client.device
+      }
+      await this.route(req, res, method, path, url.searchParams, caller, () =>
+        this.hold(client, res)
+      )
     } catch (error) {
       if (res.headersSent) {
         res.end()
@@ -655,6 +668,7 @@ export class PhoneServer {
     method: string,
     path: string,
     query: URLSearchParams,
+    caller: PhoneCaller,
     hold: () => void
   ): Promise<void> {
     if (method === 'GET' && path === '/api/state') {
@@ -722,10 +736,10 @@ export class PhoneServer {
         throw new HttpError(400, 'The answer must be yes, always or no')
       }
       if (!agent.running) throw new HttpError(409, 'This agent is not running', 'not-running')
-      await this.options.host.answer(agent.id, answer as PhoneAnswer)
+      await this.options.host.answer(agent.id, answer as PhoneAnswer, caller)
     } else {
       if (!agent.running) throw new HttpError(409, 'This agent is not running', 'not-running')
-      await this.options.host.interrupt(agent.id)
+      await this.options.host.interrupt(agent.id, caller)
     }
     this.json(res, 202, { ok: true })
   }

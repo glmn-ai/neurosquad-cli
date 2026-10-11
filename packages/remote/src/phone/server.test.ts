@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { FakePhoneHost } from '../testing/fakeHost.js'
 import { PHONE_BLOCKED, PHONE_CAPABILITIES } from './capabilities.js'
 import { lanAddresses, pairingUrl } from './pairing.js'
-import { PhoneServer, deviceLabel, workspaceIdFor } from './server.js'
+import { PhoneServer, deviceLabel, isLoopback, workspaceIdFor } from './server.js'
 import { generatePairingToken, isPairingToken, tokenMatches } from './token.js'
 import type { PhoneEvent } from './types.js'
 
@@ -285,6 +285,19 @@ describe('writes', () => {
       { kind: 'answer', agentId: A, value: 'always' },
       { kind: 'interrupt', agentId: B }
     ])
+    // Who acted, for the host's approvals log: this machine, the device label (never the token).
+    expect(host.callers.map((entry) => [entry.kind, entry.caller?.origin])).toEqual([
+      ['answer', 'local'],
+      ['interrupt', 'local']
+    ])
+    expect(typeof host.callers[0]?.caller?.device).toBe('string')
+  })
+
+  it('tells loopback callers from the local network', () => {
+    for (const address of ['127.0.0.1', '127.3.2.1', '::1', '::ffff:127.0.0.1'])
+      expect(isLoopback(address)).toBe(true)
+    for (const address of ['192.168.1.20', '::ffff:10.0.0.5', 'fe80::1', 'unknown'])
+      expect(isLoopback(address)).toBe(false)
   })
 
   it('refuses control characters in a prompt and normalizes line endings', async () => {

@@ -10,6 +10,7 @@ export interface ParsedArgs {
 /** Flags that take a value (everything else is boolean). */
 const VALUED = new Set([
   'name',
+  'agent',
   'model',
   'provider',
   'since',

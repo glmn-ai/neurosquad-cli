@@ -38,6 +38,8 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq diff <agent>                      git diff of the agent's folder
   nsq peek <agent> [-n 20]              the last lines of its screen
   nsq cost [--since 7d] [--json]        what each agent spent
+  nsq log approvals [--agent x] [--since 2h] [--json]
+                                        every "needs you" question, its answer and who gave it
   nsq openrouter set-key|clear-key|models [query]|status
   nsq openrouter test <model> [--harness claude|codex|opencode]
   nsq provider add <name> --url <base> [--key-stdin|--ask-key]
@@ -112,6 +114,11 @@ async function main(argv: string[]): Promise<number> {
     case 'cost':
       await cmdCost(args)
       return 0
+    case 'log': {
+      const { cmdLog } = await import('./approvalsCommand.js')
+      cmdLog(args)
+      return 0
+    }
     case 'openrouter':
       await cmdOpenRouter(args)
       return 0

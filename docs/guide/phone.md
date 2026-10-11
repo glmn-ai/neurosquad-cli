@@ -31,6 +31,11 @@ nsq phone off
 
 In the dashboard, **p** shows the connected phones — who is connected is always visible.
 
+Every answer and interrupt sent from a phone is written to the
+[approvals log](agents.md#the-approvals-log) with where it came from — `local` (this machine),
+`lan` (the Wi-Fi) or `internet` (the online tunnel) — and the device label (`iPhone · Safari`).
+Never the token or the address. `nsq log approvals` shows it.
+
 ## Online: from anywhere (Cloudflare tunnel)
 
 Away from your Wi-Fi, nsq can make the phone page reachable from the internet through a
