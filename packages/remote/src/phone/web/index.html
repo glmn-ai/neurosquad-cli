@@ -52,7 +52,13 @@
           <strong id="agent-title"></strong>
           <span id="agent-harness" class="chip"></span>
         </div>
-        <span id="agent-status" class="status"></span>
+        <div class="agent-tools">
+          <div class="seg" role="group" aria-label="Terminal size">
+            <button type="button" id="size-readable" data-fit="readable">Readable</button>
+            <button type="button" id="size-fit" data-fit="fit">Fit width</button>
+          </div>
+          <span id="agent-status" class="status"></span>
+        </div>
       </section>
       <section id="ask" class="ask" hidden>
         <p class="ask-label">Needs you</p>

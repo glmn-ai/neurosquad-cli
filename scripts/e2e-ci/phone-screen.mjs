@@ -106,7 +106,8 @@ const FACTS = `(() => {
   // One cell: the page's grid unit (1ch of its monospace font), measured on a cell of its own —
   // not on text, which a runner without a monospace font would draw proportionally.
   const probe = document.createElement('span')
-  probe.className = 'c1'
+  probe.style.display = 'inline-block'
+  probe.style.width = '1ch'
   probe.textContent = 'x'
   term.firstElementChild.append(probe)
   const cell = probe.getBoundingClientRect().width
@@ -140,6 +141,21 @@ const FACTS = `(() => {
     markupText: term.textContent.includes('<img src=x onerror="window.__xss=1"><script>window.__xss=2</script>'),
     xss: window.__xss ?? null,
     fontSize: parseFloat(term.style.fontSize || '0'),
+    // The computed size (CSS px) and what the scroller shows of the newest line and the cursor.
+    fontPx: parseFloat(getComputedStyle(term).fontSize),
+    lastLineVisible: (() => {
+      const box = screen.getBoundingClientRect()
+      const last = term.lastElementChild.getBoundingClientRect()
+      return last.top >= box.top - 1 && last.bottom <= box.bottom + 1
+    })(),
+    cursorInView: (() => {
+      const box = screen.getBoundingClientRect()
+      const c = term.querySelector('.cur')
+      if (!c) return false
+      const r = c.getBoundingClientRect()
+      return r.left >= box.left && r.right <= box.right && r.top >= box.top && r.bottom <= box.bottom
+    })(),
+    mode: document.querySelector('[data-fit][aria-pressed="true"]')?.dataset.fit ?? null,
     fits: term.scrollWidth <= screen.clientWidth + 1,
     scrollWidth: term.scrollWidth,
     clientWidth: screen.clientWidth
@@ -269,9 +285,39 @@ try {
   check('markup from the agent is text: no element made from it', f.markup === 0, f.markup)
   check('… shown literally', f.markupText)
   check('… and no script from it ran', f.xss === null, f.xss)
-  check('the whole width fits the phone', f.fits, [f.scrollWidth, f.clientWidth])
 
-  // A pinch zooms the terminal in (not the page); a double tap goes back to the whole width.
+  // Readable by default: a font a phone can read; a wider agent scrolls sideways, the newest
+  // line and the cursor stay in view.
+  check('readable by default', f.mode === 'readable', f.mode)
+  check('readable: font at least 11 CSS px', f.fontPx >= 11, f.fontPx)
+  check('readable: the newest line is in view (anchored at the bottom)', f.lastLineVisible)
+  check('readable: the cursor is in view', f.cursorInView)
+  const sideways = await evaluate(
+    "(() => { const s = document.getElementById('screen'); const before = s.scrollWidth > s.clientWidth; s.scrollLeft = 120; const moved = s.scrollLeft > 0; s.scrollLeft = 0; return before && moved })()"
+  )
+  check('readable: a wider screen scrolls sideways', sideways)
+
+  // Fit width: the whole width on the screen; the choice is remembered on this device.
+  await evaluate("document.getElementById('size-fit').click()")
+  await sleep(300)
+  const fitted = await evaluate(FACTS)
+  await shot('phone-terminal-fit')
+  check('fit width: the whole width fits the phone', fitted.fits, [
+    fitted.scrollWidth,
+    fitted.clientWidth
+  ])
+  check('fit width: smaller than readable', fitted.fontPx < f.fontPx, [f.fontPx, fitted.fontPx])
+  check('fit width: the newest line is in view', fitted.lastLineVisible)
+  await page('Page.reload')
+  await waitFor(() => evaluate("document.querySelector('.card') ? true : undefined"))
+  await evaluate("document.querySelector('.card').click()")
+  const again = await waitFor(async () => {
+    const value = await evaluate(FACTS)
+    return value && value.text.includes('type here') ? value : undefined
+  })
+  check('fit width is remembered after a reload', again?.mode === 'fit' && again.fits, again?.mode)
+
+  // In fit width, a pinch zooms the terminal in (not the page).
   const box = await evaluate(
     "(() => { const r = document.getElementById('screen').getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()"
   )
@@ -292,11 +338,16 @@ try {
   await sleep(300)
   const zoomed = await evaluate(FACTS)
   await shot('phone-terminal-zoomed')
-  check('a pinch zooms the terminal in (font about 3×)', zoomed.fontSize > f.fontSize * 2.5, [
-    f.fontSize,
+  check('a pinch zooms the terminal in (font about 3×)', zoomed.fontSize > again.fontSize * 2.5, [
+    again.fontSize,
     zoomed.fontSize
   ])
   check('… and it scrolls sideways', !zoomed.fits)
+  // Back to readable for the next visit.
+  await evaluate("document.getElementById('size-readable').click()")
+  await sleep(300)
+  const back = await evaluate(FACTS)
+  check('readable again', back.mode === 'readable' && back.fontPx >= 11, back.fontPx)
   check('no page errors or CSP violations', problems.length === 0, problems)
 } catch (error) {
   check('phone-screen.mjs: ran', false, String(error?.stack ?? error))

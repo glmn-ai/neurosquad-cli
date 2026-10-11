@@ -21,6 +21,15 @@ const STATUS = {
 }
 
 const $ = (id) => document.getElementById(id)
+const FIT_KEY = 'neurosquad.phone.fit'
+
+function readFit() {
+  try {
+    return localStorage.getItem(FIT_KEY) === 'fit' ? 'fit' : 'readable'
+  } catch {
+    return 'readable'
+  }
+}
 const el = (tag, className, text) => {
   const node = document.createElement(tag)
   if (className) node.className = className
@@ -49,7 +58,10 @@ const state = {
   screenBusy: false,
   screenCols: 80,
   rowKeys: [],
-  zoom: 1
+  zoom: 1,
+  // Readable (default): a font a phone can read, the screen scrolls sideways when the agent is
+  // wider. Fit width: the whole width on the screen, small. Remembered on this device.
+  fit: readFit()
 }
 
 // ---- the token -------------------------------------------------------------------------------
@@ -349,8 +361,7 @@ function startScreen() {
       if (data.styled) renderStyled(data.styled)
       else renderPlain(data.screen || '')
       state.screenVersion = typeof data.version === 'number' ? data.version : undefined
-      const screen = $('screen')
-      if (state.stuckToBottom) screen.scrollTop = screen.scrollHeight
+      if (state.stuckToBottom) followBottom()
     } catch {
       // shown by the connection dot
     } finally {
@@ -390,26 +401,48 @@ function colorClass(prefix, value) {
   return palette ? `${prefix}${palette[1]}` : ''
 }
 
-// Box drawing and block elements often come from a fallback font whose advance is not quite one
-// cell: each gets a cell of its own (1ch), so borders line up with the text around them.
-const BOX = /[─-▟]/
+// Box drawing and block elements often come from a fallback font whose advance or ink is not
+// quite one cell. Horizontal lines (─ ━ ═) are drawn as CSS lines exactly n cells long, so they
+// never break into dashes; any other run of them takes exactly its cells (n ch) and its glyphs are
+// stretched to fill them (--bx, measured once). Borders line up with the text around them.
+const BOX = /[\u2500-\u259f]/
+const BOX_RUN = /[\u2500-\u259f]+/g
+const LINE_RUN = /\u2500+|\u2501+|\u2550+/g
+const LINE_KIND = { '\u2500': 'hl', '\u2501': 'hl heavy', '\u2550': 'hl double' }
+
+function boxCells(parent, text) {
+  let at = 0
+  const glyphs = (part) => {
+    if (!part) return
+    const box = el('span', 'bx')
+    box.style.width = `${[...part].length}ch`
+    box.append(el('span', '', part))
+    parent.append(box)
+  }
+  for (const match of text.matchAll(LINE_RUN)) {
+    glyphs(text.slice(at, match.index))
+    // The characters stay in the DOM (copying the screen gives the text), drawn as a line.
+    const line = el('span', LINE_KIND[match[0][0]])
+    line.append(el('span', '', match[0]))
+    line.style.width = `${match[0].length}ch`
+    parent.append(line)
+    at = match.index + match[0].length
+  }
+  glyphs(text.slice(at))
+}
 
 function fillCells(span, text) {
   if (!BOX.test(text)) {
     span.textContent = text
     return
   }
-  let plain = ''
-  for (const ch of text) {
-    if (!BOX.test(ch)) {
-      plain += ch
-      continue
-    }
-    if (plain) span.append(plain)
-    plain = ''
-    span.append(el('span', 'c1', ch))
+  let at = 0
+  for (const match of text.matchAll(BOX_RUN)) {
+    if (match.index > at) span.append(text.slice(at, match.index))
+    boxCells(span, match[0])
+    at = match.index + match[0].length
   }
-  if (plain) span.append(plain)
+  if (at < text.length) span.append(text.slice(at))
 }
 
 /** One run as a span: classes for the 16 colours and the attributes, CSSOM for #rrggbb. */
@@ -485,12 +518,58 @@ function measureChar() {
   probe.style.fontSize = '100px'
   $('term').append(probe)
   const width = probe.getBoundingClientRect().width
+  // How wide a box-drawing glyph is next to a cell: runs of them are stretched by the inverse.
+  probe.textContent = '\u2500'.repeat(100)
+  const box = probe.getBoundingClientRect().width
   probe.remove()
   if (width > 0) charRatio = width / 100 / 100
+  if (width > 0 && box > 0) $('term').style.setProperty('--bx', (width / box).toFixed(4))
   return charRatio || 0.6
 }
 
-/** The agent's whole width fits the screen; a pinch zooms in from there (up to 4×). */
+/**
+ * Like a terminal: the latest lines at the bottom, and the cursor (where the agent is typing or
+ * asking) scrolled into view sideways when the screen is wider than the phone.
+ */
+function followBottom() {
+  const screen = $('screen')
+  screen.scrollTop = screen.scrollHeight
+  const cursor = $('term').querySelector('.cur')
+  if (!cursor) return
+  const box = screen.getBoundingClientRect()
+  const at = cursor.getBoundingClientRect()
+  const margin = 24
+  if (at.left < box.left + margin) screen.scrollLeft -= box.left + margin - at.left
+  else if (at.right > box.right - margin) screen.scrollLeft += at.right - (box.right - margin)
+}
+
+const READABLE_PX = 12
+
+function setFit(fit) {
+  state.fit = fit === 'fit' ? 'fit' : 'readable'
+  state.zoom = 1
+  try {
+    localStorage.setItem(FIT_KEY, state.fit)
+  } catch {
+    // no storage: this visit only
+  }
+  renderFit()
+  fitScreen()
+  followBottom()
+}
+
+function renderFit() {
+  for (const button of document.querySelectorAll('[data-fit]')) {
+    const on = button.dataset.fit === state.fit
+    button.classList.toggle('on', on)
+    button.setAttribute('aria-pressed', on ? 'true' : 'false')
+  }
+}
+
+/**
+ * Readable: at least 12px (larger when the whole width fits anyway); fit width: the agent's
+ * whole width on the screen. A pinch scales either (¼× to 4×).
+ */
 function fitScreen() {
   const screen = $('screen')
   if (screen.offsetParent === null) return
@@ -499,7 +578,8 @@ function fitScreen() {
     screen.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 1
   if (room <= 0) return
   const fit = room / (state.screenCols * measureChar())
-  const size = Math.max(4, Math.min(15, fit)) * state.zoom
+  const base = state.fit === 'fit' ? Math.min(15, fit) : Math.max(READABLE_PX, Math.min(15, fit))
+  const size = Math.max(4, base * state.zoom)
   $('term').style.fontSize = `${size.toFixed(2)}px`
 }
 
@@ -521,7 +601,7 @@ function setupZoom() {
     (event) => {
       if (!pinch || event.touches.length !== 2) return
       event.preventDefault() // the terminal zooms, not the page
-      const zoom = Math.max(1, Math.min(4, (pinch.zoom * distance(event.touches)) / pinch.start))
+      const zoom = Math.max(0.25, Math.min(4, (pinch.zoom * distance(event.touches)) / pinch.start))
       if (Math.abs(zoom - state.zoom) < 0.02) return
       // The point between the fingers stays where it is.
       const rect = screen.getBoundingClientRect()
@@ -656,6 +736,10 @@ function start() {
     )
   }
   setupZoom()
+  for (const button of document.querySelectorAll('[data-fit]')) {
+    button.addEventListener('click', () => setFit(button.dataset.fit))
+  }
+  renderFit()
   const screen = $('screen')
   screen.addEventListener('scroll', () => {
     state.stuckToBottom = screen.scrollTop + screen.clientHeight >= screen.scrollHeight - 24

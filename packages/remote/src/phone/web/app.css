@@ -272,6 +272,40 @@ code {
   white-space: nowrap;
 }
 
+.agent-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+/* Readable | Fit width */
+.seg {
+  display: inline-flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font:
+    600 12px/1 system-ui,
+    sans-serif;
+  padding: 7px 10px;
+  border-radius: 999px;
+  min-height: 30px;
+}
+
+.seg button.on {
+  background: var(--surface-2);
+  color: var(--foreground);
+}
+
 .status {
   font-size: 12px;
   font-weight: 600;
@@ -450,6 +484,9 @@ code {
 
 .screen {
   flex: 1;
+  /* The lines sit at the bottom, like a terminal's (margin-top: auto on .term). */
+  display: flex;
+  flex-direction: column;
   min-height: 40dvh;
   margin: 0;
   overflow: auto;
@@ -466,6 +503,7 @@ code {
 /* The agent's terminal: rows of styled runs, as wide as the agent's columns (fitted to the phone's
    width by the font size; a pinch zooms in and the screen scrolls sideways). */
 .term {
+  margin-top: auto;
   font-family: var(--mono);
   line-height: 1.2;
   white-space: pre;
@@ -495,10 +533,46 @@ code {
   text-align: center;
 }
 
-.term .c1 {
+.term .bx {
   display: inline-block;
-  width: 1ch;
   overflow: visible;
+  vertical-align: top;
+}
+
+/* A horizontal box line, drawn: its characters are kept but not painted. */
+.term .hl {
+  display: inline-block;
+  position: relative;
+  vertical-align: top;
+  color: inherit;
+}
+
+.term .hl::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: max(1px, 0.07em) solid currentColor;
+  transform: translateY(-50%);
+}
+
+.term .hl.heavy::before {
+  border-top-width: max(2px, 0.14em);
+}
+
+.term .hl.double::before {
+  border-top: max(3px, 0.24em) double currentColor;
+}
+
+.term .hl > span {
+  visibility: hidden;
+}
+
+.term .bx > span {
+  display: inline-block;
+  transform: scaleX(var(--bx, 1));
+  transform-origin: left center;
 }
 
 .term .cur {
