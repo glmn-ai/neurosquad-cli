@@ -70,15 +70,22 @@ export function filterApprovals(
   })
 }
 
+/** Control characters (C0, DEL, C1) out: a field could carry an escape sequence. */
+export function plain(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return String(text).replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+}
+
 export function formatApprovals(records: readonly ApprovalRecord[], width = 120): string[] {
   const head = ['TIME', 'AGENT', 'HARNESS', 'ANSWER', 'BY', 'QUESTION']
+  // The file is data: no escape sequence or control character in it reaches the terminal.
   const rows = records.map((record) => [
     timeLabel(record.at),
-    truncate(record.agent.name, 16),
-    HARNESS_LABEL[record.harness] ?? record.harness,
-    answerLabel(record),
-    truncate(byLabel(record.by, record.outcome), 34),
-    questionLabel(record)
+    truncate(plain(record.agent.name), 16),
+    plain(HARNESS_LABEL[record.harness] ?? String(record.harness)),
+    plain(answerLabel(record)),
+    truncate(plain(byLabel(record.by, record.outcome)), 34),
+    plain(questionLabel(record))
   ])
   const widths = head.map((cell, i) =>
     i === head.length - 1 ? 0 : Math.max(textWidth(cell), ...rows.map((row) => textWidth(row[i]!)))

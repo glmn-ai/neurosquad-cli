@@ -41,6 +41,15 @@ const ev = (kind: AgentHookEvent['kind'], extra: Partial<AgentHookEvent> = {}): 
   ...extra
 })
 const records = (): ApprovalRecord[] => readApprovals(dir)
+/** An answer through nsq: noted as its keys go in, logged when the agent moves on (their echo). */
+const answer = (
+  target: ApprovalLog,
+  key: 'yes' | 'always' | 'no',
+  by: Parameters<ApprovalLog['answering']>[2]
+): void => {
+  target.answering(AGENT.id, key, by)
+  target.status(ev('working', { origin: 'user' }), AGENT)
+}
 const PERMISSION = JSON.stringify({
   tool_name: 'Bash',
   tool_input: {
@@ -73,7 +82,7 @@ describe('the record', () => {
     log.hook(AGENT.id, 'claude-code', 'ClaudePermission', PERMISSION)
     log.status(ev('needs-input', { detail: 'Claude wants to run: curl …' }), AGENT)
     clock += 4000
-    log.answered(AGENT.id, 'yes', { via: 'dashboard', from: 'local' })
+    answer(log, 'yes', { via: 'dashboard', from: 'local' })
     const [record] = records()
     expect(record).toEqual({
       v: 1,
@@ -85,7 +94,7 @@ describe('the record', () => {
       question: {
         text: 'Claude wants to run: curl …',
         tool: 'Bash',
-        command: 'curl -H "Authorization: *** ***" https://api.example.com?token=*** && npm test'
+        command: 'curl -H "Authorization: ***" https://api.example.com?token=*** && npm test'
       },
       outcome: 'answered',
       answer: 'yes',
@@ -103,7 +112,7 @@ describe('the record', () => {
 
   it('a phone answer carries its origin and device', () => {
     log.status(ev('needs-input', { detail: 'Codex: Bash — rm -rf dist' }), AGENT)
-    log.answered(AGENT.id, 'always', { via: 'phone', from: 'internet', device: 'iPhone · Safari' })
+    answer(log, 'always', { via: 'phone', from: 'internet', device: 'iPhone · Safari' })
     expect(records()[0]).toMatchObject({
       outcome: 'answered',
       answer: 'always',
@@ -158,10 +167,10 @@ describe('the record', () => {
     log.status(ev('needs-input', { detail: 'Claude needs your permission' }), AGENT)
     log.hook(AGENT.id, 'claude-code', 'ClaudePermission', PERMISSION)
     log.status(ev('needs-input', { detail: 'Claude wants to run: npm test', quiet: true }), AGENT)
-    log.answered(AGENT.id, 'yes', { via: 'cli', from: 'local' })
+    answer(log, 'yes', { via: 'cli', from: 'local' })
     // The person's answer moves it on as their input: no second record.
     log.status(ev('working', { origin: 'user' }), AGENT)
-    log.answered(AGENT.id, 'no', { via: 'cli', from: 'local' })
+    answer(log, 'no', { via: 'cli', from: 'local' })
     expect(records()).toHaveLength(1)
     expect(records()[0]!.question).toMatchObject({
       text: 'Claude wants to run: npm test',
@@ -173,14 +182,46 @@ describe('the record', () => {
     log.hook(AGENT.id, 'claude-code', 'ClaudePermission', PERMISSION)
     log.status(ev('finished'), AGENT)
     log.status(ev('needs-input', { detail: 'Claude is asking: which one?' }), AGENT)
-    log.answered(AGENT.id, 'yes', { via: 'cli', from: 'local' })
+    answer(log, 'yes', { via: 'cli', from: 'local' })
     expect(records()[0]!.question).toEqual({ text: 'Claude is asking: which one?' })
+  })
+
+  it('an answer whose keys could not be written is not logged as answered', () => {
+    log.status(ev('needs-input', { detail: 'q' }), AGENT)
+    log.answering(AGENT.id, 'yes', { via: 'phone', from: 'lan', device: 'Android · Chrome' })
+    log.answerFailed(AGENT.id)
+    log.exited(AGENT.id)
+    expect(records().map((r) => [r.outcome, r.answer, r.by])).toEqual([
+      ['exited', undefined, undefined]
+    ])
+  })
+
+  it('an interrupt that did not go out does not label the outcome', () => {
+    log.status(ev('needs-input', { detail: 'q' }), AGENT)
+    log.interrupting(AGENT.id, { via: 'dashboard', from: 'local' })
+    log.interruptFailed(AGENT.id)
+    log.status(ev('working'), AGENT)
+    expect(records()[0]!.outcome).toBe('cli')
+  })
+
+  it('typed keys: the first answer key counts, Enter keeps it, an arrow moves away', () => {
+    log.status(ev('needs-input', { detail: 'q1' }), AGENT)
+    log.typed(AGENT.id, 'codex-cli', 'n', 'attach')
+    log.typed(AGENT.id, 'codex-cli', 'y', 'attach')
+    log.typed(AGENT.id, 'codex-cli', String.fromCharCode(13), 'attach')
+    log.status(ev('working', { origin: 'user' }), AGENT)
+    log.status(ev('needs-input', { detail: 'q2' }), AGENT)
+    log.typed(AGENT.id, 'codex-cli', 'y', 'dashboard')
+    log.typed(AGENT.id, 'codex-cli', String.fromCharCode(27) + '[B', 'dashboard')
+    log.typed(AGENT.id, 'codex-cli', String.fromCharCode(13), 'dashboard')
+    log.status(ev('working', { origin: 'user' }), AGENT)
+    expect(records().map((r) => r.answer)).toEqual(['no', undefined])
   })
 
   it('the off switch writes nothing', () => {
     enabled = false
     log.status(ev('needs-input', { detail: 'x' }), AGENT)
-    log.answered(AGENT.id, 'yes', { via: 'cli', from: 'local' })
+    answer(log, 'yes', { via: 'cli', from: 'local' })
     expect(existsSync(join(dir, 'approvals.jsonl'))).toBe(false)
   })
 
@@ -212,7 +253,7 @@ describe('rotation', () => {
     })
     for (let i = 0; i < 60; i++) {
       small.status(ev('needs-input', { detail: `question ${i} ${'z'.repeat(200)}` }), AGENT)
-      small.answered(AGENT.id, 'yes', { via: 'cli', from: 'local' })
+      answer(small, 'yes', { via: 'cli', from: 'local' })
     }
     const files = approvalFiles(dir, 2)
     expect(files.map((file) => file.slice(dir.length + 1))).toEqual([
@@ -301,6 +342,13 @@ describe('parsing', () => {
     )
     expect(redactSecrets('echo sk-ant-api03-abcdefghijklmnopqrstuvwxyz')).toBe('echo sk-ant-***')
     expect(redactSecrets('use glpat-abcdefghijklmnop')).toBe('use glpat-***')
+    expect(redactSecrets('curl -H "Authorization: Token abc123def" x')).toBe(
+      'curl -H "Authorization: ***" x'
+    )
+    expect(redactSecrets("curl -u admin:hunter2 https://x.dev --user 'me:pw 1'")).toBe(
+      'curl -u *** https://x.dev --user ***'
+    )
+    expect(redactSecrets('psql -p 5432')).toBe('psql -p 5432')
     expect(redactSecrets('curl -H "x-api-key: abcdef123456"')).toBe('curl -H "x-api-key: ***"')
     expect(redactSecrets('psql postgres://app:hunter2@db/x')).toBe('psql postgres://app:***@db/x')
   })
@@ -361,5 +409,26 @@ describe('nsq log approvals', () => {
     expect(lines[1]).toContain('Claude Code')
     expect(lines[1]).toContain('phone (LAN, iPhone · Safari)')
     expect(lines[1]).toContain('Bash: npm test')
+  })
+})
+
+describe('the table is plain text', () => {
+  it('drops control characters from every field', () => {
+    const esc = String.fromCharCode(27)
+    const [, row] = formatApprovals([
+      {
+        v: 1,
+        at: '2026-10-11T10:00:00.000Z',
+        askedAt: '2026-10-11T10:00:00.000Z',
+        agent: { id: 'x', name: `evil${esc}]0;title${String.fromCharCode(7)}` },
+        harness: 'claude-code',
+        workspace: '~',
+        question: { text: `run ${esc}[2J now` },
+        outcome: 'cli'
+      }
+    ])
+    expect(row).not.toContain(esc)
+    expect(row).not.toContain(String.fromCharCode(7))
+    expect(row).toContain('evil]0;title')
   })
 })

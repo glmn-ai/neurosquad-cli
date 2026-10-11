@@ -1039,12 +1039,35 @@ export class Daemon {
     if (agentStatusSnapshot(record.id)?.kind !== 'needs-input') {
       throw new Error(`${record.name} is not waiting for an answer`)
     }
-    // Logged before the keys go in: they move the agent on as the person's own input.
-    this.approvals.answered(record.id, key, by)
-    for (const [index, press] of keys.entries()) {
-      if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
-      this.ptys.write(record.id, press)
-      noteUserInput(record.id, press)
+    // Noted before the keys go in (they move the agent on as the person's own input, at once);
+    // logged when the agent moves on, dropped if the keys could not be written.
+    this.approvals.answering(record.id, key, by)
+    try {
+      for (const [index, press] of keys.entries()) {
+        if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
+        if (!this.ptys.isRunning(record.id)) throw new Error(`${record.name} is not running`)
+        this.ptys.write(record.id, press)
+        noteUserInput(record.id, press)
+      }
+    } catch (error) {
+      this.approvals.answerFailed(record.id)
+      throw error
+    }
+  }
+
+  /**
+   * The harness's interrupt keys. The approvals log learns whose interrupt it is first: the
+   * interrupt moves a waiting agent on synchronously. Not for a process that is gone (nothing
+   * would go out), and taken back if sending throws.
+   */
+  private interruptAgent(record: AgentRecord, by: ApprovalBy): void {
+    if (!this.ptys.isRunning(record.id)) return
+    this.approvals.interrupting(record.id, by)
+    try {
+      this.ptys.interrupt(record.id, interruptKeys(record.harness))
+    } catch (error) {
+      this.approvals.interruptFailed(record.id)
+      throw error
     }
   }
 
@@ -1096,8 +1119,7 @@ export class Daemon {
       },
       interrupt: (id, caller?: PhoneCaller) => {
         const record = running(id)
-        this.approvals.interrupting(record.id, phoneBy(caller))
-        this.ptys.interrupt(record.id, interruptKeys(record.harness))
+        this.interruptAgent(record, phoneBy(caller))
       }
     }
   }
@@ -1349,8 +1371,7 @@ export class Daemon {
         return undefined
       case 'interrupt': {
         const record = this.need(message.id)
-        this.approvals.interrupting(record.id, clientBy(client))
-        this.ptys.interrupt(record.id, interruptKeys(record.harness))
+        this.interruptAgent(record, clientBy(client))
         return undefined
       }
       case 'phone':

@@ -102,6 +102,10 @@ const SECRET_NAME =
 const SECRET_PATTERNS: readonly [RegExp, string][] = [
   // Authorization headers: `Bearer xyz`, `Basic xyz`.
   [/\b(Bearer|Basic)(\s+)[A-Za-z0-9._~+/=-]{8,}/gi, '$1$2***'],
+  // An Authorization header's whole value, whatever the scheme (`Token x`, `Digest …`).
+  [/\b((?:proxy-)?authorization\s*[:=]\s*)[^"'\r\n]+/gi, '$1***'],
+  // curl's -u / --user user:password.
+  [/((?:^|\s)(?:-u|--user)(?:=|\s+))("[^"]*"|'[^']*'|[^\s"']+)/g, '$1***'],
   // NAME=value / NAME: value where the name says it is a secret.
   [new RegExp(`\\b(${SECRET_NAME})(\\s*[=:]\\s*)("[^"]*"|'[^']*'|[^\\s"']+)`, 'gi'), '$1$2***'],
   // --token x, --password=x, --api-key x, -p'x' is left alone (too ambiguous).
@@ -293,10 +297,12 @@ interface Open {
   agent: ApprovalAgent
   askedAt: number
   question: ApprovalQuestion
-  /** Keys typed into the agent's terminal while it waited (the last one counts). */
+  /** Keys typed into the agent's terminal while it waited (the first key that says an answer). */
   typed?: { answer?: AnswerKey; client: string }
   /** An interrupt someone sent while it waited. */
   interrupt?: ApprovalBy
+  /** An answer sent through nsq, its keys going in: it counts once the agent moves on. */
+  answer?: { key: AnswerKey; by: ApprovalBy }
 }
 
 /** How long a tool from a hook payload stays the subject of the next question. */
@@ -352,12 +358,16 @@ export class ApprovalLog {
     }
     this.stash.delete(agent.id)
     if (!current) return
-    if (current.interrupt) {
-      this.close(agent.id, 'interrupted', { by: current.interrupt })
-      return
-    }
     if (event.origin === 'reset') {
       this.close(agent.id, 'exited')
+      return
+    }
+    if (current.answer) {
+      this.close(agent.id, 'answered', { answer: current.answer.key, by: current.answer.by })
+      return
+    }
+    if (current.interrupt) {
+      this.close(agent.id, 'interrupted', { by: current.interrupt })
       return
     }
     if (event.origin === 'user') {
@@ -373,16 +383,25 @@ export class ApprovalLog {
   }
 
   /** Answered through nsq (dashboard key, `nsq answer`, the phone), just before the keys go in. */
-  answered(agentId: string, answer: AnswerKey, by: ApprovalBy): void {
-    if (!this.open.has(agentId)) return
-    this.close(agentId, 'answered', { answer, by })
+  answering(agentId: string, answer: AnswerKey, by: ApprovalBy): void {
+    const current = this.open.get(agentId)
+    if (current) current.answer = { key: answer, by }
+  }
+
+  /** The answer's keys could not be written: it did not reach the agent. */
+  answerFailed(agentId: string): void {
+    const current = this.open.get(agentId)
+    if (current) delete current.answer
   }
 
   /** Keys typed into the agent's terminal while it may be waiting. */
   typed(agentId: string, harness: HarnessId, data: string, client: string): void {
     const current = this.open.get(agentId)
     if (!current) return
-    const answer = typedAnswer(harness, data)
+    // The first key that says an answer counts; Enter confirms it, a navigation key (an arrow)
+    // moves away from it.
+    const navigation = data.length > 1 && data.startsWith('\x1b[')
+    const answer = navigation ? undefined : (current.typed?.answer ?? typedAnswer(harness, data))
     current.typed = { ...(answer ? { answer } : {}), client }
   }
 
@@ -390,6 +409,12 @@ export class ApprovalLog {
   interrupting(agentId: string, by: ApprovalBy): void {
     const current = this.open.get(agentId)
     if (current) current.interrupt = by
+  }
+
+  /** The interrupt did not go out: whatever ends the question next is not it. */
+  interruptFailed(agentId: string): void {
+    const current = this.open.get(agentId)
+    if (current) delete current.interrupt
   }
 
   /** The agent's process ended (stopped, restarted, crashed) or it was removed. */
