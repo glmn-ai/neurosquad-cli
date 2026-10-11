@@ -114,6 +114,12 @@ export type Request =
       /** `on --online`: re-check cloudflared against the latest release now. */
       refresh?: boolean
     }
+  /**
+   * Push to the phone through ntfy, from the dashboard's phone panel: `status` (with `reveal`, the
+   * topic URL and the subscribe links too — only for that panel), `setup` (a new random topic, as
+   * `nsq phone push ntfy` makes one), `test`, `off`.
+   */
+  | { t: 'push'; action: 'status' | 'setup' | 'test' | 'off'; reveal?: boolean }
   | { t: 'shutdown'; stopAgents?: boolean }
   /** Updates: the state, a check now, install now, or restart onto an installed one (when idle). */
   | { t: 'update'; action: 'status' | 'check' | 'install' | 'apply' }
@@ -173,6 +179,29 @@ export interface PhoneView {
     error?: string
     progress?: number
   }
+  /** Phones pair again after this many hours (the token is replaced). */
+  expireHours?: number
+  /** When the current pairing token was made. */
+  tokenIssuedAt?: number
+}
+
+/** The ntfy push state, as the phone panel shows it. */
+export interface PushView {
+  on: boolean
+  /** Where the settings come from: the keyring (`nsq phone push ntfy`, the panel) or NSQ_NTFY_URL. */
+  source?: 'keyring' | 'env'
+  /** The server's host (not secret). */
+  host?: string
+  hasToken?: boolean
+  /** Only when asked with `reveal` (or right after `setup`): the topic and how to subscribe. */
+  topic?: string
+  topicUrl?: string
+  /** What the ntfy Android app opens: `ntfy://<host>/<topic>`. */
+  androidLink?: string
+  /** The keyring could not be used (`setup` / `off` need it). */
+  keyringMissing?: boolean
+  /** The last push the daemon sent (a test or a needs-you). */
+  last?: { at: number; ok: boolean; kind: 'test' | 'needs-you'; error?: string }
 }
 
 /** Splits a stream into lines and parses each as JSON; a bad line is skipped. */

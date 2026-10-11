@@ -69,6 +69,7 @@ import {
   encode,
   type AgentView,
   type PhoneView,
+  type PushView,
   type DaemonEvent,
   type Request,
   type RequestWithId,
@@ -99,7 +100,18 @@ import {
   type PhoneHost
 } from '@neurosquad/remote'
 import { PhoneAccess, PhoneSuperseded, quickTunnelBlocker } from './phone.js'
-import { NtfyPush } from './push.js'
+import {
+  NTFY_OFF,
+  NTFY_URL_SECRET,
+  NtfyPush,
+  checkTokenTransport,
+  ntfyMessage,
+  ntfySubscribeLinks,
+  parseNtfyUrl,
+  randomNtfyUrl,
+  saveNtfy
+} from './push.js'
+import { getSecret } from './secrets.js'
 import { lanAddresses } from '@neurosquad/remote'
 
 const execFileAsync = promisify(execFile)
@@ -1367,7 +1379,74 @@ export class Daemon {
       lan: status.lan,
       ...(status.port !== undefined ? { port: status.port } : {}),
       phones: status.phones,
-      ...(status.online ? { online: status.online } : {})
+      ...(status.online ? { online: status.online } : {}),
+      ...(status.expireHours ? { expireHours: status.expireHours } : {}),
+      ...(status.tokenIssuedAt !== undefined ? { tokenIssuedAt: status.tokenIssuedAt } : {})
+    }
+  }
+
+  /**
+   * ntfy push from the dashboard's phone panel. The topic URL works like a password: it is in the
+   * reply only when the panel asks for it (`reveal`) or has just made it (`setup`).
+   */
+  private async pushRequest(message: Request & { t: 'push' }): Promise<PushView> {
+    const view = async (reveal: boolean): Promise<PushView> => {
+      const stored = await getSecret(NTFY_URL_SECRET)
+      const configured = await this.push.target()
+      const last = this.push.lastResult
+      const base: PushView = {
+        on: Boolean(configured),
+        ...(last ? { last } : {})
+      }
+      if (!configured) return base
+      const { target, token } = configured
+      const links = ntfySubscribeLinks(target)
+      return {
+        ...base,
+        source: stored && stored !== NTFY_OFF ? 'keyring' : 'env',
+        host: new URL(target.server).host,
+        hasToken: Boolean(token),
+        ...(reveal ? { topic: target.topic, topicUrl: links.web, androidLink: links.android } : {})
+      }
+    }
+    switch (message.action) {
+      case 'setup': {
+        // Same rules as `nsq phone push ntfy` without --url: a new random topic (https), no token.
+        const url = randomNtfyUrl()
+        const target = parseNtfyUrl(url)
+        checkTokenTransport(target, undefined)
+        try {
+          await saveNtfy(url, undefined)
+        } catch {
+          return { ...(await view(false)), keyringMissing: true }
+        }
+        this.log(`push: ntfy set up from the dashboard (${new URL(target.server).host})`)
+        return view(true)
+      }
+      case 'off':
+        try {
+          await saveNtfy(NTFY_OFF, undefined)
+        } catch {
+          return { ...(await view(false)), keyringMissing: true }
+        }
+        return view(false)
+      case 'test': {
+        const configured = await this.push.target()
+        if (!configured) throw new Error('push is off: set it up first')
+        await this.push.send(
+          configured.target,
+          configured.token,
+          ntfyMessage(configured.target, {
+            agentId: 'test',
+            agentName: 'nsq',
+            question: 'Test notification — push works.'
+          }),
+          'test'
+        )
+        return view(message.reveal === true)
+      }
+      default:
+        return view(message.reveal === true)
     }
   }
 
@@ -1595,6 +1674,8 @@ export class Daemon {
       }
       case 'phone':
         return this.queuePhoneRequest(message)
+      case 'push':
+        return this.pushRequest(message)
       case 'resize': {
         const record = this.need(message.id)
         const cols = Math.max(20, Math.min(1000, Math.floor(message.cols)))

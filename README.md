@@ -105,6 +105,7 @@ Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/
 | v                      | dictate into the agent (also a global hotkey) — pasted, never sent                    |
 | p                      | phones: who is connected                                                              |
 | O                      | online on/off (Cloudflare tunnel, asks first)                                         |
+| Q                      | phone panel: the pairing QR, online / LAN, a new token, phone notifications (ntfy)    |
 | U                      | update: install it now, or restart onto an installed one                              |
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)                           |
 
@@ -185,7 +186,7 @@ without echo and kept in the OS keyring; requests show "no price". Details and a
 
 ```sh
 nsq phone on --lan     # off by default; without --lan it listens on this machine only
-nsq phone pair         # prints the link and a QR code — scan it with the phone
+nsq phone pair         # prints the link and a QR code — scan it with the phone (or Q in the dashboard)
 nsq phone on --online  # from anywhere: an https link through a Cloudflare quick tunnel
 nsq phone push ntfy    # optional: a push via ntfy when an agent needs you
 ```
