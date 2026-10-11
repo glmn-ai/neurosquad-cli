@@ -122,7 +122,8 @@ try {
   // Crush's permission dialog: "Allow" is focused, Enter confirms. The herdr report comes as the
   // request is made; the dialog is drawn a moment later, so wait for it before pressing Enter.
   const dialogShown = () => /Permission Required/.test(peek(name, 80))
-  for (let i = 0; i < 40 && !dialogShown(); i++) await sleep(250)
+  for (let i = 0; i < 120 && !dialogShown(); i++) await sleep(250)
+  if (!dialogShown()) throw new Error(`no permission dialog on screen:\n${peek(name).slice(-1500)}`)
   await sleep(500)
   await type(name, '\r')
   const done = await waitStatus(name, ['finished'], 120_000)

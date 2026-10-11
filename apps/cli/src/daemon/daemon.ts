@@ -1148,6 +1148,8 @@ export class Daemon {
   private async stopAgent(id: string, keepWanted = false): Promise<void> {
     this.stopCounts.set(id, (this.stopCounts.get(id) ?? 0) + 1)
     if (!keepWanted) this.store.update(id, { wantRunning: false })
+    // nsq ends it: not a resume command that failed (dropFailedResumeCommand).
+    this.rt(id).resumedByCommand = false
     await this.ptys.kill(id)
   }
 
@@ -1923,7 +1925,9 @@ export class Daemon {
     // Questions still waiting: nsq stopped before anyone answered them.
     this.approvals.closeAll()
     if (stopAgents) {
-      // Keep `wantRunning`: `nsq up` (or the next daemon) brings them back.
+      // Keep `wantRunning`: `nsq up` (or the next daemon) brings them back. Their resume
+      // commands stay too: nsq ends them, they did not fail.
+      for (const rt of this.runtime.values()) rt.resumedByCommand = false
       await this.ptys.killAll()
     }
     await this.notifier.dispose()
