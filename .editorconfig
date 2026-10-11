@@ -13,3 +13,7 @@ trim_trailing_whitespace = false
 
 [Makefile]
 indent_style = tab
+
+# Scoop lints its manifests with 4-space indentation
+[packaging/scoop/*.json]
+indent_size = 4
