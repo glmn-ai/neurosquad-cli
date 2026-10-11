@@ -65,9 +65,44 @@ export function checkTokenTransport(target: NtfyTarget, token: string | undefine
   }
 }
 
+/**
+ * The server new topics are made on: ntfy.sh, or NSQ_NTFY_SERVER (a self-hosted server — and the
+ * tests' local stand-in, so no automated run creates topics on ntfy.sh).
+ */
+export function defaultNtfyServer(): string {
+  const own = process.env['NSQ_NTFY_SERVER']?.trim()
+  return own ? own.replace(/\/+$/, '') : DEFAULT_SERVER
+}
+
 /** A fresh, unguessable topic on ntfy.sh for `nsq phone push ntfy` without a URL. */
-export function randomNtfyUrl(): string {
-  return `${DEFAULT_SERVER}/nsq-${randomBytes(12).toString('hex')}`
+export function randomNtfyUrl(server: string = defaultNtfyServer()): string {
+  return `${server}/nsq-${randomBytes(12).toString('hex')}`
+}
+
+/**
+ * What a phone scans to subscribe. The ntfy Android app registers the `ntfy://` scheme (any host,
+ * `?secure=false` for a plain-http server, `display=` names the subscription): the camera opens the
+ * app on the topic, subscribed. The iOS app registers no URL scheme and no universal links, so
+ * an iPhone gets the topic's https address — the ntfy web app, where it can subscribe — and the
+ * topic name to add in the iOS app by hand (see docs/guide/notifications.md).
+ */
+export function ntfySubscribeLinks(target: NtfyTarget): { android: string; web: string } {
+  const url = new URL(target.server)
+  const query = new URLSearchParams({ display: 'nsq' })
+  if (url.protocol === 'http:') query.set('secure', 'false')
+  const path = url.pathname.replace(/\/+$/, '')
+  return {
+    android: `ntfy://${url.host}${path}/${target.topic}?${query.toString()}`,
+    web: `${target.server}/${target.topic}`
+  }
+}
+
+/** The outcome of the daemon's last push (shown in the phone panel; never the topic). */
+export interface PushResult {
+  at: number
+  ok: boolean
+  kind: 'test' | 'needs-you'
+  error?: string
 }
 
 export interface NeedsYou {
@@ -103,6 +138,8 @@ export class NtfyPush {
   private readonly inFlight = new Set<string>()
   /** Bumped when an agent is answered: a delivery that was in flight then no longer counts. */
   private readonly generation = new Map<string, number>()
+  /** The last push this sender made, for the phone panel. */
+  lastResult: PushResult | undefined
 
   constructor(
     private readonly log: (line: string) => void,
@@ -170,8 +207,10 @@ export class NtfyPush {
   async send(
     target: NtfyTarget,
     token: string | undefined,
-    message: Record<string, unknown>
+    message: Record<string, unknown>,
+    kind: PushResult['kind'] = 'needs-you'
   ): Promise<boolean> {
+    const at = this.now()
     try {
       const response = await this.fetchImpl(target.server, {
         method: 'POST',
@@ -187,11 +226,20 @@ export class NtfyPush {
       if (!response.ok) {
         // The topic is a secret: the log names the status only.
         this.log(`ntfy push failed: HTTP ${response.status}`)
+        this.lastResult = { at, ok: false, kind, error: `HTTP ${response.status}` }
         return false
       }
+      this.lastResult = { at, ok: true, kind }
       return true
     } catch (error) {
-      this.log(`ntfy push failed: ${error instanceof Error ? error.name : 'error'}`)
+      const name = error instanceof Error ? error.name : 'error'
+      this.log(`ntfy push failed: ${name}`)
+      this.lastResult = {
+        at,
+        ok: false,
+        kind,
+        error: name === 'TimeoutError' ? 'no answer in 10 s' : 'could not reach the server'
+      }
       return false
     }
   }

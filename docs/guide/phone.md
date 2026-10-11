@@ -31,6 +31,32 @@ nsq phone off
 
 In the dashboard, **p** shows the connected phones — who is connected is always visible.
 
+## In the dashboard (Q)
+
+**Q** opens the phone panel. Its **Pairing** tab shows the pairing QR code right in the terminal,
+drawn with half-block characters in black and white whatever your colour theme, so a phone camera
+reads it off the monitor. Next to it: the link (the same one `nsq phone pair` prints), the mode
+(this computer only, local network, **ONLINE** through a quick or a named tunnel), when the pairing
+token expires (`--expire`), and which phones are connected. With several network addresses (Wi-Fi,
+Ethernet, a VPN) **← →** switch the QR between them; the online link comes first.
+
+| Key | In the panel                                                                           |
+| --- | -------------------------------------------------------------------------------------- |
+| o   | go online / offline (asks first)                                                       |
+| l   | LAN on / off (phone access on for the Wi-Fi, when it was off)                          |
+| r   | a new pairing token — every paired phone is signed out (asks first); the QR follows it |
+| Tab | the Notifications tab                                                                  |
+| Esc | close                                                                                  |
+
+While going online the panel shows the cloudflared download and the tunnel starting; an error is
+shown in the panel. Going online with **O** from the dashboard opens the panel by itself once the
+tunnel is up. The QR needs about 45 × 23 cells (41 × 21 at the smallest); in a smaller window the
+panel shows the link and asks for a bigger window. A computer-only address gets no QR — a phone
+cannot reach it.
+
+The link is the key to your agents: it is shown only in this panel (never in the main view, the
+header or the log), fetched from the daemon when the panel opens and forgotten when it closes.
+
 Every answer and interrupt sent from a phone is written to the
 [approvals log](agents.md#the-approvals-log) with where it came from — `local` (this machine),
 `lan` (the Wi-Fi) or `internet` (the online tunnel) — and the device label (`iPhone · Safari`).
@@ -105,6 +131,29 @@ nsq phone push show                  # print the topic URL
 nsq phone push status                # on/off, which server (also plain `nsq phone push`)
 nsq phone push off
 ```
+
+### From the dashboard
+
+**Q**, then **Tab** to **Notifications**: **s** sets push up the way `nsq phone push ntfy` does —
+a new random topic on ntfy.sh, kept in the OS keyring — and shows a QR code that subscribes the
+phone:
+
+- **Android** (the default QR): `ntfy://ntfy.sh/<topic>?display=nsq`. The ntfy Android app
+  registers the `ntfy://` scheme, so scanning it with the camera opens the app on the topic and
+  subscribes it (install ntfy from Google Play or F-Droid first). A plain-http server of your own
+  gets `?secure=false`.
+- **iPhone** (**i** switches the QR): the ntfy iOS app registers no URL scheme and no universal
+  links, so no QR can open it. The QR is the topic's https address — the ntfy web app opens on it —
+  and the panel shows the topic name: in the iOS app, **+** → that name (and "Use another server"
+  with your server, if it is not ntfy.sh).
+
+Then **t** sends a test notification; the panel shows whether push is on, which server, and the
+result of the last push (a test or a real "needs you"). **n** makes a new topic (the phone has to
+subscribe again), **x** turns push off. Your own server or an access token stay on the command
+line: `nsq phone push ntfy --url --token`. Like the pairing link, the topic is shown only in this
+panel.
+
+### From the command line
 
 `nsq phone push ntfy` prints the topic URL; subscribe to it in the ntfy app. Anyone who knows the
 topic URL can read it, so treat it like a password. That is why the URL and the token never go on
