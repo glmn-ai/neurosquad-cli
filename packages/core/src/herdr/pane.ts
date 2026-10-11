@@ -60,6 +60,15 @@ function isNewer(state: HerdrPaneState, source: string, seq: bigint | undefined)
   return seq !== undefined ? last === undefined || seq > last : last === undefined
 }
 
+/**
+ * A report that is not acted on (an echo the host drops) still counts for the order: its seq is
+ * recorded when newer, so an older report arriving after it stays stale.
+ */
+export function recordHerdrSeq(state: HerdrPaneState, report: HerdrReport): HerdrPaneState {
+  if (report.seq === undefined || !isNewer(state, report.source, report.seq)) return state
+  return { ...state, seqs: { ...state.seqs, [report.source]: report.seq } }
+}
+
 export function applyHerdrReport(state: HerdrPaneState, report: HerdrReport): HerdrEffects {
   const { source, agent, seq } = report
   const holds = state.holder?.source === source && state.holder.agent === agent

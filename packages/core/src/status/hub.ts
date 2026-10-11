@@ -51,7 +51,12 @@ import { OPENCODE_PERMISSION_HOOK_EVENT } from '../harnesses/opencode/pluginV2.j
 import { openCodePermissionReply } from '../harnesses/opencode/launch.js'
 import { stripAnsi } from '../pty/plainText.js'
 import type { HarnessId } from '../harnesses/types.js'
-import { applyHerdrReport, emptyHerdrPane, type HerdrPaneState } from '../herdr/pane.js'
+import {
+  applyHerdrReport,
+  emptyHerdrPane,
+  recordHerdrSeq,
+  type HerdrPaneState
+} from '../herdr/pane.js'
 import type { HerdrReport } from '../herdr/protocol.js'
 
 export interface StatusHubHost {
@@ -339,6 +344,7 @@ export function receiveHerdrReport(
       agentId,
       `herdr working dropped: ${Date.now() - echo.at} ms after ${echo.after}, nothing typed`
     )
+    herdrPanes.set(agentId, recordHerdrSeq(before, report))
     return null
   }
   const effects = applyHerdrReport(before, report)

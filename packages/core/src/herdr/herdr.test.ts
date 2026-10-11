@@ -440,11 +440,14 @@ describe('herdr reports in the status hub', () => {
     send(id, report('idle', { seq: 1 }))
     send(id, report('working', { seq: 2 }))
     send(id, report('idle', { seq: 3 }))
-    send(id, report('working', { seq: 4 }))
+    send(id, report('working', { seq: 10 }))
+    expect(agentStatusSnapshot(id)?.kind).toBe('finished')
+    // The dropped echo still counts for the order: an older report after it is stale.
+    send(id, report('blocked', { seq: 5 }))
     expect(agentStatusSnapshot(id)?.kind).toBe('finished')
     // A prompt sent into it: the next working is a new turn.
     emitPtySubmit(id)
-    send(id, report('working', { seq: 5 }))
+    send(id, report('working', { seq: 11 }))
     expect(agentStatusSnapshot(id)?.kind).toBe('working')
   })
 
