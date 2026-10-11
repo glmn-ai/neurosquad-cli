@@ -114,6 +114,13 @@ export class Screens {
         return false
       })
     }
+    // A reset (RIS, DECSTR) shows the cursor again, as in term-view.
+    const shown = (): boolean => {
+      screen.cursorVisible = true
+      return false
+    }
+    term.parser.registerEscHandler({ final: 'c' }, shown)
+    term.parser.registerCsiHandler({ intermediates: '!', final: 'p' }, shown)
     term.onData((data) => {
       if (this.screens.get(agentId) === screen) this.reply(agentId, data)
     })

@@ -101,6 +101,13 @@ describe('styled screens for the phone page', () => {
     await write(screens, '\x1b[?25l')
     lines = runs(screens.styled('a', 100)!.screen!)
     expect(lines.flat().some((run) => run.flags & RUN_CURSOR)).toBe(false)
+    // A soft reset (DECSTR) and a full one (RIS) show it again.
+    await write(screens, '\x1b[!p')
+    lines = runs(screens.styled('a', 100)!.screen!)
+    expect(lines.flat().some((run) => run.flags & RUN_CURSOR)).toBe(true)
+    await write(screens, '\x1b[?25l\x1bc')
+    lines = runs(screens.styled('a', 100)!.screen!)
+    expect(lines.flat().some((run) => run.flags & RUN_CURSOR)).toBe(true)
   })
 
   it('a version per change: unchanged screens are not sent again', async () => {
