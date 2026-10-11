@@ -15,6 +15,8 @@
 //       tui-record.mjs (real pty, 3 agents, keys, BEL/OSC 9 ring, asciicast),
 //       dictation.mjs (synthesised speech → Whisper tiny.en → paste),
 //       online.mjs (verified cloudflared download; nsq phone on --online with a fake connector)
+//       phone-screen.mjs (the phone page's terminal view in headless Chrome: colours,
+//       attributes, cursor, wide characters, fit and pinch; agent markup stays text)
 //
 // Writes <out>/results.json: { os, arch, suite, versions, parts: [{ part, exit, checks }] }.
 //
@@ -157,6 +159,15 @@ if (plan.herdr) {
   if (hasOnline) {
     const onlineWork = join(out, 'online')
     part('online.mjs', join(HERE, 'online.mjs'), ['--root', root, '--work', onlineWork], onlineWork)
+  }
+  if (existsSync(join(root, 'scripts', 'e2e', 'ansi-agent.mjs'))) {
+    const screenWork = join(out, 'phone-screen')
+    part(
+      'phone-screen.mjs',
+      join(HERE, 'phone-screen.mjs'),
+      ['--root', root, '--work', screenWork],
+      screenWork
+    )
   }
 }
 

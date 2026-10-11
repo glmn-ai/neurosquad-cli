@@ -18,6 +18,16 @@ their status and pending question. Tap an agent to read its screen, type a promp
 **yes / always / no**, or stop the current turn. A prompt sent to a busy agent is delivered when its
 turn ends.
 
+The agent's screen on the phone is a real terminal view, read only: the same colours (16, 256 and
+truecolor, in nsq's dark palette), bold, italic, underline, dim, inverse and strikethrough, the
+cursor, box drawing and wide characters (CJK, emoji) as in the agent, with a few hundred lines to
+scroll back. It fits the agent's whole width to the phone; pinch to zoom in (it scrolls sideways
+then), double-tap to fit again. It refreshes about once a second while the page is open — an
+unchanged screen costs a few bytes, a changed one is sent gzipped. The agent's output is only ever
+shown as text: the page builds it from DOM nodes, never as HTML, so nothing an agent prints can run
+in the page. (On Windows, the system's ConPTY redraws what an agent writes and drops dim — the
+dashboard shows the same.)
+
 The phone has to reach your computer: the same Wi-Fi, or a network you already have between them
 (a VPN such as Tailscale, an SSH tunnel). Without `--lan`, nsq listens on this machine only. The
 choice and the port are remembered: after one `nsq phone on --lan`, a plain `nsq phone on` stays

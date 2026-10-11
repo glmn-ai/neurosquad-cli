@@ -37,7 +37,13 @@ const state = {
   online: false,
   pollAbort: null,
   screenTimer: 0,
-  stuckToBottom: true
+  stuckToBottom: true,
+  // The terminal view: the version the page has (for ?since=), its width in cells, the rows'
+  // keys (only changed rows are rebuilt), the pinch zoom over fit-to-width.
+  screenVersion: undefined,
+  screenCols: 80,
+  rowKeys: [],
+  zoom: 1
 }
 
 // ---- the token -------------------------------------------------------------------------------
@@ -267,7 +273,8 @@ function renderList() {
 function openAgent(id) {
   state.open = id
   state.stuckToBottom = true
-  $('screen').textContent = ''
+  state.zoom = 1
+  resetScreen()
   history.pushState({ agent: id }, '')
   render()
   startScreen()
@@ -304,27 +311,228 @@ function renderAgent() {
 }
 
 // ---- the screen: polled while one agent is open and the page is visible ----------------------
+//
+// The daemon sends the agent's screen as styled runs (colours, bold/italic/underline/inverse/dim,
+// the cursor, wide characters); the page builds it from DOM nodes. Agent text only ever goes in
+// through textContent, colours only as a validated #rrggbb or one of 16 classes — never as HTML.
+// Polled once a second while the agent is open and the page visible; an unchanged screen is a
+// tiny answer (?since=), a changed one rebuilds only the rows that changed.
+
+const SCREEN_LINES = 400
+const HEX = /^#[0-9a-f]{6}$/i
+const PALETTE = /^p([0-9]|1[0-5])$/
+const RUN_WIDE = 1
+const RUN_CURSOR = 2
 
 function startScreen() {
   stopScreen()
   const tick = async () => {
     if (!state.open || document.visibilityState !== 'visible') return
+    const id = state.open
     try {
-      const data = await api(`/api/agent/${encodeURIComponent(state.open)}/screen?lines=300`)
+      const since = state.screenVersion === undefined ? '' : `&since=${state.screenVersion}`
+      const data = await api(
+        `/api/agent/${encodeURIComponent(id)}/screen?lines=${SCREEN_LINES}&format=styled${since}`
+      )
+      if (state.open !== id || data.unchanged) return
+      if (data.styled) renderStyled(data.styled)
+      else renderPlain(data.screen || '')
+      state.screenVersion = typeof data.version === 'number' ? data.version : undefined
       const screen = $('screen')
-      screen.textContent = data.screen
       if (state.stuckToBottom) screen.scrollTop = screen.scrollHeight
     } catch {
       // shown by the connection dot
     }
   }
   void tick()
-  state.screenTimer = setInterval(tick, 1500)
+  state.screenTimer = setInterval(tick, 1000)
 }
 
 function stopScreen() {
   if (state.screenTimer) clearInterval(state.screenTimer)
   state.screenTimer = 0
+}
+
+function resetScreen() {
+  state.screenVersion = undefined
+  state.rowKeys = []
+  $('term').replaceChildren()
+  fitScreen()
+}
+
+/** An older daemon (or the desktop's API): plain text. */
+function renderPlain(text) {
+  const term = $('term')
+  state.rowKeys = []
+  term.replaceChildren()
+  term.classList.add('plain')
+  for (const line of text.split('\n')) term.append(el('div', 'row', line))
+}
+
+function colorClass(prefix, value) {
+  const palette = PALETTE.exec(value || '')
+  return palette ? `${prefix}${palette[1]}` : ''
+}
+
+// Box drawing and block elements often come from a fallback font whose advance is not quite one
+// cell: each gets a cell of its own (1ch), so borders line up with the text around them.
+const BOX = /[─-▟]/
+
+function fillCells(span, text) {
+  if (!BOX.test(text)) {
+    span.textContent = text
+    return
+  }
+  let plain = ''
+  for (const ch of text) {
+    if (!BOX.test(ch)) {
+      plain += ch
+      continue
+    }
+    if (plain) span.append(plain)
+    plain = ''
+    span.append(el('span', 'c1', ch))
+  }
+  if (plain) span.append(plain)
+}
+
+/** One run as a span: classes for the 16 colours and the attributes, CSSOM for #rrggbb. */
+function runNode(run, styles) {
+  const [text, index, flags = 0] = run
+  const style = styles[index] || {}
+  const span = document.createElement('span')
+  fillCells(span, String(text))
+  let fg = style.fg
+  let bg = style.bg
+  const classes = []
+  if (style.inverse) {
+    // Swapped; a default colour becomes the other default.
+    ;[fg, bg] = [bg, fg]
+    if (!fg) classes.push('fi')
+    if (!bg) classes.push('bi')
+  }
+  const fgClass = colorClass('f', fg)
+  const bgClass = colorClass('b', bg)
+  if (fgClass) classes.push(fgClass)
+  else if (fg && HEX.test(fg)) span.style.color = fg
+  if (bgClass) classes.push(bgClass)
+  else if (bg && HEX.test(bg)) span.style.backgroundColor = bg
+  if (style.bold) classes.push('sb')
+  if (style.dim) classes.push('sd')
+  if (style.italic) classes.push('si')
+  if (style.underline) classes.push('su')
+  if (style.strike) classes.push('ss')
+  if (style.invisible) classes.push('sx')
+  if (flags & RUN_WIDE) classes.push('w2')
+  if (flags & RUN_CURSOR) classes.push('cur')
+  if (classes.length) span.className = classes.join(' ')
+  return span
+}
+
+function renderStyled(screen) {
+  const term = $('term')
+  term.classList.remove('plain')
+  const lines = Array.isArray(screen.lines) ? screen.lines : []
+  const styles = Array.isArray(screen.styles) ? screen.styles : []
+  const cols = Math.max(10, Math.min(1000, Number(screen.cols) || 80))
+  if (cols !== state.screenCols || !term.style.fontSize) {
+    state.screenCols = cols
+    fitScreen()
+  }
+  // Only rows whose content changed are rebuilt (a row's key: its runs and their styles).
+  const keys = lines.map((runs) =>
+    JSON.stringify(
+      Array.isArray(runs) ? runs.map((run) => [run, Array.isArray(run) && styles[run[1]]]) : []
+    )
+  )
+  const rows = term.children
+  for (let i = 0; i < lines.length; i++) {
+    if (state.rowKeys[i] === keys[i] && rows[i]) continue
+    const row = el('div', 'row')
+    for (const run of Array.isArray(lines[i]) ? lines[i] : []) {
+      if (Array.isArray(run)) row.append(runNode(run, styles))
+    }
+    if (rows[i]) term.replaceChild(row, rows[i])
+    else term.append(row)
+  }
+  while (term.children.length > lines.length) term.lastChild.remove()
+  state.rowKeys = keys
+}
+
+// ---- fit to width, pinch to zoom --------------------------------------------------------------
+
+let charRatio = 0
+/** One cell's width as a fraction of the font size (measured once, in the page's own font). */
+function measureChar() {
+  if (charRatio) return charRatio
+  const probe = el('span', 'probe', '0'.repeat(100))
+  probe.style.fontSize = '100px'
+  $('term').append(probe)
+  const width = probe.getBoundingClientRect().width
+  probe.remove()
+  if (width > 0) charRatio = width / 100 / 100
+  return charRatio || 0.6
+}
+
+/** The agent's whole width fits the screen; a pinch zooms in from there (up to 4×). */
+function fitScreen() {
+  const screen = $('screen')
+  if (screen.offsetParent === null) return
+  const style = window.getComputedStyle(screen)
+  const room =
+    screen.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - 1
+  if (room <= 0) return
+  const fit = room / (state.screenCols * measureChar())
+  const size = Math.max(4, Math.min(15, fit)) * state.zoom
+  $('term').style.fontSize = `${size.toFixed(2)}px`
+}
+
+function setupZoom() {
+  const screen = $('screen')
+  let pinch = null
+  let lastTap = 0
+  const distance = (touches) =>
+    Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY)
+  screen.addEventListener(
+    'touchstart',
+    (event) => {
+      if (event.touches.length === 2) pinch = { start: distance(event.touches), zoom: state.zoom }
+    },
+    { passive: true }
+  )
+  screen.addEventListener(
+    'touchmove',
+    (event) => {
+      if (!pinch || event.touches.length !== 2) return
+      event.preventDefault() // the terminal zooms, not the page
+      const zoom = Math.max(1, Math.min(4, (pinch.zoom * distance(event.touches)) / pinch.start))
+      if (Math.abs(zoom - state.zoom) < 0.02) return
+      // The point between the fingers stays where it is.
+      const rect = screen.getBoundingClientRect()
+      const midX = (event.touches[0].clientX + event.touches[1].clientX) / 2 - rect.left
+      const midY = (event.touches[0].clientY + event.touches[1].clientY) / 2 - rect.top
+      const ratio = zoom / state.zoom
+      const left = (screen.scrollLeft + midX) * ratio - midX
+      const top = (screen.scrollTop + midY) * ratio - midY
+      state.zoom = zoom
+      fitScreen()
+      screen.scrollLeft = left
+      screen.scrollTop = top
+    },
+    { passive: false }
+  )
+  screen.addEventListener('touchend', (event) => {
+    if (event.touches.length < 2) pinch = null
+    // A double tap goes back to the whole width.
+    if (event.touches.length || event.changedTouches.length !== 1) return
+    const now = Date.now()
+    if (now - lastTap < 300 && state.zoom !== 1) {
+      state.zoom = 1
+      fitScreen()
+    }
+    lastTap = now
+  })
+  window.addEventListener('resize', fitScreen)
 }
 
 // ---- actions -----------------------------------------------------------------------------------
@@ -431,6 +639,7 @@ function start() {
       answer(state.open, button.dataset.answer, $('ask').querySelector('.answers'))
     )
   }
+  setupZoom()
   const screen = $('screen')
   screen.addEventListener('scroll', () => {
     state.stuckToBottom = screen.scrollTop + screen.clientHeight >= screen.scrollHeight - 24

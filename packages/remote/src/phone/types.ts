@@ -48,12 +48,62 @@ export interface PhoneWorkspaceDetail {
 
 export interface PhoneScreen {
   agentId: string
-  /** Plain text of the agent's screen, oldest line first. */
+  /** Plain text of the agent's screen, oldest line first ('' when `styled` carries it). */
   screen: string
   running: boolean
   status?: PhoneAgentStatus
   /** Prompts waiting to be sent when the agent finishes. */
   queued: number
+  /**
+   * With `?format=styled` (nsq's page): the screen as styled runs — colours, attributes, the
+   * cursor, wide characters. Absent when the host has none, or with `unchanged`.
+   */
+  styled?: PhoneStyledScreen
+  /** `?since=<version>` matched: the screen is as the client last got it. */
+  unchanged?: true
+  /** The screen's version, for the next `?since=`. */
+  version?: number
+}
+
+/**
+ * A colour: `p0`…`p15`, one of the 16 theme colours (the page maps them to its palette), or
+ * `#rrggbb` (the 256-colour cube and grays, truecolor). Absent = the terminal's default.
+ */
+export type PhoneScreenColor = string
+
+export interface PhoneScreenStyle {
+  fg?: PhoneScreenColor
+  bg?: PhoneScreenColor
+  bold?: true
+  dim?: true
+  italic?: true
+  underline?: true
+  inverse?: true
+  strike?: true
+  invisible?: true
+}
+
+/** Run flags (third element of a run). */
+export const RUN_WIDE = 1
+export const RUN_CURSOR = 2
+
+/**
+ * One run of cells with the same style: its text, the index of its style in `styles`, and
+ * flags — `RUN_WIDE`: one wide character (two cells); `RUN_CURSOR`: the cursor is on it (one
+ * cell, or one wide character).
+ */
+export type PhoneScreenRun =
+  [text: string, style: number] | [text: string, style: number, flags: number]
+
+export interface PhoneStyledScreen {
+  /** The terminal's width in cells (the page fits it to the phone's width). */
+  cols: number
+  /** Oldest line first: scrollback, then the live screen (trailing blank lines dropped). */
+  lines: PhoneScreenRun[][]
+  /** Style 0 is the default (no colours, no attributes). */
+  styles: PhoneScreenStyle[]
+  /** The program switched to the alternate screen (a full-screen TUI: no scrollback). */
+  alternate?: true
 }
 
 export type PhoneEvent =
@@ -133,6 +183,19 @@ export interface PhoneHost {
   listAgents(): PhoneHostAgent[] | Promise<PhoneHostAgent[]>
   /** The last `lines` lines of the agent's screen as plain text; null when nothing runs. */
   screen(agentId: string, lines: number): string | null | Promise<string | null>
+  /**
+   * The last `lines` lines with their styles, and the screen's version (bumped whenever its
+   * contents may have changed); null when nothing runs. Optional: without it the page shows text.
+   * `since` equal to the current version: only `{ version }` (nothing changed).
+   */
+  styledScreen?(
+    agentId: string,
+    lines: number,
+    since?: number
+  ):
+    | { version: number; screen?: PhoneStyledScreen }
+    | null
+    | Promise<{ version: number; screen?: PhoneStyledScreen } | null>
   /** Paste the text and press Enter — the same path a programmatic prompt takes in the daemon. */
   submit(agentId: string, text: string): void | Promise<void>
   /** Answer the agent's pending permission prompt. `caller`: who answered (the host may log it). */

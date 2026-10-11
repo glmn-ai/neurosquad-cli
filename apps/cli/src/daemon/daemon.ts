@@ -1317,6 +1317,10 @@ export class Daemon {
         if (!this.store.get(id) || !this.screens.has(id)) return null
         return this.screens.tail(id, lines).join('\n')
       },
+      styledScreen: (id, lines, since) => {
+        if (!this.store.get(id)) return null
+        return this.screens.styled(id, lines, since)
+      },
       // A busy agent gets it when its turn ends, as `nsq send --when-done`.
       submit: (id, text) => {
         try {

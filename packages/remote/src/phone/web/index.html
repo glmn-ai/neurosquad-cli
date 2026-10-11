@@ -63,7 +63,9 @@
           <button type="button" class="btn danger" data-answer="no">No</button>
         </div>
       </section>
-      <pre id="screen" class="screen" aria-label="Agent terminal (read only)"></pre>
+      <div id="screen" class="screen" role="log" aria-label="Agent terminal (read only)">
+        <div id="term" class="term"></div>
+      </div>
       <form id="prompt" class="prompt" autocomplete="off">
         <textarea
           id="prompt-text"

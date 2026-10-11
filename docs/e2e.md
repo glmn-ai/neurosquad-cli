@@ -45,6 +45,9 @@ any ref. Per OS it runs `run.mjs` for Claude Code, Codex, OpenCode 1.x and 2.x p
 Linux first without any X display) and runs dictation from OS-synthesised speech through Whisper
 tiny.en (`dictation.mjs`), and checks online phone access (`online.mjs`: the real cloudflared for
 that OS downloaded and sha256-verified by nsq's downloader, then `nsq phone on --online` against a
-fake connector, `scripts/e2e/fake-cloudflared.mjs` — no real tunnel from CI). The run summary has a check × OS table; the `tui-recordings` artifact
+fake connector, `scripts/e2e/fake-cloudflared.mjs` — no real tunnel from CI), and the phone page's
+terminal view in headless Chrome at 390×844 (`phone-screen.mjs`: an agent printing colours,
+attributes, box drawing, CJK, emoji and markup — `scripts/e2e/ansi-agent.mjs` — shows as styled
+spans in nsq's palette, the markup as text with nothing run, fit to width, pinch to zoom). The run summary has a check × OS table; the `tui-recordings` artifact
 has a GIF, an MP4 and PNG screenshots per OS. Checks failing because of an open nsq issue are
 listed in `scripts/e2e-ci/known.json` and shown as ⚠️ with the issue instead of failing the job.
