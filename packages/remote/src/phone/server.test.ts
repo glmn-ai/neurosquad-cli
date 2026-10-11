@@ -264,6 +264,57 @@ describe('reads', () => {
     expect((await call('/api/agent/nope/screen')).status).toBe(404)
   })
 
+  it('styled screens (nsq page): runs with a version, unchanged when it did not move, gzipped', async () => {
+    const asked: { lines: number; since?: number }[] = []
+    let version = 7
+    const runs = Array.from({ length: 80 }, (_, i) => [[`line ${i} `.repeat(4), i % 2]])
+    host.styledScreen = (_id, lines, since) => {
+      asked.push({ lines, ...(since !== undefined ? { since } : {}) })
+      if (since === version) return { version }
+      return {
+        version,
+        screen: { cols: 80, lines: runs as never, styles: [{}, { fg: 'p1', bold: true }] }
+      }
+    }
+    try {
+      const first = await call(`/api/agent/${A}/screen?lines=50&format=styled`)
+      expect(first.body).toMatchObject({
+        agentId: A,
+        screen: '',
+        version: 7,
+        styled: { cols: 80, styles: [{}, { fg: 'p1', bold: true }] }
+      })
+      // A big styled screen goes gzipped (fetch unpacks it).
+      expect(first.headers['content-encoding']).toBe('gzip')
+      const same = await call(`/api/agent/${A}/screen?lines=50&format=styled&since=7`)
+      expect(same.body).toEqual({
+        agentId: A,
+        screen: '',
+        running: true,
+        status: 'needs-input',
+        queued: 1,
+        unchanged: true,
+        version: 7
+      })
+      version = 8
+      expect((await call(`/api/agent/${A}/screen?format=styled&since=7`)).body).toMatchObject({
+        version: 8,
+        styled: { cols: 80 }
+      })
+      expect(asked).toEqual([{ lines: 50 }, { lines: 50, since: 7 }, { lines: 200, since: 7 }])
+      // Without format=styled (the desktop's clients): plain text, as before.
+      expect((await call(`/api/agent/${A}/screen?lines=2`)).body).toMatchObject({
+        screen: 'line 2\nline 3'
+      })
+    } finally {
+      delete (host as { styledScreen?: unknown }).styledScreen
+    }
+    // A host without styled screens: text, even when asked for styled.
+    const plain = await call(`/api/agent/${A}/screen?lines=2&format=styled`)
+    expect(plain.body).toMatchObject({ screen: 'line 2\nline 3' })
+    expect(plain.headers['content-encoding']).toBeUndefined()
+  })
+
   it('lists its capabilities and the blocked ones', async () => {
     const { body } = await call('/api/capabilities')
     expect(body).toEqual({

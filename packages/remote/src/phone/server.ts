@@ -35,6 +35,7 @@ import { createHash } from 'node:crypto'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { isIP, type AddressInfo } from 'node:net'
 import { basename } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { PHONE_BLOCKED, PHONE_CAPABILITIES } from './capabilities.js'
 import { tokenMatches } from './token.js'
 import { Lockout, type LockoutOptions } from './lockout.js'
@@ -558,9 +559,24 @@ export class PhoneServer {
 
   // ----------------------------------------------------------------- routing
 
-  private json(res: ServerResponse, status: number, value: unknown): void {
+  /** With `req`: gzipped when the client takes it and the body is worth it. */
+  private json(res: ServerResponse, status: number, value: unknown, req?: IncomingMessage): void {
+    const body = JSON.stringify(value)
+    const gzip =
+      req !== undefined &&
+      body.length > 1024 &&
+      /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''))
+    if (gzip) {
+      res.writeHead(status, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Content-Encoding': 'gzip',
+        Vary: 'Accept-Encoding'
+      })
+      res.end(gzipSync(body))
+      return
+    }
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify(value))
+    res.end(body)
   }
 
   private async handle(req: IncomingMessage, res: ServerResponse, via: Via): Promise<void> {
@@ -713,7 +729,16 @@ export class PhoneServer {
         Number.isFinite(asked) && asked > 0
           ? Math.min(asked, MAX_SCREEN_LINES)
           : DEFAULT_SCREEN_LINES
-      this.json(res, 200, await this.screen(agentId, lines))
+      const styled = query.get('format') === 'styled'
+      const since = Number.parseInt(query.get('since') ?? '', 10)
+      const reply = await this.screen(
+        agentId,
+        lines,
+        styled,
+        Number.isFinite(since) ? since : undefined
+      )
+      // A styled screen is mostly repeated JSON: gzip makes it a tenth over a phone's network.
+      this.json(res, 200, reply, styled ? req : undefined)
       return
     }
     if (method !== 'POST') throw new HttpError(405, 'Method not allowed')
@@ -798,16 +823,29 @@ export class PhoneServer {
     }
   }
 
-  private async screen(agentId: string, lines: number): Promise<PhoneScreen> {
+  private async screen(
+    agentId: string,
+    lines: number,
+    styled = false,
+    since?: number
+  ): Promise<PhoneScreen> {
     const agent = await this.findAgent(agentId)
-    const screen = await this.options.host.screen(agentId, lines)
-    return {
+    const base = {
       agentId,
-      screen: screen ?? '',
       running: agent.running,
       ...(agent.status ? { status: agent.status } : {}),
       queued: agent.queued ?? 0
     }
+    const host = this.options.host
+    if (styled && host.styledScreen) {
+      const got = await host.styledScreen(agentId, lines, since)
+      if (got) {
+        if (!got.screen) return { ...base, screen: '', unchanged: true, version: got.version }
+        return { ...base, screen: '', styled: got.screen, version: got.version }
+      }
+    }
+    const screen = await host.screen(agentId, lines)
+    return { ...base, screen: screen ?? '' }
   }
 
   // ------------------------------------------------------------------ events

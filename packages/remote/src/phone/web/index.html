@@ -52,7 +52,13 @@
           <strong id="agent-title"></strong>
           <span id="agent-harness" class="chip"></span>
         </div>
-        <span id="agent-status" class="status"></span>
+        <div class="agent-tools">
+          <div class="seg" role="group" aria-label="Terminal size">
+            <button type="button" id="size-readable" data-fit="readable">Readable</button>
+            <button type="button" id="size-fit" data-fit="fit">Fit width</button>
+          </div>
+          <span id="agent-status" class="status"></span>
+        </div>
       </section>
       <section id="ask" class="ask" hidden>
         <p class="ask-label">Needs you</p>
@@ -63,7 +69,9 @@
           <button type="button" class="btn danger" data-answer="no">No</button>
         </div>
       </section>
-      <pre id="screen" class="screen" aria-label="Agent terminal (read only)"></pre>
+      <div id="screen" class="screen" role="log" aria-label="Agent terminal (read only)">
+        <div id="term" class="term"></div>
+      </div>
       <form id="prompt" class="prompt" autocomplete="off">
         <textarea
           id="prompt-text"

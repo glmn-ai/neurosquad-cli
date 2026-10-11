@@ -16,10 +16,30 @@
   --danger: oklch(0.594 0.1967 24.63);
   --term-bg: oklch(0.155 0.005 285.8);
   --term-fg: oklch(0.93 0.004 286);
+  --term-cursor: oklch(0.72 0.16 253.83);
+  /* The agent cards' 16 terminal colours (desktop TERMINAL_THEME, tui-theme tokens). */
+  --t0: #2d2d31;
+  --t1: #f3625f;
+  --t2: #17c964;
+  --t3: #fac053;
+  --t4: #56a1f9;
+  --t5: #d27de6;
+  --t6: #51cade;
+  --t7: #d4d4d7;
+  --t8: #919199;
+  --t9: #ff8782;
+  --t10: #62e289;
+  --t11: #ffd87d;
+  --t12: #83beff;
+  --t13: #e59ff6;
+  --t14: #86e2f2;
+  --t15: #fafafa;
   --lime: #a3e635;
   --emerald: #10b981;
   --radius: 14px;
-  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  --mono:
+    ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, 'DejaVu Sans Mono',
+    'Liberation Mono', 'Courier New', monospace;
   color-scheme: dark;
 }
 
@@ -252,6 +272,40 @@ code {
   white-space: nowrap;
 }
 
+.agent-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+/* Readable | Fit width */
+.seg {
+  display: inline-flex;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 2px;
+}
+
+.seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font:
+    600 12px/1 system-ui,
+    sans-serif;
+  padding: 7px 10px;
+  border-radius: 999px;
+  min-height: 30px;
+}
+
+.seg button.on {
+  background: var(--surface-2);
+  color: var(--foreground);
+}
+
 .status {
   font-size: 12px;
   font-weight: 600;
@@ -430,6 +484,9 @@ code {
 
 .screen {
   flex: 1;
+  /* The lines sit at the bottom, like a terminal's (margin-top: auto on .term). */
+  display: flex;
+  flex-direction: column;
   min-height: 40dvh;
   margin: 0;
   overflow: auto;
@@ -439,9 +496,251 @@ code {
   border-radius: var(--radius);
   padding: 10px 12px;
   font: 12px/1.35 var(--mono);
-  white-space: pre;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+}
+
+/* The agent's terminal: rows of styled runs, as wide as the agent's columns (fitted to the phone's
+   width by the font size; a pinch zooms in and the screen scrolls sideways). */
+.term {
+  margin-top: auto;
+  font-family: var(--mono);
+  line-height: 1.2;
+  white-space: pre;
+  width: max-content;
+  min-width: 100%;
+  font-variant-ligatures: none;
+  touch-action: pan-x pan-y;
+}
+
+.term .row {
+  height: 1.2em;
+}
+
+.term.plain .row {
+  height: auto;
+  min-height: 1.2em;
+}
+
+.term .probe {
+  position: absolute;
+  visibility: hidden;
+}
+
+.term .w2 {
+  display: inline-block;
+  width: 2ch;
+  text-align: center;
+}
+
+.term .bx {
+  display: inline-block;
+  overflow: visible;
+  vertical-align: top;
+}
+
+/* A horizontal box line, drawn: its characters are kept but not painted. */
+.term .hl {
+  display: inline-block;
+  position: relative;
+  vertical-align: top;
+  color: inherit;
+}
+
+.term .hl::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  border-top: max(1px, 0.07em) solid currentColor;
+  transform: translateY(-50%);
+}
+
+.term .hl.heavy::before {
+  border-top-width: max(2px, 0.14em);
+}
+
+.term .hl.double::before {
+  border-top: max(3px, 0.24em) double currentColor;
+}
+
+.term .hl > span {
+  visibility: hidden;
+}
+
+.term .bx > span {
+  display: inline-block;
+  transform: scaleX(var(--bx, 1));
+  transform-origin: left center;
+}
+
+.term .cur {
+  background-color: var(--term-cursor);
+  color: var(--term-bg);
+}
+
+.term .fi {
+  color: var(--term-bg);
+}
+
+.term .bi {
+  background-color: var(--term-fg);
+}
+
+.term .sb {
+  font-weight: 700;
+}
+
+.term .sd {
+  opacity: 0.6;
+}
+
+.term .si {
+  font-style: italic;
+}
+
+.term .su {
+  text-decoration: underline;
+}
+
+.term .ss {
+  text-decoration: line-through;
+}
+
+.term .su.ss {
+  text-decoration: underline line-through;
+}
+
+.term .sx {
+  color: transparent;
+}
+.term .f0 {
+  color: var(--t0);
+}
+
+.term .b0 {
+  background-color: var(--t0);
+}
+
+.term .f1 {
+  color: var(--t1);
+}
+
+.term .b1 {
+  background-color: var(--t1);
+}
+
+.term .f2 {
+  color: var(--t2);
+}
+
+.term .b2 {
+  background-color: var(--t2);
+}
+
+.term .f3 {
+  color: var(--t3);
+}
+
+.term .b3 {
+  background-color: var(--t3);
+}
+
+.term .f4 {
+  color: var(--t4);
+}
+
+.term .b4 {
+  background-color: var(--t4);
+}
+
+.term .f5 {
+  color: var(--t5);
+}
+
+.term .b5 {
+  background-color: var(--t5);
+}
+
+.term .f6 {
+  color: var(--t6);
+}
+
+.term .b6 {
+  background-color: var(--t6);
+}
+
+.term .f7 {
+  color: var(--t7);
+}
+
+.term .b7 {
+  background-color: var(--t7);
+}
+
+.term .f8 {
+  color: var(--t8);
+}
+
+.term .b8 {
+  background-color: var(--t8);
+}
+
+.term .f9 {
+  color: var(--t9);
+}
+
+.term .b9 {
+  background-color: var(--t9);
+}
+
+.term .f10 {
+  color: var(--t10);
+}
+
+.term .b10 {
+  background-color: var(--t10);
+}
+
+.term .f11 {
+  color: var(--t11);
+}
+
+.term .b11 {
+  background-color: var(--t11);
+}
+
+.term .f12 {
+  color: var(--t12);
+}
+
+.term .b12 {
+  background-color: var(--t12);
+}
+
+.term .f13 {
+  color: var(--t13);
+}
+
+.term .b13 {
+  background-color: var(--t13);
+}
+
+.term .f14 {
+  color: var(--t14);
+}
+
+.term .b14 {
+  background-color: var(--t14);
+}
+
+.term .f15 {
+  color: var(--t15);
+}
+
+.term .b15 {
+  background-color: var(--t15);
 }
 
 .prompt {

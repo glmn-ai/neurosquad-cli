@@ -20,6 +20,8 @@ export class FakePhoneHost implements PhoneHost {
   /** Who sent each answer and interrupt, in order. */
   readonly callers: { kind: 'answer' | 'interrupt'; caller?: PhoneCaller }[] = []
   readonly screens = new Map<string, string>()
+  /** Set by a test to answer styled screens (nsq's page); absent like a host without them. */
+  styledScreen?: PhoneHost['styledScreen']
   private readonly listeners = new Set<(event: PhoneHostEvent) => void>()
 
   listAgents(): PhoneHostAgent[] {
