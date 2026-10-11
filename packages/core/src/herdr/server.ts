@@ -200,10 +200,11 @@ function startUnixListener(
     let buffered = ''
     const timer = setTimeout(() => {
       if (ready) return
-      log('herdr: the AF_UNIX listener did not come up in time')
-      child.kill()
-      resolve(null)
-    }, 10_000)
+      // A slow first Add-Type (a cold machine) must not hold the agent's start up any longer:
+      // it keeps starting, and agents that dial AF_UNIX reach it once it is up.
+      log('herdr: the AF_UNIX listener is still starting; it takes reports once it is up')
+      resolve(child)
+    }, 15_000)
     child.stdout?.setEncoding('utf8')
     child.stdout?.on('data', (chunk: string) => {
       buffered += chunk

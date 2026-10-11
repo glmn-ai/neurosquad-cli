@@ -119,7 +119,11 @@ try {
     detail: asked.agent?.detail
   })
   if (asked.agent?.status !== 'needs-input') log(peek(name).slice(-2000))
-  // Crush's permission dialog: "Allow" is focused, Enter confirms.
+  // Crush's permission dialog: "Allow" is focused, Enter confirms. The herdr report comes as the
+  // request is made; the dialog is drawn a moment later, so wait for it before pressing Enter.
+  const dialogShown = () => /Permission Required/.test(peek(name, 80))
+  for (let i = 0; i < 40 && !dialogShown(); i++) await sleep(250)
+  await sleep(500)
   await type(name, '\r')
   const done = await waitStatus(name, ['finished'], 120_000)
   // The answer (the person's key) moves it on at once, and Crush's own idle ends the turn. (Its
