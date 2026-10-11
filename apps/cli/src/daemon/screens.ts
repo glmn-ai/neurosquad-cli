@@ -77,6 +77,11 @@ export interface ScreenJoin {
 
 export class Screens {
   private readonly screens = new Map<string, Screen>()
+  /**
+   * Screen versions come from one sequence for every terminal: a respawned agent's new screen
+   * never reuses a version a phone still holds (which would read as "unchanged").
+   */
+  private versionSeq = 0
 
   /**
    * `reply` receives the terminal's answers to the agent's queries (device
@@ -95,7 +100,13 @@ export class Screens {
     // clusters one character), so the phone page lays out a line as the agent drew it.
     term.loadAddon(new UnicodeGraphemesAddon())
     term.unicode.activeVersion = '15-graphemes'
-    const screen: Screen = { generation, term, serializer, version: 0, cursorVisible: true }
+    const screen: Screen = {
+      generation,
+      term,
+      serializer,
+      version: ++this.versionSeq,
+      cursorVisible: true
+    }
     // DECTCEM (CSI ? 25 h / l): seen, then left to xterm.
     for (const final of ['h', 'l'] as const) {
       term.parser.registerCsiHandler({ prefix: '?', final }, (params) => {
@@ -113,7 +124,7 @@ export class Screens {
     const screen = this.screens.get(agentId)
     if (screen && screen.generation === generation) {
       screen.term.write(chunk, () => {
-        screen.version += 1
+        screen.version = ++this.versionSeq
       })
     }
   }
@@ -123,7 +134,7 @@ export class Screens {
     if (!screen) return
     try {
       screen.term.resize(cols, rows)
-      screen.version += 1
+      screen.version = ++this.versionSeq
     } catch {
       // a disposed terminal
     }

@@ -4,14 +4,21 @@ import { Screens } from './daemon/screens.js'
 
 const E = '\x1b['
 
+/** Writes `output` and waits until it is parsed (the screen's version moved). */
+async function write(screens: Screens, output: string) {
+  const before = screens.styled('a', 100)!.version
+  screens.write('a', 1, output)
+  for (let i = 0; i < 200; i++) {
+    if (screens.styled('a', 100)!.version !== before) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error('the write was not parsed')
+}
+
 async function screenOf(output: string, cols = 60, rows = 10) {
   const screens = new Screens()
   screens.spawn('a', 1, cols, rows)
-  screens.write('a', 1, output)
-  // Parsed once the version moved.
-  for (let i = 0; i < 50 && screens.styled('a', 100)!.version === 0; i++) {
-    await new Promise((resolve) => setTimeout(resolve, 5))
-  }
+  await write(screens, output)
   return screens
 }
 
@@ -85,15 +92,13 @@ describe('styled screens for the phone page', () => {
       { text: 'r', flags: RUN_CURSOR },
       { text: 'e', flags: 0 }
     ])
-    screens.write('a', 1, '\r\n$ ')
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await write(screens, '\r\n$ ')
     lines = runs(screens.styled('a', 100)!.screen!)
     expect(lines[1]).toEqual([
       { text: '$ ', flags: 0 },
       { text: ' ', flags: RUN_CURSOR }
     ])
-    screens.write('a', 1, '\x1b[?25l')
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await write(screens, '\x1b[?25l')
     lines = runs(screens.styled('a', 100)!.screen!)
     expect(lines.flat().some((run) => run.flags & RUN_CURSOR)).toBe(false)
   })
@@ -103,8 +108,7 @@ describe('styled screens for the phone page', () => {
     const first = screens.styled('a', 100)!
     expect(first.screen).toBeDefined()
     expect(screens.styled('a', 100, first.version)).toEqual({ version: first.version })
-    screens.write('a', 1, ' world')
-    await new Promise((resolve) => setTimeout(resolve, 20))
+    await write(screens, ' world')
     const next = screens.styled('a', 100, first.version)!
     expect(next.version).toBeGreaterThan(first.version)
     expect(next.screen?.lines[0]).toEqual([
@@ -114,6 +118,16 @@ describe('styled screens for the phone page', () => {
     screens.resize('a', 40, 10)
     expect(screens.styled('a', 100, next.version)!.screen?.cols).toBe(40)
     expect(screens.styled('nobody', 100)).toBeNull()
+  })
+
+  it('a respawned screen never reuses a version a client still holds', async () => {
+    const screens = await screenOf('old process')
+    const held = screens.styled('a', 100)!.version
+    screens.spawn('a', 2, 60, 10)
+    // A fresh, idle screen: nothing written yet, and still not "unchanged" for the old version.
+    const fresh = screens.styled('a', 100, held)!
+    expect(fresh.version).not.toBe(held)
+    expect(fresh.screen).toBeDefined()
   })
 
   it('scrollback up to `lines`, blank screen rows below the text dropped', async () => {

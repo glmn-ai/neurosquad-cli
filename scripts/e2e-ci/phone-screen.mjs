@@ -103,7 +103,14 @@ const FACTS = `(() => {
   const find = (text) => spans.find((s) => s.textContent.trim() === text)
   const css = (text, prop) => { const s = find(text); return s ? getComputedStyle(s)[prop] : null }
   const wide = find('中')
-  const narrow = find('RED')
+  // One cell: the page's grid unit (1ch of its monospace font), measured on a cell of its own —
+  // not on text, which a runner without a monospace font would draw proportionally.
+  const probe = document.createElement('span')
+  probe.className = 'c1'
+  probe.textContent = 'x'
+  term.firstElementChild.append(probe)
+  const cell = probe.getBoundingClientRect().width
+  probe.remove()
   return {
     rows: term.children.length,
     text: term.textContent,
@@ -120,8 +127,9 @@ const FACTS = `(() => {
     under: css('UNDER', 'textDecorationLine'),
     strike: css('STRIKE', 'textDecorationLine'),
     inverse: find('INVERSE')?.className ?? null,
-    wideRatio: wide && narrow ? wide.getBoundingClientRect().width / (narrow.getBoundingClientRect().width / 3) : null,
-    emoji: find('🚀') && narrow ? find('🚀').getBoundingClientRect().width / (narrow.getBoundingClientRect().width / 3) : null,
+    wideRatio: wide ? wide.getBoundingClientRect().width / cell : null,
+    textCells: find('RED') ? find('RED').getBoundingClientRect().width / cell : null,
+    emoji: find('🚀') ? find('🚀').getBoundingClientRect().width / cell : null,
     rows3: [...term.children].slice(4, 7).map((r) => r.lastElementChild ? Math.round(r.lastElementChild.getBoundingClientRect().right * 10) / 10 : 0),
     box: spans.some((s) => s.textContent.includes('┌──────────┬──────┐')),
     cursor: [...term.querySelectorAll('.cur')].map((s) => s.textContent),
@@ -148,13 +156,15 @@ try {
   const token = readFileSync(join(home, 'phone-token'), 'utf8').trim()
   const origin = `http://127.0.0.1:${port}`
 
-  const debugPort = 9300 + Math.floor(Math.random() * 500)
+  // Port 0: the browser picks a free port and writes it to DevToolsActivePort in its own
+  // profile, so this attaches to the browser it started and to no other.
+  const profile = join(work, 'browser-profile')
   browser = spawn(
     browserPath,
     [
       '--headless=new',
-      `--remote-debugging-port=${debugPort}`,
-      `--user-data-dir=${join(work, 'browser-profile')}`,
+      '--remote-debugging-port=0',
+      `--user-data-dir=${profile}`,
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-extensions',
@@ -162,14 +172,16 @@ try {
     ],
     { stdio: 'ignore' }
   )
-  const version = await waitFor(async () => {
+  const wsUrl = await waitFor(() => {
     try {
-      return await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()
+      const [port, path] = readFileSync(join(profile, 'DevToolsActivePort'), 'utf8').split(/\r?\n/)
+      return port && path ? `ws://127.0.0.1:${port.trim()}${path.trim()}` : undefined
     } catch {
       return undefined
     }
   }, 20_000)
-  const client = await cdp(version.webSocketDebuggerUrl)
+  if (!wsUrl) throw new Error('the browser did not open its DevTools port')
+  const client = await cdp(wsUrl)
   const { targetId } = await client.send('Target.createTarget', { url: 'about:blank' })
   const { sessionId } = await client.send('Target.attachToTarget', { targetId, flatten: true })
   const page = (method, params) => client.send(method, params, sessionId)
@@ -238,6 +250,7 @@ try {
     f.inverse
   )
   check('a CJK character is two cells wide', f.wideRatio > 1.8 && f.wideRatio < 2.2, f.wideRatio)
+  check('text keeps the cell grid (a monospace font)', Math.abs(f.textCells - 3) < 0.1, f.textCells)
   check('an emoji is two cells wide', f.emoji > 1.8 && f.emoji < 2.2, f.emoji)
   check(
     'the box lines up (its three rows end at the same column)',

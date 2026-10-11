@@ -37,7 +37,9 @@
   --lime: #a3e635;
   --emerald: #10b981;
   --radius: 14px;
-  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  --mono:
+    ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, 'DejaVu Sans Mono',
+    'Liberation Mono', 'Courier New', monospace;
   color-scheme: dark;
 }
 

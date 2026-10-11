@@ -41,6 +41,12 @@ const state = {
   // The terminal view: the version the page has (for ?since=), its width in cells, the rows'
   // keys (only changed rows are rebuilt), the pinch zoom over fit-to-width.
   screenVersion: undefined,
+  // Bumped when an agent is opened (a late answer for an earlier opening is dropped) and per
+  // request (only the latest request's answer is shown: answers can arrive out of order).
+  screenEpoch: 0,
+  screenRequest: 0,
+  // One screen request at a time (a slow network must not pile them up every second).
+  screenBusy: false,
   screenCols: 80,
   rowKeys: [],
   zoom: 1
@@ -327,14 +333,19 @@ const RUN_CURSOR = 2
 function startScreen() {
   stopScreen()
   const tick = async () => {
-    if (!state.open || document.visibilityState !== 'visible') return
+    if (!state.open || document.visibilityState !== 'visible' || state.screenBusy) return
     const id = state.open
+    const epoch = state.screenEpoch
+    const request = ++state.screenRequest
+    state.screenBusy = true
     try {
       const since = state.screenVersion === undefined ? '' : `&since=${state.screenVersion}`
       const data = await api(
         `/api/agent/${encodeURIComponent(id)}/screen?lines=${SCREEN_LINES}&format=styled${since}`
       )
-      if (state.open !== id || data.unchanged) return
+      const stale =
+        state.open !== id || state.screenEpoch !== epoch || state.screenRequest !== request
+      if (stale || data.unchanged) return
       if (data.styled) renderStyled(data.styled)
       else renderPlain(data.screen || '')
       state.screenVersion = typeof data.version === 'number' ? data.version : undefined
@@ -342,6 +353,8 @@ function startScreen() {
       if (state.stuckToBottom) screen.scrollTop = screen.scrollHeight
     } catch {
       // shown by the connection dot
+    } finally {
+      if (state.screenRequest === request) state.screenBusy = false
     }
   }
   void tick()
@@ -354,6 +367,9 @@ function stopScreen() {
 }
 
 function resetScreen() {
+  state.screenEpoch += 1
+  // A request still out for the previous opening no longer holds the next one back.
+  state.screenBusy = false
   state.screenVersion = undefined
   state.rowKeys = []
   $('term').replaceChildren()
