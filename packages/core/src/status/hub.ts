@@ -320,7 +320,7 @@ export function receiveHerdrReport(
     return effects.error
   }
   if (!effects.applied) {
-    trace(agentId, `herdr ${report.method} dropped: stale seq`)
+    trace(agentId, `herdr ${report.state ?? report.method} dropped: stale seq ${report.seq}`)
     return null
   }
   herdrPanes.set(agentId, effects.state)

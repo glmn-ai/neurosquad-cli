@@ -310,7 +310,11 @@ export class Daemon {
           this.store.update(id, { resumeCommand: argv ? [...argv] : undefined })
       },
       onStatus: (event) => this.onStatus(event),
-      onSubagents: (id) => this.pushAgent(id)
+      onSubagents: (id) => this.pushAgent(id),
+      // What an agent reported over the herdr protocol (no payloads): its status in the log.
+      trace: (id, line) => {
+        if (line.startsWith('herdr ')) this.log(`${this.store.get(id)?.name ?? id}: ${line}`)
+      }
     })
     observePtys({
       onSpawn: (id, generation, info) => {
@@ -675,13 +679,19 @@ export class Daemon {
   /** One request line from an agent's herdr client; the reply line. */
   private herdrRequest(line: string): string {
     const request = parseHerdrRequest(line)
-    if (!request) return herdrError('', 'invalid_request', 'invalid request')
-    if (request.invalid)
+    if (!request) {
+      this.log('herdr: an unreadable request refused')
+      return herdrError('', 'invalid_request', 'invalid request')
+    }
+    if (request.invalid) {
+      this.log(`herdr: ${request.method} refused: ${request.invalid.message}`)
       return herdrError(request.id, request.invalid.code, request.invalid.message)
+    }
     const report = request.report
     if (!report) return herdrUnsupported(request.id, request.method)
     const agentId = this.herdrPanes.agentOf(report.paneId)
     if (!agentId || !this.store.get(agentId)) {
+      this.log(`herdr: ${request.method} for an unknown pane refused`)
       return herdrError(request.id, 'pane_not_found', `pane ${report.paneId} not found`)
     }
     const refused = receiveHerdrReport(agentId, report)
