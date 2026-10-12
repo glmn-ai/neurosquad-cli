@@ -15,7 +15,13 @@ import {
   type Seg,
   type Theme
 } from '@neurosquad/tui-theme'
-import type { PhoneView, PushView, Request } from '../protocol.js'
+import type { Capability, PhoneView, PushView, Request } from '../protocol.js'
+import {
+  DaemonTooOldError,
+  capabilityNeeds,
+  errorText as describeError,
+  outdatedText
+} from '../client/outdated.js'
 import type { Canvas } from './canvas.js'
 import type { KeyEvent } from './keys.js'
 import type { Rect } from './layout.js'
@@ -119,6 +125,12 @@ export interface PhonePanelHost {
   /** Redraw soon. */
   redraw(): void
   now?: () => number
+  /** Whether the running daemon knows this (absent: assume it does). */
+  supports?(capability: Capability): boolean
+  /** The running daemon's version. */
+  daemonVersion?(): string
+  /** U: restart the daemon on this nsq now (the panel opens again on the new one). */
+  restartDaemon?(): void
 }
 
 export type PanelTab = 'pairing' | 'notifications'
@@ -140,6 +152,8 @@ export class PhonePanel {
   error: string | undefined
   note: string | undefined
   pending: Pending | null = null
+  /** The running daemon is too old for something this panel does (U restarts it). */
+  outdated: DaemonTooOldError | null = null
   private signature = ''
   private closed = false
   private ticker: ReturnType<typeof setInterval> | null = null
@@ -210,12 +224,41 @@ export class PhonePanel {
       this.links = reply.links ?? []
       this.linkIndex = Math.min(this.linkIndex, Math.max(0, this.links.length - 1))
     } catch (error) {
-      if (!this.closed) this.error = errorText(error)
+      if (!this.closed) this.error = this.errorText(error)
     }
     this.host.redraw()
   }
 
+  /**
+   * The daemon lacks `capability` (checked before asking): remembered, so the panel explains it
+   * and offers U instead of sending a request it cannot answer.
+   */
+  private lacks(capability: Capability): boolean {
+    if (!this.host.supports || this.host.supports(capability)) return false
+    this.outdated = new DaemonTooOldError(
+      this.host.daemonVersion?.() ?? '',
+      capabilityNeeds(capability),
+      capability
+    )
+    return true
+  }
+
+  /** Whether push needs a newer daemon (the Notifications tab explains it instead). */
+  pushUnavailable(): boolean {
+    return this.outdated?.what === 'push' || this.lacks('push')
+  }
+
+  /** An error's text; an outdated daemon's is the explanation (and U is offered). */
+  private errorText(error: unknown): string {
+    if (error instanceof DaemonTooOldError) this.outdated = error
+    return describeError(error, 'tui')
+  }
+
   async loadPush(): Promise<void> {
+    if (this.pushUnavailable()) {
+      this.host.redraw()
+      return
+    }
     try {
       const view = await this.host.request<PushView>({
         t: 'push',
@@ -224,7 +267,11 @@ export class PhonePanel {
       })
       if (!this.closed) this.push = view
     } catch (error) {
-      if (!this.closed) this.error = errorText(error)
+      if (!this.closed) {
+        const text = this.errorText(error)
+        // The Notifications tab explains an outdated daemon itself.
+        if (this.outdated?.what !== 'push') this.error = text
+      }
     }
     this.host.redraw()
   }
@@ -243,7 +290,10 @@ export class PhonePanel {
       },
       (error: unknown) => {
         this.busy = undefined
-        if (!this.closed) this.error = errorText(error)
+        if (!this.closed) {
+          const text = this.errorText(error)
+          if (!(this.tab === 'notifications' && this.outdated?.what === 'push')) this.error = text
+        }
         this.host.redraw()
       }
     )
@@ -271,6 +321,10 @@ export class PhonePanel {
   }
 
   goOnline(): void {
+    if (this.lacks('phone.online')) {
+      this.error = describeError(this.outdated, 'tui')
+      return
+    }
     const phone = this.host.phone()
     const lan = phone?.running ? phone.lan : false
     this.ask('Go online? Anyone with the link and token can control your agents.', () =>
@@ -317,7 +371,18 @@ export class PhonePanel {
     )
   }
 
+  /** U: restart the daemon on this nsq (after a yes), when it is too old for this panel. */
+  restartDaemon(): void {
+    const restart = this.host.restartDaemon
+    if (!this.outdated || !restart) return
+    const from = this.outdated.daemonVersion ? ` (now ${this.outdated.daemonVersion})` : ''
+    this.ask(`Restart the daemon${from} on this nsq now? Busy agents' turns are cut off.`, () =>
+      restart()
+    )
+  }
+
   setupPush(): void {
+    if (this.pushUnavailable()) return
     const act = (): void =>
       this.run('creating the topic…', async () => {
         const view = await this.host.request<PushView>({ t: 'push', action: 'setup' })
@@ -374,6 +439,10 @@ export class PhonePanel {
       return undefined
     }
     if (k === 'escape' || k === 'q' || k === 'Q') return 'close'
+    if (k === 'U' && this.outdated && !this.busy) {
+      this.restartDaemon()
+      return undefined
+    }
     if (k === 'tab' || (k === 'left' && key.ctrl) || (k === 'right' && key.ctrl)) {
       this.tab = this.tab === 'pairing' ? 'notifications' : 'pairing'
       this.error = undefined
@@ -476,29 +545,34 @@ export class PhonePanel {
       ]
     }
     const phone = this.host.phone()
+    const restart: [string, string][] =
+      this.outdated && this.host.restartDaemon ? [['U', 'restart the daemon now']] : []
     const pairs: [string, string][] =
-      this.tab === 'pairing'
-        ? [
-            ['o', isOnline(phone) ? 'go offline' : 'go online'],
-            ['l', phone?.running ? (phone.lan ? 'LAN off' : 'LAN on') : 'on for the Wi-Fi'],
-            ...(phone?.running ? ([['r', 'new token']] as [string, string][]) : []),
-            ...(this.links.filter(reachable).length > 1
-              ? ([['←→', 'address']] as [string, string][])
-              : []),
-            ['Esc', 'close']
-          ]
-        : this.push?.on
+      this.tab === 'notifications' && this.pushUnavailable()
+        ? [...restart, ['Esc', 'close']]
+        : this.tab === 'pairing'
           ? [
-              ['t', 'send test'],
-              ['i', this.ntfyFor === 'android' ? 'iPhone QR' : 'Android QR'],
-              ['n', 'new topic'],
-              ['x', 'turn off'],
+              ['o', isOnline(phone) ? 'go offline' : 'go online'],
+              ['l', phone?.running ? (phone.lan ? 'LAN off' : 'LAN on') : 'on for the Wi-Fi'],
+              ...(phone?.running ? ([['r', 'new token']] as [string, string][]) : []),
+              ...(this.links.filter(reachable).length > 1
+                ? ([['←→', 'address']] as [string, string][])
+                : []),
+              ...restart,
               ['Esc', 'close']
             ]
-          : [
-              ['s', 'set up phone notifications'],
-              ['Esc', 'close']
-            ]
+          : this.push?.on
+            ? [
+                ['t', 'send test'],
+                ['i', this.ntfyFor === 'android' ? 'iPhone QR' : 'Android QR'],
+                ['n', 'new topic'],
+                ['x', 'turn off'],
+                ['Esc', 'close']
+              ]
+            : [
+                ['s', 'set up phone notifications'],
+                ['Esc', 'close']
+              ]
     const line: Line = []
     for (const [k, label] of pairs) {
       line.push(seg(k, { fg: 'accentText', bg: 'tileBg', bold: true }))
@@ -686,6 +760,30 @@ export class PhonePanel {
         ]
       ]
     }
+    if (this.pushUnavailable() && this.outdated) {
+      const outdated = this.outdated
+      const lines: Line[] = [
+        [body('Phone notifications need a newer daemon.', 'text', true)],
+        [],
+        ...wrap(outdatedText(outdated.daemonVersion, outdated.needs, 'tui'), area.width).map(
+          (text) => [body(text, 'warning')]
+        ),
+        ...(this.host.restartDaemon
+          ? [
+              [],
+              [
+                seg('U', { fg: 'accentText', bg: 'tileBg', bold: true }),
+                body('  restart it now: agents stop and resume on their sessions')
+              ]
+            ]
+          : []),
+        ...(this.statusLines(theme, area.width).length
+          ? [[], ...this.statusLines(theme, area.width)]
+          : [])
+      ]
+      lines.forEach((line, row) => canvas.put(area.x, area.y + row, line, area.width))
+      return
+    }
     if (!push?.on) {
       const lines: Line[] = [
         [body('Phone notifications are off.', 'text', true)],
@@ -763,8 +861,4 @@ export class PhonePanel {
 function isOnline(phone: PhoneView | null | undefined): boolean {
   const state = phone?.online?.state
   return state === 'running' || state === 'starting' || state === 'installing'
-}
-
-function errorText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }

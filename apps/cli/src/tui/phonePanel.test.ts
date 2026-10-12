@@ -6,6 +6,7 @@ import type { PhoneView, PushView, Request } from '../protocol.js'
 import { Canvas } from './canvas.js'
 import { PhonePanel, inTime, qrBlock, wrap } from './phonePanel.js'
 import { gridPicture } from './screenshot.js'
+import { DaemonTooOldError } from '../client/outdated.js'
 
 const TOKEN = 'ab'.repeat(24)
 const TUNNEL = 'https://fake-e2e-tunnel.trycloudflare.com'
@@ -187,6 +188,77 @@ describe('phone panel', () => {
     const tested = await screenshot(panel)
     expect(tested.text).toContain('delivered')
     expect(host.requests).toContainEqual({ t: 'push', action: 'test', reveal: true })
+  })
+
+  it('an older daemon without push: the explanation and U instead of the request', async () => {
+    const phone: PhoneView = { running: false, lan: false, phones: [] }
+    let restarted = 0
+    const host = {
+      ...fakeHost({ phone }),
+      supports: (capability: string) => capability !== 'push',
+      daemonVersion: () => '0.3.0',
+      restartDaemon: () => {
+        restarted++
+      }
+    }
+    const panel = open(host, 'notifications')
+    await settle()
+    const shot = await screenshot(panel)
+    expect(shot.text).toContain('Phone notifications need a newer daemon')
+    expect(shot.text).toContain('The running daemon is nsq 0.3.0; this needs 0.4.0 or newer.')
+    expect(shot.text).toContain('Press U to restart it now')
+    expect(shot.text).not.toContain('unknown request')
+    // s does not ask a daemon that cannot answer.
+    panel.handleKey({ type: 'key', name: 's', seq: 's' } as never)
+    await settle()
+    expect(host.requests.some((r) => r.t === 'push')).toBe(false)
+    // U asks first, then restarts.
+    panel.handleKey({ type: 'key', name: 'U', seq: 'U' } as never)
+    expect((await screenshot(panel)).text).toContain(
+      'Restart the daemon (now 0.3.0) on this nsq now?'
+    )
+    expect(restarted).toBe(0)
+    panel.handleKey({ type: 'key', name: 'y', seq: 'y' } as never)
+    expect(restarted).toBe(1)
+  })
+
+  it('"unknown request" from a daemon that claimed push still explains itself', async () => {
+    const phone: PhoneView = { running: false, lan: false, phones: [] }
+    const base = fakeHost({ phone })
+    const host = {
+      ...base,
+      daemonVersion: () => '0.3.0',
+      restartDaemon: () => {},
+      async request<T>(request: Request): Promise<T> {
+        if (request.t === 'push') {
+          base.requests.push(request)
+          throw new DaemonTooOldError('0.3.0', '0.4.0', 'push')
+        }
+        return base.request<T>(request)
+      }
+    }
+    const panel = open(host, 'notifications')
+    await settle()
+    await settle()
+    const shot = await screenshot(panel)
+    expect(shot.text).toContain('The running daemon is nsq 0.3.0; this needs 0.4.0 or newer.')
+    expect(shot.text).toMatch(/U\s+restart the daemon now/)
+  })
+
+  it('online needs a newer daemon: explained in the pairing tab, U offered', async () => {
+    const phone: PhoneView = { running: true, lan: false, port: 8766, phones: [] }
+    const host = {
+      ...fakeHost({ phone, links: [] }),
+      supports: (capability: string) => capability !== 'phone.online',
+      daemonVersion: () => '0.1.2',
+      restartDaemon: () => {}
+    }
+    const panel = open(host)
+    await settle()
+    panel.handleKey({ type: 'key', name: 'o', seq: 'o' } as never)
+    const shot = await screenshot(panel)
+    expect(shot.text).toContain('The running daemon is nsq 0.1.2; this needs 0.2.0 or newer.')
+    expect(host.requests.some((r) => r.t === 'phone' && r.action === 'on')).toBe(false)
   })
 
   it('forgets the links when it closes', async () => {

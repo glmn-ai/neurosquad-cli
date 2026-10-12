@@ -9,13 +9,21 @@ import { ensureDir, ipcPath, paths } from '../paths.js'
 import {
   LineDecoder,
   PROTOCOL_VERSION,
+  UNKNOWN_REQUEST,
   encode,
+  requestCapability,
+  type Capability,
   type DaemonEvent,
   type Request
 } from '../protocol.js'
 import type { DaemonState } from '../daemon/daemon.js'
+import { DaemonTooOldError, capabilityNeeds, versionSupports } from './outdated.js'
 
-type Pending = { resolve: (data: unknown) => void; reject: (error: Error) => void }
+type Pending = {
+  resolve: (data: unknown) => void
+  reject: (error: Error) => void
+  request: Request
+}
 
 export class DaemonClient {
   private rid = 0
@@ -26,6 +34,8 @@ export class DaemonClient {
   /** The daemon's version and pid, from its hello. */
   daemonVersion = ''
   daemonPid = 0
+  /** What the daemon said it can do (0.4.1+); null: an older daemon, judged by its version. */
+  capabilities: ReadonlySet<string> | null = null
 
   private constructor(private readonly socket: Socket) {
     socket.setEncoding('utf8')
@@ -57,7 +67,9 @@ export class DaemonClient {
         throw new Error(`could not start the nsq daemon (see ${paths.daemonLog()})`)
     }
     const client = new DaemonClient(socket)
-    const hello = await client.request<{ version?: string; pid?: number } | undefined>({
+    const hello = await client.request<
+      { version?: string; pid?: number; capabilities?: unknown } | undefined
+    >({
       t: 'hello',
       token: state!.token,
       version: PROTOCOL_VERSION,
@@ -65,7 +77,23 @@ export class DaemonClient {
     })
     client.daemonVersion = String(hello?.version ?? state!.version ?? '')
     client.daemonPid = Number(hello?.pid ?? state!.pid ?? 0)
+    if (Array.isArray(hello?.capabilities)) {
+      client.capabilities = new Set(hello.capabilities.filter((c) => typeof c === 'string'))
+    }
     return client
+  }
+
+  /** Whether the daemon knows `capability` (its own list, else its version). */
+  supports(capability: Capability): boolean {
+    if (this.capabilities) return this.capabilities.has(capability)
+    return versionSupports(this.daemonVersion, capability)
+  }
+
+  /** The error for a request this daemon cannot do (before asking), or null. */
+  private missing(request: Request): DaemonTooOldError | null {
+    const capability = requestCapability(request)
+    if (!capability || this.supports(capability)) return null
+    return new DaemonTooOldError(this.daemonVersion, capabilityNeeds(capability), capability)
   }
 
   private dispatch(event: DaemonEvent): void {
@@ -74,7 +102,17 @@ export class DaemonClient {
       if (!pending) return
       this.pending.delete(event.rid)
       if (event.ok) pending.resolve(event.data)
-      else pending.reject(new Error(event.error))
+      else if (event.code === 'unknown-request' || event.error === UNKNOWN_REQUEST) {
+        // The daemon is older than this request: say which daemon runs and what it needs.
+        const capability = requestCapability(pending.request)
+        pending.reject(
+          new DaemonTooOldError(
+            event.daemonVersion ?? this.daemonVersion,
+            capabilityNeeds(capability),
+            capability ?? pending.request.t
+          )
+        )
+      } else pending.reject(new Error(event.error))
       return
     }
     for (const listener of this.listeners) listener(event)
@@ -82,18 +120,20 @@ export class DaemonClient {
 
   request<T = unknown>(request: Request): Promise<T> {
     if (this.closed) return Promise.reject(new Error('not connected to the daemon'))
+    const missing = this.missing(request)
+    if (missing) return Promise.reject(missing)
     const rid = ++this.rid
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(rid, { resolve: resolve as (data: unknown) => void, reject })
+      this.pending.set(rid, { resolve: resolve as (data: unknown) => void, reject, request })
       this.socket.write(encode({ ...request, rid }))
     })
   }
 
   /** Fire and forget (keystrokes): no reply is awaited. */
   post(request: Request): void {
-    if (this.closed) return
+    if (this.closed || this.missing(request)) return
     const rid = ++this.rid
-    this.pending.set(rid, { resolve: () => {}, reject: () => {} })
+    this.pending.set(rid, { resolve: () => {}, reject: () => {}, request })
     this.socket.write(encode({ ...request, rid }))
   }
 

@@ -1,6 +1,7 @@
 // `nsq update [--check]` and the update lines of `nsq --version` / `nsq doctor`.
 import { flagBool, type ParsedArgs } from '../args.js'
 import { DaemonClient, daemonRunning } from '../client/client.js'
+import { isUnknownRequest } from '../client/outdated.js'
 import { readConfig } from '../config.js'
 import { paths } from '../paths.js'
 import { PACKAGE_DIR, PACKAGE_NAME, VERSION } from '../version.js'
@@ -62,7 +63,7 @@ async function viaDaemon(checkOnly: boolean): Promise<boolean> {
       checked = (await client.request<{ update: UpdateView }>({ t: 'update', action: 'check' }))
         .update
     } catch (error) {
-      if (error instanceof Error && error.message === 'unknown request') return false
+      if (isUnknownRequest(error)) return false
       throw error
     }
     if (checkOnly || checked.state !== 'available' || !checked.canInstall || checked.reason) {

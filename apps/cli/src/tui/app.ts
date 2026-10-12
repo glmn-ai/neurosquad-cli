@@ -43,7 +43,14 @@ import {
 } from '@neurosquad/term-view'
 import { formatUsd, type HarnessId } from '@neurosquad/core'
 import { DaemonClient } from '../client/client.js'
-import { busyAgents, handOver, waitingText, type Handover } from '../client/handover.js'
+import {
+  busyAgents,
+  daemonIsOlder,
+  handOver,
+  waitingText,
+  type Handover
+} from '../client/handover.js'
+import { DaemonTooOldError, errorText as describeError } from '../client/outdated.js'
 import { VERSION } from '../version.js'
 import { readConfig } from '../config.js'
 import { findDetachKey, parseDetachKey } from '../attach.js'
@@ -168,8 +175,8 @@ const FORM_FIELDS = [
   'start'
 ] as const
 
-const errorText = (error: unknown): string =>
-  error instanceof Error ? error.message : String(error)
+/** An error for a person; a daemon too old for the request explains itself (U restarts it). */
+const errorText = (error: unknown): string => describeError(error, 'tui')
 
 function statusOf(agent: AgentView): AgentStatus {
   if (!agent.running || agent.status === 'exited') return 'exited'
@@ -212,6 +219,9 @@ export class Dashboard {
   private outcome: DashboardOutcome = 'quit'
   /** The daemon is older than this nsq and waits for busy agents before it restarts on it. */
   private handover: Extract<Handover, { kind: 'waiting' }> | null = null
+  /** Left through U in the phone panel: the next dashboard opens it again on this tab. */
+  reopenPhone: PanelTab | undefined
+  private phoneOnStart: PanelTab | undefined
   private update: UpdateView | null = null
   private announcedUpdate = false
   private logoSlots: { row: number; col: number; harness: string }[] = []
@@ -254,6 +264,11 @@ export class Dashboard {
   /** Before run: the daemon is older and the hand-over waits for busy agents. */
   waitForHandover(wait: Extract<Handover, { kind: 'waiting' }>): void {
     this.handover = wait
+  }
+
+  /** Before run: open the phone panel on this tab once the dashboard is up (after U in it). */
+  openPhoneOnStart(tab: PanelTab): void {
+    this.phoneOnStart = tab
   }
 
   /** Before run: a note to show once the dashboard is up. */
@@ -329,6 +344,7 @@ export class Dashboard {
       })
     }
     await this.client.request({ t: 'subscribe', agents: '*', output: '*' })
+    if (this.phoneOnStart) this.openPhonePanel(this.phoneOnStart)
     this.schedule()
     // Dictation (optional): the text goes into the open agent, else the selected one — pasted, never sent.
     void bindDictation({
@@ -749,13 +765,14 @@ export class Dashboard {
 
   /** U: what the update is doing, and the way to apply or install it now. */
   private showUpdate(): void {
-    if (this.handover) {
+    const from = this.handover?.from ?? this.client.daemonVersion
+    if (this.handover || daemonIsOlder(from)) {
       const busy = busyAgents([...this.agents.values()])
       this.modal = {
         kind: 'confirm',
         title: `Restart the daemon on ${VERSION} now?`,
         body: [
-          `The daemon runs nsq ${this.handover.from}; this is ${VERSION}. It restarts on ${VERSION} by itself once no agent is busy.`,
+          `The daemon runs nsq ${from}; this is ${VERSION}. It restarts on ${VERSION} by itself once no agent is busy.`,
           'Running agents stop and come back on their sessions (like nsq down / nsq up).',
           ...(busy.length ? [`Busy now: ${busy.join(', ')} — their current turn is cut off.`] : []),
           'Other nsq windows (nsq attach) close; open them again after.'
@@ -986,7 +1003,7 @@ export class Dashboard {
               this.schedule()
             },
             (error: unknown) => {
-              this.toastMessage(error instanceof Error ? error.message : String(error))
+              this.errorToast(error)
               this.schedule()
             }
           )
@@ -1802,9 +1819,14 @@ export class Dashboard {
     this.selected = all[index].id
   }
 
-  private toastMessage(text: string): void {
-    this.toast = { text, until: Date.now() + 4000 }
-    setTimeout(() => this.schedule(), 4100)
+  private toastMessage(text: string, ms = 4000): void {
+    this.toast = { text, until: Date.now() + ms }
+    setTimeout(() => this.schedule(), ms + 100)
+  }
+
+  /** A failed request: its error; a daemon too old for it explains why and offers U, longer. */
+  private errorToast(error: unknown): void {
+    this.toastMessage(errorText(error), error instanceof DaemonTooOldError ? 10_000 : 4000)
   }
 
   private request(promise: Promise<unknown>, ok?: string): void {
@@ -1816,7 +1838,7 @@ export class Dashboard {
         this.schedule()
       },
       (error: unknown) => {
-        this.toastMessage(error instanceof Error ? error.message : String(error))
+        this.errorToast(error)
         this.schedule()
       }
     )
@@ -2092,7 +2114,7 @@ export class Dashboard {
         },
         (error: unknown) => {
           modal.loading = false
-          modal.error = error instanceof Error ? error.message : String(error)
+          modal.error = errorText(error)
           this.schedule()
         }
       )
@@ -2361,17 +2383,28 @@ export class Dashboard {
   /** Q: the phone panel — the pairing QR, online / LAN, notifications. */
   private openPhonePanel(tab: PanelTab = 'pairing'): void {
     if (this.modal?.kind === 'phone') this.modal.panel.close()
-    this.modal = {
-      kind: 'phone',
-      panel: new PhonePanel(
-        {
-          request: (request) => this.client.request(request),
-          phone: () => this.phone,
-          redraw: () => this.schedule()
-        },
-        tab
-      )
-    }
+    const panel: PhonePanel = new PhonePanel(
+      {
+        request: (request) => this.client.request(request),
+        phone: () => this.phone,
+        redraw: () => this.schedule(),
+        supports: (capability) => this.client.supports(capability),
+        daemonVersion: () => this.client.daemonVersion,
+        // U in the panel: the daemon restarts on this nsq at once (busy or not, like U on the
+        // dashboard), and the panel opens again on the new one, on the same tab.
+        ...(daemonIsOlder(this.client.daemonVersion)
+          ? {
+              restartDaemon: () => {
+                this.reopenPhone = panel.tab
+                this.outcome = 'handover-now'
+                this.quit()
+              }
+            }
+          : {})
+      },
+      tab
+    )
+    this.modal = { kind: 'phone', panel }
   }
 
   private handleForm(form: NewAgentForm, event: KeyEvent): void {
@@ -2529,12 +2562,15 @@ export async function runDashboard(): Promise<void> {
     throw new Error('the dashboard needs an interactive terminal (try `nsq ls`)')
   }
   let state = await handOverForDashboard(await DaemonClient.open('dashboard'), false)
+  let reopenPhone: PanelTab | undefined
   for (;;) {
     const dashboard = new Dashboard(state.client)
+    if (reopenPhone) dashboard.openPhoneOnStart(reopenPhone)
     if (state.wait) dashboard.waitForHandover(state.wait)
     if (state.note) dashboard.notice(state.note)
     else if (state.wait) dashboard.notice(waitingText(state.wait))
     const outcome = await dashboard.run()
+    reopenPhone = dashboard.reopenPhone
     if (outcome === 'quit') return
     if (outcome === 'restart') {
       process.stdout.write('nsq: the daemon is restarting on the new version…\n')
