@@ -220,6 +220,8 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 const UPDATE_QUIET_MS = 5 * 60 * 1000
 /** How often a pending update looks for a moment to restart in. */
 const UPDATE_POLL_MS = 15_000
+/** Clients that connect only to ask about the update (apps/cli/src/update/command.ts). */
+const UPDATE_ASKERS = new Set(['update', 'doctor'])
 
 /** `value` when it is an array of strings (a run spec from the socket). */
 function stringList(value: unknown): string[] | undefined {
@@ -1892,7 +1894,11 @@ export class Daemon {
       }
     }
     if (how === 'forced') return blockers
-    const windows = [...this.clients].filter((client) => client.authed).length
+    // `nsq update` / `nsq doctor` only ask about the update: never "1 nsq window is open" for
+    // the very command that is asking.
+    const windows = [...this.clients].filter(
+      (client) => client.authed && !UPDATE_ASKERS.has(client.name)
+    ).length
     if (windows) blockers.push(`${windows} nsq window${windows === 1 ? ' is' : 's are'} open`)
     if (this.phone.status().connections) blockers.push('a phone is connected')
     const tunnel = quickTunnelBlocker(this.phone.status())
