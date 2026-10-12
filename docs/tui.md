@@ -18,8 +18,10 @@ full screen and goes back to the grid.
 | v                      | dictate into the agent (also the global hotkey); the text is pasted, never sent             |
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)                                 |
 
-The mouse works too: click selects, double-click opens, the wheel moves the selection; in a full
-screen agent that asked for the mouse, clicks go to it.
+The mouse works too: click selects, double-click opens, the wheel over a tile or a full-screen
+agent scrolls its output back (Shift+PgUp / PgDn too; new output doesn't move the view, any key
+for the agent returns to the live screen) and over the sidebar moves the selection; an agent that
+asked for the mouse gets the wheel — and in full screen the clicks — itself.
 
 ## How it draws
 

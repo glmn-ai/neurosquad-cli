@@ -41,6 +41,7 @@ and label (ASCII `! * + - x` where the terminal needs it).
 | p                      | phones: who is connected; a new pairing token cuts them off                                                                                |
 | Q                      | phone panel: the pairing QR, online / LAN, a new token, phone notifications ([phone](phone.md#in-the-dashboard-q))                         |
 | U                      | update: install a new release now, or restart onto an installed one ([updates](updates.md))                                                |
+| Shift+PgUp / PgDn      | scroll the selected agent's output back / forward (Shift+Home: the oldest line, Shift+End: live again)                                     |
 | [ ]                    | previous / next page of tiles                                                                                                              |
 | b                      | sidebar on/off                                                                                                                             |
 | ?                      | help                                                                                                                                       |
@@ -56,16 +57,31 @@ an OpenRouter model (which switches OpenRouter on).
 The bottom line always shows the keys that matter right now (for an agent that needs you: y / a /
 n first).
 
-**Mouse:** click selects (a click on a workspace selects its first agent), double-click opens, the
-wheel moves the selection through all agents; in a full-screen agent
-that asked for the mouse, clicks go to it.
+**Mouse:** click selects (a click on a workspace selects its first agent), double-click opens. The
+wheel over a tile scrolls that agent's output back (3 lines a notch, a page with Shift) — the tile's
+bottom line says how far (`↑ 120 lines`), new output doesn't move what you are reading, and
+scrolling down to the bottom follows the live screen again. Over the sidebar the wheel moves the
+selection through all agents. An agent that asked for the mouse (OpenCode's TUI, for one) gets
+the wheel itself and scrolls on its own; in full screen it gets the clicks too.
 
 ## Full screen and `nsq attach`
 
-In full screen the agent gets every key, exactly as if you ran the CLI directly. **Ctrl+]** is the
-only key nsq keeps (change it with `detachKey` in [config.json](configuration.md)).
+In full screen the agent gets every key, exactly as if you ran the CLI directly. **Ctrl+]** goes
+back to the grid (change it with `detachKey` in [config.json](configuration.md)).
+
+**Scrolling back.** nsq keeps the last 1000 lines of each agent. In full screen the mouse wheel
+scrolls them (3 lines a notch, a page with Shift), and so do **Shift+PgUp / Shift+PgDn**;
+**Shift+Home** goes to the oldest line, **Shift+End** back to the live screen. While you are
+scrolled back the bottom line says `↑ 120 lines · End or any key to return`, the agent's new output
+doesn't move the view, **PgUp / PgDn / Home / End** keep scrolling, and any other key goes to the
+agent and brings the live screen back first. This is for agents on the terminal's normal screen
+(Claude Code, Codex): an agent that asked for the mouse (OpenCode) gets the wheel, and a
+full-screen TUI on the alternate screen gets the wheel as ↑ ↓ and keeps every key, Shift+PgUp
+included — it scrolls itself, as in any terminal.
 
 `nsq attach <agent>` does the same from a plain shell, without the dashboard; **Ctrl+]** detaches.
+There the agent's output goes straight to your terminal, so your terminal's own scrollback, wheel
+and scroll keys work as usual (the last 500 lines from before you attached are replayed into it).
 
 ## The same things from a shell
 

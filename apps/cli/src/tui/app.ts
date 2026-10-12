@@ -34,10 +34,14 @@ import {
 } from '@neurosquad/tui-theme'
 import {
   createCompositor,
+  createScrollback,
   createTermView,
   encodePaste,
   gridRowText,
+  wheelKeys,
+  wheelTarget,
   type Compositor,
+  type Scrollback,
   type Tile,
   type TermView
 } from '@neurosquad/term-view'
@@ -77,6 +81,7 @@ import {
   type Rect
 } from './layout.js'
 import { PickList, TextField, fitText } from './widgets.js'
+import { applyScrollKey, applyWheel, scrollKey, scrolledLabel } from './scrolling.js'
 import { PhonePanel, type PanelTab } from './phonePanel.js'
 import { bindDictation, type DictationBinding } from '../dictation.js'
 import {
@@ -99,6 +104,8 @@ const RESIZE_DEBOUNCE_MS = 150
 
 interface AgentScreen {
   view: TermView
+  /** Where the person is in the agent's scrollback (0 = the live screen). */
+  scroll: Scrollback
   generation: number
   tile?: Tile
   /** When it entered its current status (for the pulse, the sparkle). */
@@ -420,7 +427,10 @@ export class Dashboard {
     process.off('unhandledRejection', this.onCrash)
     process.off('exit', this.onExit)
     this.compositor.dispose()
-    for (const screen of this.screens.values()) screen.view.dispose()
+    for (const screen of this.screens.values()) {
+      screen.scroll.dispose()
+      screen.view.dispose()
+    }
     if (this.stdin.isTTY) this.stdin.setRawMode(false)
     this.stdin.pause()
     this.stdout.write(RESTORE + (this.graphics.protocol === 'kitty' ? '\x1b_Ga=d\x1b\\' : ''))
@@ -444,7 +454,7 @@ export class Dashboard {
     if (!screen) {
       const view = createTermView({ cols, rows, owner: false, scrollback: 1000 })
       view.onChange(() => this.schedule())
-      screen = { view, generation: 0, statusSince: Date.now() }
+      screen = { view, scroll: createScrollback(view), generation: 0, statusSince: Date.now() }
       this.screens.set(id, screen)
     }
     return screen
@@ -538,6 +548,7 @@ export class Dashboard {
     this.agents.delete(id)
     const screen = this.screens.get(id)
     screen?.tile?.remove()
+    screen?.scroll.dispose()
     screen?.view.dispose()
     this.screens.delete(id)
     if (this.selected === id) this.selected = this.ordered()[0]?.id ?? null
@@ -601,10 +612,12 @@ export class Dashboard {
         visible.add(id)
         const screen = this.screens.get(id)
         if (!screen) continue
+        const scrollOffset = screen.scroll.offset
+        // Scrolled back, the agent's cursor is somewhere below the view: not shown.
         const options =
           id === this.expanded
-            ? { showCursor: true, fit: 'follow' as const }
-            : { fit: 'follow' as const }
+            ? { showCursor: scrollOffset === 0, fit: 'follow' as const, scrollOffset }
+            : { fit: 'follow' as const, scrollOffset }
         if (!screen.tile) screen.tile = this.compositor.addTile(screen.view, rect, options)
         else {
           screen.tile.setRect(rect)
@@ -622,7 +635,8 @@ export class Dashboard {
     const repaintAll = this.prev === undefined
     this.prev = canvas
     let text = '\x1b[?2026h'
-    if (!this.expanded) text += '\x1b[?25l'
+    if (!this.expanded || (this.screens.get(this.expanded)?.scroll.scrolled ?? false))
+      text += '\x1b[?25l'
     text += out
     text += this.logos(repaintAll ? null : rows)
     if (!this.modal) {
@@ -1211,18 +1225,26 @@ export class Dashboard {
             ]
           : [])
       ]
+      const scrolledBack = screen?.scroll.offset ?? 0
       const footer: Line = attention
         ? [
             seg(agent.detail ?? 'waiting for your answer', { fg: 'needsYou', bg: 'tileBg' }),
             seg('   y yes · a always · n no', { fg: 'mutedText', bg: 'tileBg' })
           ]
-        : id === this.expanded
-          ? [seg(`Ctrl+] back to the grid`, { fg: 'faintText', bg: 'tileBg' })]
-          : agent.worktree
-            ? [seg(`⎇ ${agent.worktree.branch}`, { fg: 'faintText', bg: 'tileBg' })]
-            : focused
-              ? [seg('⏎ open', { fg: 'faintText', bg: 'tileBg' })]
-              : []
+        : scrolledBack > 0
+          ? [
+              seg(scrolledLabel(scrolledBack, id === this.expanded), {
+                fg: 'accentText',
+                bg: 'tileBg'
+              })
+            ]
+          : id === this.expanded
+            ? [seg(`Ctrl+] back to the grid`, { fg: 'faintText', bg: 'tileBg' })]
+            : agent.worktree
+              ? [seg(`⎇ ${agent.worktree.branch}`, { fg: 'faintText', bg: 'tileBg' })]
+              : focused
+                ? [seg('⏎ open', { fg: 'faintText', bg: 'tileBg' })]
+                : []
       const lines = frame(this.theme, {
         width: rect.width,
         height: rect.height,
@@ -1307,9 +1329,13 @@ export class Dashboard {
       return
     }
     const selected = this.selected ? this.agents.get(this.selected) : undefined
+    const open = this.expanded ? this.screens.get(this.expanded) : undefined
     const hints: [string, string][] = this.expanded
       ? [
           ['Ctrl+]', 'grid'],
+          ...(open && !open.view.modes().alternateScreen
+            ? ([['wheel, Shift+PgUp', 'scroll back']] as [string, string][])
+            : []),
           ['', 'keys go to the agent']
         ]
       : selected && statusOf(selected) === 'needs-input'
@@ -1371,6 +1397,7 @@ export class Dashboard {
         const rows: [string, string][] = [
           ['↑↓←→ hjkl, Tab', 'select an agent'],
           ['Enter / double-click', 'open full screen (Ctrl+] back)'],
+          ['wheel, Shift+PgUp/PgDn', 'scroll an agent back (Shift+Home/End: oldest / live)'],
           ['y  a  n', 'answer a permission prompt: yes / always / no'],
           ['s / S', 'send a prompt / send when the turn is done'],
           ['c', 'start a new agent'],
@@ -1721,32 +1748,82 @@ export class Dashboard {
       const rect = this.tileAreas.get(id)
       const body = rect ? inner(rect) : undefined
       if (body && contains(body, event.x, event.y)) {
-        const modes = screen?.view.modes()
-        if (modes && modes.mouseTracking !== 'none') {
-          this.client.post({
-            t: 'input',
-            id,
-            data: encodeMouse(event, event.x - body.x, event.y - body.y)
-          })
-        }
+        if (screen) this.mouseOnAgent(id, screen, event, body, true)
         return
       }
       if (event.action === 'down') this.handleMouse(event)
       this.schedule()
       return
     }
+    if (!screen) return
+    const modes = screen.view.modes()
+    if (event.type === 'key') {
+      const action = scrollKey(event, {
+        scrolled: screen.scroll.scrolled,
+        alternate: modes.alternateScreen
+      })
+      if (action) {
+        if (applyScrollKey(screen.scroll, action)) this.scrolled(screen)
+        return
+      }
+    }
+    // Anything that goes to the agent brings the live screen back first.
+    if (screen.scroll.toBottom()) this.scrolled(screen)
     if (event.type === 'paste') {
-      const modes = screen?.view.modes()
       this.client.post({
         t: 'input',
         id,
-        data: modes?.bracketedPaste ? encodePaste(event.text, { bracketedPaste: true }) : event.text
+        data: modes.bracketedPaste ? encodePaste(event.text, { bracketedPaste: true }) : event.text
       })
       return
     }
-    const modes = screen?.view.modes()
-    const data = modes?.applicationCursorKeys ? applicationCursor(event.seq) : event.seq
+    const data = modes.applicationCursorKeys ? applicationCursor(event.seq) : event.seq
     this.client.post({ t: 'input', id, data })
+  }
+
+  /**
+   * A mouse event over an agent's terminal (`body`): to the agent when it asked for the mouse;
+   * a wheel notch otherwise scrolls the scrollback — or, on the alternate screen of the open
+   * agent (`open`), becomes cursor keys the way terminals send it (a TUI scrolls itself).
+   */
+  private mouseOnAgent(
+    id: string,
+    screen: AgentScreen,
+    event: MouseEvent,
+    body: Rect,
+    open: boolean
+  ): void {
+    const wheel = event.button === 'wheelup' || event.button === 'wheeldown'
+    const modes = screen.view.modes()
+    const target = wheelTarget(modes)
+    if (target === 'mouse') {
+      // In the grid only the wheel goes to the agent: a click there selects the tile.
+      if (open || wheel) {
+        // Over the tile's frame in the grid: the nearest cell of the terminal.
+        const x = Math.max(0, Math.min(body.width - 1, event.x - body.x))
+        const y = Math.max(0, Math.min(body.height - 1, event.y - body.y))
+        this.client.post({ t: 'input', id, data: encodeMouse(event, x, y) })
+      }
+      return
+    }
+    if (!wheel) return
+    if (target === 'keys') {
+      if (open) {
+        this.client.post({
+          t: 'input',
+          id,
+          data: wheelKeys(event.button === 'wheelup' ? 'up' : 'down', modes)
+        })
+      }
+      return
+    }
+    if (applyWheel(screen.scroll, event)) this.scrolled(screen)
+  }
+
+  /** The scroll position changed: repaint the tile and its footer. */
+  private scrolled(screen: AgentScreen): void {
+    screen.tile?.update()
+    this.schedule()
   }
 
   private expand(id: string): void {
@@ -1768,8 +1845,17 @@ export class Dashboard {
 
   private handleMouse(event: MouseEvent): void {
     if (event.action !== 'down' || typeof event.button !== 'number') {
-      if (event.button === 'wheelup' || event.button === 'wheeldown')
-        this.moveSelection(event.button === 'wheelup' ? -1 : 1, true)
+      if (event.button !== 'wheelup' && event.button !== 'wheeldown') return
+      // Over a tile the wheel scrolls that agent; anywhere else (the sidebar) it moves the selection.
+      if (!this.expanded) {
+        for (const [id, rect] of this.tileAreas) {
+          if (!contains(rect, event.x, event.y)) continue
+          const screen = this.screens.get(id)
+          if (screen) this.mouseOnAgent(id, screen, event, inner(rect), false)
+          return
+        }
+      }
+      this.moveSelection(event.button === 'wheelup' ? -1 : 1, true)
       return
     }
     const sidebar = this.layout.sidebar
@@ -1851,6 +1937,18 @@ export class Dashboard {
     if ((event.ctrl && k === 'c') || k === 'q') {
       this.quit()
       return
+    }
+    // Shift+PgUp / PgDn / Home / End scroll the selected agent's tile.
+    const selectedScreen = agent ? this.screens.get(agent.id) : undefined
+    if (selectedScreen && event.shift) {
+      const action = scrollKey(event, {
+        scrolled: false,
+        alternate: selectedScreen.view.modes().alternateScreen
+      })
+      if (action) {
+        if (applyScrollKey(selectedScreen.scroll, action)) this.scrolled(selectedScreen)
+        return
+      }
     }
     switch (k) {
       case 'left':

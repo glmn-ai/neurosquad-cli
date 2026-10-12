@@ -19,6 +19,9 @@
 //       online, a new token, the ntfy subscribe link — and a test push to a local ntfy)
 //       phone-screen.mjs (the phone page's terminal view in headless Chrome: colours,
 //       attributes, cursor, wide characters, fit and pinch; agent markup stays text)
+//       scrollback.mjs (scrolling an agent back: the wheel and Shift+PgUp in the grid and full
+//       screen, new output never moves the view, End / any key returns; agents that asked for
+//       the mouse or sit on the alternate screen get the wheel themselves)
 //
 // Writes <out>/results.json: { os, arch, suite, versions, parts: [{ part, exit, checks }] }.
 //
@@ -179,6 +182,15 @@ if (plan.herdr) {
       join(HERE, 'phone-screen.mjs'),
       ['--root', root, '--work', screenWork],
       screenWork
+    )
+  }
+  if (existsSync(join(root, 'scripts', 'e2e', 'scroll-agent.mjs'))) {
+    const scrollWork = join(out, 'scrollback')
+    part(
+      'scrollback.mjs',
+      join(HERE, 'scrollback.mjs'),
+      ['--root', root, '--work', scrollWork],
+      scrollWork
     )
   }
 }
