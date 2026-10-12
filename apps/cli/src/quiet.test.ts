@@ -219,10 +219,11 @@ describe('QuietMonitor (fake clock)', () => {
       join(dirname(fileURLToPath(import.meta.url)), 'daemon', 'daemon.ts'),
       'utf8'
     )
-    // The pty host itself appears only where the two views of it are made.
-    expect(daemon.match(/this\.ptyHost\b/g)).toHaveLength(2)
-    expect(daemon).toMatch(/private readonly ptys: PtyControl = this\.ptyHost/)
-    expect(daemon).toMatch(/new AgentInput\(this\.ptyHost, this\.quiet\)/)
+    // AgentInput owns the one pty host; the daemon keeps only its control view (PtyControl has
+    // no write/paste/submit/interrupt, so a direct input call does not compile).
+    expect(daemon.match(/\bnew PtyHost\(/g)).toHaveLength(1)
+    expect(daemon).toMatch(/new AgentInput\(new PtyHost\(\)/)
+    expect(daemon).toMatch(/private readonly ptys: PtyControl = this\.input\.control/)
     expect(daemon).not.toMatch(/\bnoteUserInput\b/)
   })
 

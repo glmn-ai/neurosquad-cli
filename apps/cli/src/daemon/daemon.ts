@@ -254,12 +254,15 @@ export class Daemon {
     (id) => this.store.get(id),
     (line) => this.log(line)
   )
-  private readonly ptyHost = new PtyHost()
   /**
-   * The agents' ptys for everything but input. Input (keys, a paste, a prompt, an answer, an
-   * interrupt) goes through `this.input`, which also ends a quiet episode.
+   * The one way input (keys, a paste, a prompt, an answer, an interrupt) reaches an agent's pty:
+   * it is activity, so it also ends a quiet episode. It owns the pty host…
    */
-  private readonly ptys: PtyControl = this.ptyHost
+  private readonly input = new AgentInput(new PtyHost(), {
+    activity: (id, how, by) => this.quiet.activity(id, how, by)
+  })
+  /** …and the daemon holds it for everything else, without its input methods. */
+  private readonly ptys: PtyControl = this.input.control
   // Terminal replies go straight to the pty: not the person typing, not a submit.
   private readonly screens = new Screens((id, data) => this.ptys.reply(id, data))
   /** The OpenCode start in progress (see OPENCODE_START_GATE_MS); resolves when it is up. */
@@ -298,8 +301,6 @@ export class Daemon {
     onStart: (id, view) => this.quietStarted(id, view),
     onEnd: (id, view, how, by) => this.quietEnded(id, view, how, by)
   })
-  /** The one way input reaches an agent's pty: it is activity, so it also ends a quiet episode. */
-  private readonly input = new AgentInput(this.ptyHost, this.quiet)
   /** config.json's quietAfter, re-read now and then (`nsq config set` applies without a restart). */
   private quietConfig = { at: 0, minutes: undefined as number | undefined }
   private readonly updater = new Updater({

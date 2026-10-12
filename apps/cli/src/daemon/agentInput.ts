@@ -1,9 +1,9 @@
 // Everything that goes into an agent's terminal as input — typed keys, a paste, a submitted
 // prompt, an answer's keys, an interrupt — goes through AgentInput. Input is activity: each of
 // them also ends a quiet episode (and restarts the quiet clock), credited to whoever sent it, so
-// a new way to reach the pty cannot forget to. The daemon keeps the pty host's input methods out
-// of its own reach (`PtyControl`); terminal replies (DA, CPR) are not input and go straight to
-// the pty.
+// a new way to reach the pty cannot forget to. AgentInput owns the pty host; the daemon only
+// gets `control`, the host without its input methods (`PtyControl`). Terminal replies (DA, CPR)
+// are not input and go through `control.reply`.
 import { noteUserInput, type PtyHost } from '@neurosquad/core'
 import type { ApprovalBy } from './approvals.js'
 import { typedByPerson } from './quiet.js'
@@ -27,15 +27,18 @@ export interface AgentInputOptions {
   wait?: (ms: number) => Promise<void>
 }
 
-export class AgentInput {
+export class AgentInput<P extends InputPty = PtyHost> {
+  /** The pty host for everything but input. */
+  readonly control: Omit<P, PtyInputMethod>
   private readonly noteKeys: (agentId: string, data: string) => void
   private readonly wait: (ms: number) => Promise<void>
 
   constructor(
-    private readonly pty: InputPty,
+    private readonly pty: P,
     private readonly quiet: InputActivity,
     options: AgentInputOptions = {}
   ) {
+    this.control = pty
     this.noteKeys = options.noteKeys ?? noteUserInput
     this.wait = options.wait ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
   }
