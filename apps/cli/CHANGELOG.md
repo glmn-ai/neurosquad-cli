@@ -1,5 +1,13 @@
 # neurosquad
 
+## 0.5.2
+
+### Patch Changes
+
+- [#72](https://github.com/glmn-ai/neurosquad-cli/pull/72) [`ccb686f`](https://github.com/glmn-ai/neurosquad-cli/commit/ccb686f7b84617c35ec4cf3e9d50d28e0e7ae774) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - Prices Claude Sonnet 5.5 and Haiku 5.5 (Haiku 5.5 by prompt length: higher prices over 100,000 prompt tokens). The price table is now dated 2026-10-12.
+- Updated dependencies [[`ccb686f`](https://github.com/glmn-ai/neurosquad-cli/commit/ccb686f7b84617c35ec4cf3e9d50d28e0e7ae774)]:
+  - @neurosquad/core@0.4.1
+
 ## 0.5.1
 
 ### Patch Changes
