@@ -3,8 +3,9 @@
 // are pushed to clients that subscribed.
 import type { AgentStatusKind, HarnessId, SubagentInfo } from '@neurosquad/core'
 import type { UpdateView } from './update/updater.js'
+import type { QuietView } from './daemon/quiet.js'
 
-export type { UpdateView }
+export type { UpdateView, QuietView }
 
 export const PROTOCOL_VERSION = 1
 
@@ -22,7 +23,9 @@ export const CAPABILITY_SINCE = {
   update: '0.2.0',
   handover: '0.2.1',
   /** ntfy push from the dashboard's phone panel (`push`). */
-  push: '0.4.0'
+  push: '0.4.0',
+  /** Quiet-while-working: `set` with `quietAfter` (per agent). */
+  quiet: '0.5.0'
 } as const
 
 export type Capability = keyof typeof CAPABILITY_SINCE
@@ -41,6 +44,8 @@ export function requestCapability(request: Request): Capability | undefined {
     case 'handover':
     case 'push':
       return request.t
+    case 'set':
+      return request.quietAfter !== undefined ? 'quiet' : undefined
     default:
       return undefined
   }
@@ -84,6 +89,13 @@ export interface AgentView {
   rows?: number
   /** Prompts waiting to be sent when the current turn finishes. */
   queued?: number
+  /**
+   * Working, but the screen has not changed for the quiet threshold (`quietAfter`): a tool may
+   * be waiting for something no hook reports (a password, `[y/N]`), or it hangs. Absent otherwise.
+   */
+  quiet?: QuietView
+  /** This agent's own quiet threshold in minutes (`nsq set --quiet-after`; 0 = off). */
+  quietAfter?: number
 }
 
 export interface RunSpec {
@@ -132,6 +144,8 @@ export type Request =
       provider?: 'openrouter' | 'custom' | null
       /** With `provider: 'custom'`. */
       customProviderId?: string
+      /** The agent's quiet threshold in minutes (0 = off); null = back to the config's. */
+      quietAfter?: number | null
     }
   | { t: 'snapshot'; id: string }
   | { t: 'cost'; since?: number }
@@ -202,7 +216,7 @@ export type DaemonEvent =
   | {
       t: 'notify'
       id: string
-      kind: 'needs-input' | 'finished'
+      kind: 'needs-input' | 'finished' | 'quiet'
       title: string
       body: string
       /** No desktop notification could be shown: the client signals in its terminal. */
@@ -253,7 +267,7 @@ export interface PushView {
   /** The keyring could not be used (`setup` / `off` need it). */
   keyringMissing?: boolean
   /** The last push the daemon sent (a test or a needs-you). */
-  last?: { at: number; ok: boolean; kind: 'test' | 'needs-you'; error?: string }
+  last?: { at: number; ok: boolean; kind: 'test' | 'needs-you' | 'quiet'; error?: string }
 }
 
 /** Splits a stream into lines and parses each as JSON; a bad line is skipped. */

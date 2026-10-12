@@ -25,6 +25,12 @@ export interface NsqConfig {
    * and how it ended. Default on; `false` stops writing it (what is there stays).
    */
   approvalsLog?: boolean
+  /**
+   * Minutes a working agent's screen may stay still before it is flagged quiet (a tool may be
+   * waiting for a password or a yes/no no hook reports, or something hangs). Default 5; `0` = off.
+   * `nsq set <agent> --quiet-after <min>` overrides it for one agent.
+   */
+  quietAfter?: number
   /** Default layout of the dashboard. */
   layout?: 'grid' | 'focus'
   /** Phone access (`nsq phone on`). */

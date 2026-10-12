@@ -15,12 +15,41 @@ const HARNESS = {
 const STATUS = {
   working: 'Working',
   'needs-input': 'Needs you',
+  quiet: 'Quiet',
   finished: 'Finished',
   idle: 'Idle',
   exited: 'Stopped'
 }
 
 const $ = (id) => document.getElementById(id)
+
+// What a card shows: a working agent nsq flagged quiet is `quiet` (no new output for minutes).
+function statusOf(agent) {
+  if (!agent.running) return 'exited'
+  const status = agent.status || 'idle'
+  return status === 'working' && agent.quiet ? 'quiet' : status
+}
+
+/** "7m", "45s", "2h". */
+function ago(since) {
+  const s = Math.max(0, Math.floor((Date.now() - since) / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h`
+}
+
+function statusLabel(agent) {
+  const status = statusOf(agent)
+  if (status === 'quiet') return `Quiet ${ago(agent.quiet.since)} · check it`
+  return STATUS[status] || status
+}
+
+function quietText(agent) {
+  if (!agent.quiet) return ''
+  if (agent.quiet.asking) return `Looks like it's asking: ${agent.quiet.asking}`
+  if (agent.quiet.line) return `Last line: ${agent.quiet.line}`
+  return 'No new output.'
+}
 const FIT_KEY = 'neurosquad.phone.fit'
 
 function readFit() {
@@ -175,6 +204,7 @@ function apply(event) {
     if (agent) {
       agent.status = event.status
       if (event.status !== 'needs-input') delete agent.detail
+      if (event.status !== 'working') delete agent.quiet
     }
   } else if (event.type === 'attention') {
     const agent = state.agents.find((a) => a.id === event.agentId)
@@ -183,6 +213,11 @@ function apply(event) {
       if (event.detail) agent.detail = event.detail
       if (navigator.vibrate) navigator.vibrate([60, 40, 60])
       if (state.open !== agent.id) toast(`${agent.name || 'An agent'} needs you`)
+    } else if (agent && event.kind === 'quiet') {
+      // No answer keys: nsq does not know what it waits for. Open it to see the screen.
+      if (!agent.quiet) agent.quiet = { since: event.at }
+      if (navigator.vibrate) navigator.vibrate([60, 40, 60])
+      if (state.open !== agent.id) toast(`${agent.name || 'An agent'} is quiet · check it`)
     }
   }
 }
@@ -208,12 +243,14 @@ function harnessName(id) {
 }
 
 function renderTitle() {
-  const needs = state.agents.filter((a) => a.status === 'needs-input').length
-  document.title = needs ? `(${needs}) NeuroSquad` : 'NeuroSquad'
+  const needs = state.agents.filter((a) => statusOf(a) === 'needs-input').length
+  const quiet = state.agents.filter((a) => statusOf(a) === 'quiet').length
+  document.title = needs + quiet ? `(${needs + quiet}) NeuroSquad` : 'NeuroSquad'
   if (state.open) return
-  const working = state.agents.filter((a) => a.status === 'working').length
+  const working = state.agents.filter((a) => statusOf(a) === 'working').length
   const parts = []
   if (needs) parts.push(`${needs} need${needs === 1 ? 's' : ''} you`)
+  if (quiet) parts.push(`${quiet} quiet`)
   if (working) parts.push(`${working} working`)
   if (!parts.length)
     parts.push(`${state.agents.length} agent${state.agents.length === 1 ? '' : 's'}`)
@@ -257,28 +294,33 @@ function renderList() {
     list.append(el('p', 'empty', 'No agents yet. Start one on the computer: nsq run claude'))
     return
   }
-  const order = { 'needs-input': 0, working: 1, finished: 2, idle: 3, exited: 4 }
+  const order = { 'needs-input': 0, quiet: 1, working: 2, finished: 3, idle: 4, exited: 5 }
   for (const workspace of state.workspaces) {
     const agents = state.agents
       .filter((a) => a.workspaceId === workspace.id)
-      .sort((a, b) => (order[a.status] ?? 5) - (order[b.status] ?? 5))
+      .sort((a, b) => (order[statusOf(a)] ?? 6) - (order[statusOf(b)] ?? 6))
     if (!agents.length) continue
     const section = el('section', 'workspace')
     section.append(el('h2', '', workspace.name))
     const cards = el('div', 'cards')
     for (const agent of agents) {
-      const status = agent.running ? agent.status || 'idle' : 'exited'
-      const card = el('button', `card${status === 'needs-input' ? ' needs' : ''}`)
+      const status = statusOf(agent)
+      const card = el(
+        'button',
+        `card${status === 'needs-input' ? ' needs' : status === 'quiet' ? ' quiet' : ''}`
+      )
       card.type = 'button'
       card.dataset.status = status
       const row = el('div', 'card-row')
       row.append(el('span', 'dot'), el('strong', '', agent.name || agent.id.slice(0, 8)))
       row.append(el('span', 'chip', harnessName(agent.harness)))
-      row.append(el('span', 'status', STATUS[status] || status))
+      row.append(el('span', 'status', statusLabel(agent)))
       card.append(row)
       if (status === 'needs-input') {
         if (agent.detail) card.append(el('p', 'question', agent.detail))
         card.append(answerButtons(agent))
+      } else if (status === 'quiet') {
+        card.append(el('p', 'question', quietText(agent)))
       }
       card.addEventListener('click', () => openAgent(agent.id))
       cards.append(card)
@@ -313,19 +355,21 @@ function renderAgent() {
   $('list').hidden = true
   $('agent').hidden = false
   $('back').hidden = false
-  const status = agent.running ? agent.status || 'idle' : 'exited'
+  const status = statusOf(agent)
   $('title').textContent = agent.name || agent.id.slice(0, 8)
-  $('subtitle').textContent = state.online ? STATUS[status] || status : 'reconnecting…'
+  $('subtitle').textContent = state.online ? statusLabel(agent) : 'reconnecting…'
   $('agent').dataset.status = status
   $('agent-title').textContent = agent.name || agent.id.slice(0, 8)
   $('agent-harness').textContent = harnessName(agent.harness)
-  $('agent-status').textContent = STATUS[status] || status
+  $('agent-status').textContent = statusLabel(agent)
   $('agent-dot').dataset.status = status
   $('ask').hidden = status !== 'needs-input'
   $('ask-text').textContent = agent.detail || 'The agent is waiting for an answer.'
+  $('quiet').hidden = status !== 'quiet'
+  $('quiet-text').textContent = quietText(agent)
   const running = agent.running
   $('send').disabled = !running
-  $('interrupt').disabled = !running || status !== 'working'
+  $('interrupt').disabled = !running || (status !== 'working' && status !== 'quiet')
 }
 
 // ---- the screen: polled while one agent is open and the page is visible ----------------------

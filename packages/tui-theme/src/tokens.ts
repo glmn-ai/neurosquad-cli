@@ -133,6 +133,11 @@ export const ROLE_SOURCES = {
     'needs-you pulse trough (warning 45%)',
     3
   ),
+  /**
+   * "Quiet" (nsq): working, but no new output for minutes — amber like needs-you, deeper and
+   * calmer, so the two never read as one (and plain yellow, not bright, on 16 colours).
+   */
+  quiet: t(oklch(0.74, 0.12, 58), 'quiet (amber, deeper than needs-you)', 3),
   brandLime: BRAND.lime,
   brandEmerald: BRAND.emerald
 } as const

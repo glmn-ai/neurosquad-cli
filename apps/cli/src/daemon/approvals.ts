@@ -22,6 +22,7 @@ import {
 import { join } from 'node:path'
 import type { AgentHookEvent, HarnessId } from '@neurosquad/core'
 import type { AnswerKey } from './answers.js'
+import type { QuietEnd, QuietView } from './quiet.js'
 
 export const APPROVALS_FILE = 'approvals.jsonl'
 /** The live file is rotated once it would grow past this. */
@@ -59,9 +60,14 @@ export interface ApprovalBy {
  * - `interrupted`: an interrupt (`by`) ended the turn while it waited
  * - `exited`: the agent stopped, restarted or was removed while it waited
  * - `unanswered`: nsq itself stopped while it waited
+ *
+ * A quiet episode (`kind: 'quiet'`) ends with a `QuietEnd`: `output` (the screen changed),
+ * `input` (someone typed or sent something — `by`), `hook` (the harness reported progress),
+ * `finished` / `needs-input` / `idle` (its status changed), `setting` (quietAfter off or raised), `exited`,
+ * `unanswered`.
  */
 export type ApprovalOutcome =
-  'answered' | 'terminal' | 'cli' | 'ended' | 'interrupted' | 'exited' | 'unanswered'
+  'answered' | 'terminal' | 'cli' | 'ended' | 'interrupted' | 'exited' | 'unanswered' | QuietEnd
 
 export interface ApprovalQuestion {
   /** The question as the CLI worded it (what the dashboard shows). */
@@ -74,6 +80,13 @@ export interface ApprovalQuestion {
 
 export interface ApprovalRecord {
   v: 1
+  /**
+   * `quiet`: not a question the CLI asked but a quiet episode — the agent worked with no new
+   * output for the quiet threshold (`askedAt` is when nsq flagged it, `quietSince` when the
+   * screen last changed; `question.text` says what the screen showed). Absent: a question.
+   */
+  kind?: 'quiet'
+  quietSince?: string
   /** When it ended (ISO). */
   at: string
   /** When it was asked (ISO). */
@@ -310,6 +323,10 @@ const STASH_MS = 120_000
 
 export class ApprovalLog {
   private readonly open = new Map<string, Open>()
+  private readonly quiets = new Map<
+    string,
+    { agent: ApprovalAgent; view: QuietView; text: string }
+  >()
   private readonly stash = new Map<
     string,
     { at: number; question: Omit<ApprovalQuestion, 'text'> }
@@ -382,6 +399,36 @@ export class ApprovalLog {
     this.close(agent.id, event.kind === 'working' ? 'cli' : 'ended')
   }
 
+  /** A quiet episode started (the agent works, its screen has not changed for the threshold). */
+  quietStarted(agent: ApprovalAgent, view: QuietView): void {
+    const text = view.asking
+      ? `quiet; looks like it's asking: ${view.asking}`
+      : view.line
+        ? `quiet; last line: ${view.line}`
+        : 'quiet; no output'
+    this.quiets.set(agent.id, { agent, view, text: cleanText(text, MAX_TEXT) })
+  }
+
+  /** The quiet episode ended (`by`: whose input ended it). */
+  quietEnded(agentId: string, how: QuietEnd, by?: ApprovalBy): void {
+    const open = this.quiets.get(agentId)
+    if (!open) return
+    this.quiets.delete(agentId)
+    this.write({
+      v: 1,
+      kind: 'quiet',
+      at: new Date(this.now()).toISOString(),
+      askedAt: new Date(open.view.at).toISOString(),
+      quietSince: new Date(open.view.since).toISOString(),
+      agent: { id: open.agent.id, name: open.agent.name },
+      harness: open.agent.harness,
+      workspace: this.options.showPath(open.agent.workspace),
+      question: { text: open.text },
+      outcome: how,
+      ...(by ? { by } : {})
+    })
+  }
+
   /** Answered through nsq (dashboard key, `nsq answer`, the phone), just before the keys go in. */
   answering(agentId: string, answer: AnswerKey, by: ApprovalBy): void {
     const current = this.open.get(agentId)
@@ -426,6 +473,7 @@ export class ApprovalLog {
   /** nsq is stopping: questions still open are written as unanswered. */
   closeAll(): void {
     for (const id of [...this.open.keys()]) this.close(id, 'unanswered')
+    for (const id of [...this.quiets.keys()]) this.quietEnded(id, 'unanswered')
   }
 
   /** Open questions (tests). */

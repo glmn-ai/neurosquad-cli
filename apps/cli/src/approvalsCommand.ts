@@ -30,6 +30,21 @@ export function byLabel(by: ApprovalBy | undefined, outcome: ApprovalRecord['out
 /** The answer, or how the question ended without one. */
 export function answerLabel(record: ApprovalRecord): string {
   if (record.answer) return record.answer
+  if (record.kind === 'quiet') {
+    // A quiet episode: what ended it.
+    switch (record.outcome) {
+      case 'output':
+        return 'new output'
+      case 'input':
+        return 'input'
+      case 'hook':
+        return 'went on'
+      case 'needs-input':
+        return 'asked'
+      default:
+        return record.outcome
+    }
+  }
   switch (record.outcome) {
     case 'terminal':
       return 'answered'

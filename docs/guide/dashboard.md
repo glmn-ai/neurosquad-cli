@@ -14,13 +14,19 @@ owns the agents. Open `nsq` again from any terminal and everything is where you 
 | ------------- | ------------------------------------------------------------------------------------------ |
 | `◐ working`   | a turn is running                                                                          |
 | `● NEEDS YOU` | the CLI waits for you — a permission prompt, a question, a plan to approve — with its text |
+| `◌ quiet 7m`  | working, but no new output for minutes: something may wait for you (below)                 |
 | `✔ finished`  | the turn ended and the answer is on screen                                                 |
 | `○ idle`      | at its prompt with nothing new                                                             |
 | `✕ exited`    | the process is gone (`r` restarts it on the same session)                                  |
 
 Status comes from each CLI's own hooks, not from reading the screen — see
 [agents and harnesses](agents.md). It is never shown by colour alone: every state has its own glyph
-and label (ASCII `! * + - x` where the terminal needs it).
+and label (ASCII `! * + - x` where the terminal needs it; `?` for quiet). The one exception is
+_quiet_, a fallback for what no hook reports: a working agent whose screen has not changed for
+`quietAfter` minutes (a turning spinner does not count). The header counts it next to needs-you
+(`● 1 needs you · ◌ 1 quiet`), the sidebar shows `quiet 7m` on the agent, and the tile's footer
+says what the screen seems to ask. **Enter** opens the agent; anything you type clears it
+([details](../status.md#quiet-while-working)).
 
 ## Keys
 

@@ -24,10 +24,14 @@ export const HARNESS_LABEL: Record<HarnessId, string> = {
   command: 'command'
 }
 
-export function statusLabel(agent: Pick<AgentView, 'status'>): string {
+export function statusLabel(
+  agent: Pick<AgentView, 'status'> & { quiet?: AgentView['quiet'] },
+  now = Date.now()
+): string {
   switch (agent.status) {
     case 'working':
-      return 'working'
+      // Flagged quiet: no new output for its threshold (`quietAfter`).
+      return agent.quiet ? `quiet ${elapsed(agent.quiet.since, now)}` : 'working'
     case 'needs-input':
       return 'needs you'
     case 'finished':

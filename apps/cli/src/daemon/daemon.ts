@@ -84,6 +84,14 @@ import { openRouterKey, setSecret, OPENROUTER_SECRET } from './secrets.js'
 import { UsageTracker } from './usage.js'
 import { KEY_GAP_MS, answerKeys, type AnswerKey } from './answers.js'
 import { ApprovalLog, type ApprovalBy } from './approvals.js'
+import {
+  QuietMonitor,
+  quietAfterMs,
+  quietDuration,
+  typedByPerson,
+  type QuietEnd,
+  type QuietView
+} from './quiet.js'
 import { fetchOpenRouterModels } from './models.js'
 import { CustomProviderRuntime, checkCustomChoice } from './customProviders.js'
 import {
@@ -279,6 +287,15 @@ export class Daemon {
     log: (line) => this.log(line)
   })
   private readonly push = new NtfyPush((line) => this.log(line))
+  /** Working agents whose screen stays still: flagged quiet after `quietAfter` minutes. */
+  private readonly quiet = new QuietMonitor({
+    screen: (id) => this.screens.visible(id),
+    afterMs: (id) => quietAfterMs(this.store.get(id)?.quietAfter, this.configQuietAfter()),
+    onStart: (id, view) => this.quietStarted(id, view),
+    onEnd: (id, view, how, by) => this.quietEnded(id, view, how, by)
+  })
+  /** config.json's quietAfter, re-read now and then (`nsq config set` applies without a restart). */
+  private quietConfig = { at: 0, minutes: undefined as number | undefined }
   private readonly updater = new Updater({
     version: VERSION,
     name: PACKAGE_NAME,
@@ -329,6 +346,8 @@ export class Daemon {
       handle: (id, event, body, life) => {
         const harness = this.store.get(id)?.harness
         if (harness) this.approvals.hook(id, harness, event, body)
+        // A hook is the harness reporting progress: a quiet agent is not quiet.
+        if (harness) this.quiet.activity(id, 'hook')
         return receiveHook(id, event, body, life)
       }
     })
@@ -375,6 +394,7 @@ export class Daemon {
         this.dropFailedResumeCommand(id)
         rt.status = 'exited'
         rt.statusAt = Date.now()
+        this.quiet.exited(id)
         this.approvals.exited(id)
         this.phone.emit({ type: 'status', agentId: id, status: 'exited', at: rt.statusAt })
         this.notifier.close(id)
@@ -457,6 +477,7 @@ export class Daemon {
     const rt = this.rt(record.id)
     const running = this.ptys.isRunning(record.id)
     const snapshot = agentStatusSnapshot(record.id)
+    const quiet = this.quiet.current(record.id)
     return {
       id: record.id,
       name: record.name,
@@ -489,7 +510,9 @@ export class Daemon {
       ...(rt.unpriced ? { unpricedRequests: rt.unpriced } : {}),
       ...(rt.tokens !== undefined ? { tokens: rt.tokens } : {}),
       ...(running ? { cols: rt.cols, rows: rt.rows } : {}),
-      ...(rt.queue.length ? { queued: rt.queue.length } : {})
+      ...(rt.queue.length ? { queued: rt.queue.length } : {}),
+      ...(running && snapshot?.kind === 'working' && quiet ? { quiet } : {}),
+      ...(record.quietAfter !== undefined ? { quietAfter: record.quietAfter } : {})
     }
   }
 
@@ -551,6 +574,8 @@ export class Daemon {
     rt.status = event.kind
     rt.statusAt = event.at
     rt.detail = event.detail
+    // Working starts (or keeps) the quiet watch; any other status ends an episode.
+    this.quiet.status(event.agentId, event.kind)
     this.approvals.status(event, {
       id: record.id,
       name: record.name,
@@ -572,11 +597,7 @@ export class Daemon {
       })
       if (decision.kind === 'needs-input') {
         // Push (ntfy), when set up: the name and the question, nothing else.
-        const phone = this.phone.status()
-        const host = phone.running && phone.lan ? lanAddresses()[0] : undefined
-        // The page's address (never the token): online first, else the Wi-Fi one.
-        const online = this.phone.onlineUrl()
-        const click = online ? `${online}/` : host ? `http://${host}:${phone.port}/` : undefined
+        const click = this.phoneClick()
         void this.push.needsYou({
           agentId: event.agentId,
           agentName: record.name,
@@ -610,6 +631,77 @@ export class Daemon {
       )
     } else if (event.kind === 'finished' && !event.error) this.drainQueue(event.agentId)
     this.considerRestart()
+  }
+
+  /** The phone page's address for a push (never the token): online first, else the Wi-Fi one. */
+  private phoneClick(): string | undefined {
+    const phone = this.phone.status()
+    const host = phone.running && phone.lan ? lanAddresses()[0] : undefined
+    const online = this.phone.onlineUrl()
+    return online ? `${online}/` : host ? `http://${host}:${phone.port}/` : undefined
+  }
+
+  /** config.json's quietAfter (minutes), read at most every 5 s. */
+  private configQuietAfter(): number | undefined {
+    const now = Date.now()
+    if (now - this.quietConfig.at > 5000) {
+      const value = readConfig().quietAfter
+      this.quietConfig = { at: now, minutes: typeof value === 'number' ? value : undefined }
+    }
+    return this.quietConfig.minutes
+  }
+
+  /**
+   * A working agent's screen has been still for its quiet threshold: the same calls as a
+   * question (desktop notification, the dashboard's bell, the phone, ntfy), but no answer keys —
+   * nsq does not know what it waits for. The log names the agent, never the screen.
+   */
+  private quietStarted(id: string, view: QuietView): void {
+    const record = this.store.get(id)
+    if (!record) return
+    const duration = quietDuration(view.at - view.since)
+    this.log(`${record.name}: quiet for ${duration}${view.asking ? ' (looks like a prompt)' : ''}`)
+    this.approvals.quietStarted(
+      { id, name: record.name, harness: record.harness, workspace: record.workspace },
+      view
+    )
+    this.pushAgent(id)
+    const context = view.asking
+      ? `Looks like it's asking: ${view.asking}`
+      : view.line
+        ? `Last line: ${view.line}`
+        : 'Check it.'
+    this.phone.emit({
+      type: 'attention',
+      agentId: id,
+      kind: 'quiet',
+      detail: `No new output for ${duration}. ${context}`,
+      at: view.at
+    })
+    const click = this.phoneClick()
+    void this.push.quiet({
+      agentId: id,
+      agentName: record.name,
+      duration,
+      ...(view.line ? { line: view.line } : {}),
+      ...(view.asking ? { asking: view.asking } : {}),
+      ...(click ? { click } : {})
+    })
+    if (this.notificationsOff()) return
+    const title = `${record.name} is quiet`
+    const body = `No new output for ${duration}. ${context}`
+    void this.notifier
+      .show(id, title, body, 'needs-input', this.config.sound !== false)
+      .then((via) =>
+        this.broadcast({ t: 'notify', id, kind: 'quiet', title, body, ring: via !== 'os' })
+      )
+  }
+
+  private quietEnded(id: string, _view: QuietView, how: QuietEnd, by?: ApprovalBy): void {
+    this.approvals.quietEnded(id, how, by)
+    // A question or a turn end shows its own notification in its place.
+    if (how !== 'needs-input' && how !== 'finished') this.notifier.close(id)
+    this.pushAgent(id)
   }
 
   private adoptSession(id: string, sessionId: string): void {
@@ -1208,6 +1300,7 @@ export class Daemon {
     const record = this.store.get(id)
     if (!record) return
     await this.stopAgent(id)
+    this.quiet.exited(id)
     this.approvals.exited(id)
     this.notifier.close(id)
     forgetAgentStatus(id)
@@ -1301,6 +1394,7 @@ export class Daemon {
   private interruptAgent(record: AgentRecord, by: ApprovalBy): void {
     if (!this.ptys.isRunning(record.id)) return
     this.approvals.interrupting(record.id, by)
+    this.quiet.activity(record.id, 'input', by)
     try {
       this.ptys.interrupt(record.id, interruptKeys(record.harness))
     } catch (error) {
@@ -1334,7 +1428,8 @@ export class Daemon {
           running: view.running,
           ...(view.status ? { status: view.status } : {}),
           ...(view.detail ? { detail: view.detail } : {}),
-          ...(view.queued ? { queued: view.queued } : {})
+          ...(view.queued ? { queued: view.queued } : {}),
+          ...(view.quiet ? { quiet: view.quiet } : {})
         })),
       screen: (id, lines) => {
         if (!this.store.get(id) || !this.screens.has(id)) return null
@@ -1679,6 +1774,12 @@ export class Daemon {
         )
         this.ptys.write(record.id, message.data)
         noteUserInput(record.id, message.data)
+        if (typedByPerson(message.data))
+          this.quiet.activity(record.id, 'input', {
+            via: 'terminal',
+            from: 'local',
+            client: client.name === 'cli' ? 'attach' : client.name
+          })
         return undefined
       }
       case 'paste': {
@@ -1687,11 +1788,16 @@ export class Daemon {
         this.lastInputAt = Date.now()
         if (!this.ptys.paste(record.id, message.text))
           throw new Error(`${record.name} is not running`)
+        this.quiet.activity(record.id, 'input', clientBy(client))
         return undefined
       }
-      case 'send':
+      case 'send': {
         this.lastInputAt = Date.now()
-        return this.sendPrompt(this.need(message.id), message.text, message.whenDone === true)
+        const record = this.need(message.id)
+        const sent = this.sendPrompt(record, message.text, message.whenDone === true)
+        if ('sent' in sent) this.quiet.activity(record.id, 'input', clientBy(client))
+        return sent
+      }
       case 'answer':
         this.lastInputAt = Date.now()
         await this.answerPrompt(this.need(message.id), message.key, clientBy(client))
@@ -1748,6 +1854,12 @@ export class Daemon {
         if (message.dangerousMode !== undefined)
           patch.dangerousMode = message.dangerousMode || undefined
         if (message.model !== undefined) patch.model = message.model ?? undefined
+        if (message.quietAfter !== undefined) {
+          const minutes = message.quietAfter
+          if (minutes !== null && !(Number.isFinite(minutes) && minutes >= 0 && minutes <= 1440))
+            throw new Error('quietAfter: minutes from 0 (off) to 1440')
+          patch.quietAfter = minutes ?? undefined
+        }
         if (message.provider !== undefined) {
           patch.provider = message.provider ?? undefined
           patch.customProviderId =
@@ -2068,7 +2180,8 @@ export class Daemon {
     this.stopping = true
     this.updater.stop()
     if (this.updatePoll) clearInterval(this.updatePoll)
-    // Questions still waiting: nsq stopped before anyone answered them.
+    // Questions still waiting (and quiet episodes): nsq stopped before anyone answered them.
+    this.quiet.closeAll()
     this.approvals.closeAll()
     if (stopAgents) {
       // Keep `wantRunning`: `nsq up` (or the next daemon) brings them back. Their resume

@@ -34,6 +34,8 @@ export interface AgentRecord {
   sessionStarted?: boolean
   /** Should run: restarted by `nsq up` and when the daemon starts. */
   wantRunning: boolean
+  /** Its own quiet threshold in minutes (`nsq set --quiet-after`; 0 = off); else the config's. */
+  quietAfter?: number
 }
 
 function valid(value: unknown): value is AgentRecord {
