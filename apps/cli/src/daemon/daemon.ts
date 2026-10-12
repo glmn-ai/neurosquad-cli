@@ -34,7 +34,6 @@ import {
   forgetAgentStatus,
   formatUsd,
   interruptKeys,
-  noteUserInput,
   notificationText,
   observePtys,
   openCodeExecutable,
@@ -88,10 +87,10 @@ import {
   QuietMonitor,
   quietAfterMs,
   quietDuration,
-  typedByPerson,
   type QuietEnd,
   type QuietView
 } from './quiet.js'
+import { AgentInput, type PtyControl } from './agentInput.js'
 import { fetchOpenRouterModels } from './models.js'
 import { CustomProviderRuntime, checkCustomChoice } from './customProviders.js'
 import {
@@ -255,7 +254,15 @@ export class Daemon {
     (id) => this.store.get(id),
     (line) => this.log(line)
   )
-  private readonly ptys = new PtyHost()
+  /**
+   * The one way input (keys, a paste, a prompt, an answer, an interrupt) reaches an agent's pty:
+   * it is activity, so it also ends a quiet episode. It owns the pty host…
+   */
+  private readonly input = new AgentInput(new PtyHost(), {
+    activity: (id, how, by) => this.quiet.activity(id, how, by)
+  })
+  /** …and the daemon holds it for everything else, without its input methods. */
+  private readonly ptys: PtyControl = this.input.control
   // Terminal replies go straight to the pty: not the person typing, not a submit.
   private readonly screens = new Screens((id, data) => this.ptys.reply(id, data))
   /** The OpenCode start in progress (see OPENCODE_START_GATE_MS); resolves when it is up. */
@@ -719,7 +726,7 @@ export class Daemon {
     const rt = this.rt(id)
     const next = rt.queue.shift()
     if (next === undefined) return
-    this.ptys.submit(id, next)
+    this.input.submit(id, next)
     this.pushAgent(id)
   }
 
@@ -1114,7 +1121,7 @@ export class Daemon {
         this.log(
           `${this.store.get(id)?.name ?? id}: first prompt submitted${ready ? '' : ' (no ready signal in time)'}`
         )
-        this.ptys.submit(id, prompt)
+        this.input.submit(id, prompt)
       }
       finish()
     }, 200)
@@ -1322,7 +1329,8 @@ export class Daemon {
   private sendPrompt(
     record: AgentRecord,
     text: string,
-    whenDone: boolean
+    whenDone: boolean,
+    by: ApprovalBy
   ): { queued: number } | { sent: true } {
     if (!this.ptys.isRunning(record.id)) throw new Error(`${record.name} is not running`)
     const rt = this.rt(record.id)
@@ -1335,7 +1343,7 @@ export class Daemon {
     if (rt.status === 'needs-input') {
       throw new Error(`${record.name} is waiting for an answer; answer it first or use --when-done`)
     }
-    this.ptys.submit(record.id, text)
+    this.input.submit(record.id, text, by)
     return { sent: true }
   }
 
@@ -1374,12 +1382,8 @@ export class Daemon {
     // logged when the agent moves on, dropped if the keys could not be written.
     this.approvals.answering(record.id, key, by)
     try {
-      for (const [index, press] of keys.entries()) {
-        if (index > 0) await new Promise((resolve) => setTimeout(resolve, KEY_GAP_MS))
-        if (!this.ptys.isRunning(record.id)) throw new Error(`${record.name} is not running`)
-        this.ptys.write(record.id, press)
-        noteUserInput(record.id, press)
-      }
+      // As the person's own keys: the status machine moves on, and a quiet episode ends.
+      await this.input.answer(record.id, keys, by, KEY_GAP_MS, record.name)
     } catch (error) {
       this.approvals.answerFailed(record.id)
       throw error
@@ -1394,9 +1398,8 @@ export class Daemon {
   private interruptAgent(record: AgentRecord, by: ApprovalBy): void {
     if (!this.ptys.isRunning(record.id)) return
     this.approvals.interrupting(record.id, by)
-    this.quiet.activity(record.id, 'input', by)
     try {
-      this.ptys.interrupt(record.id, interruptKeys(record.harness))
+      this.input.interrupt(record.id, interruptKeys(record.harness), by)
     } catch (error) {
       this.approvals.interruptFailed(record.id)
       throw error
@@ -1440,9 +1443,9 @@ export class Daemon {
         return this.screens.styled(id, lines, since)
       },
       // A busy agent gets it when its turn ends, as `nsq send --when-done`.
-      submit: (id, text) => {
+      submit: (id, text, caller?: PhoneCaller) => {
         try {
-          this.sendPrompt(running(id), text, true)
+          this.sendPrompt(running(id), text, true, phoneBy(caller))
         } catch (error) {
           refusal(error)
         }
@@ -1772,31 +1775,25 @@ export class Daemon {
           message.data,
           client.name === 'cli' ? 'attach' : client.name
         )
-        this.ptys.write(record.id, message.data)
-        noteUserInput(record.id, message.data)
-        if (typedByPerson(message.data))
-          this.quiet.activity(record.id, 'input', {
-            via: 'terminal',
-            from: 'local',
-            client: client.name === 'cli' ? 'attach' : client.name
-          })
+        this.input.keys(record.id, message.data, {
+          via: 'terminal',
+          from: 'local',
+          client: client.name === 'cli' ? 'attach' : client.name
+        })
         return undefined
       }
       case 'paste': {
         const record = this.need(message.id)
         this.rt(record.id).lastInputAt = Date.now()
         this.lastInputAt = Date.now()
-        if (!this.ptys.paste(record.id, message.text))
+        if (!this.input.paste(record.id, message.text, clientBy(client)))
           throw new Error(`${record.name} is not running`)
-        this.quiet.activity(record.id, 'input', clientBy(client))
         return undefined
       }
       case 'send': {
         this.lastInputAt = Date.now()
         const record = this.need(message.id)
-        const sent = this.sendPrompt(record, message.text, message.whenDone === true)
-        if ('sent' in sent) this.quiet.activity(record.id, 'input', clientBy(client))
-        return sent
+        return this.sendPrompt(record, message.text, message.whenDone === true, clientBy(client))
       }
       case 'answer':
         this.lastInputAt = Date.now()

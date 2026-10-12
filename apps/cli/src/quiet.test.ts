@@ -1,6 +1,7 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   QuietMonitor,
@@ -10,6 +11,7 @@ import {
   type QuietEnd,
   type QuietView
 } from './daemon/quiet.js'
+import { AgentInput, type InputPty } from './daemon/agentInput.js'
 import { ntfyQuietMessage } from './daemon/push.js'
 import { ApprovalLog, readApprovals } from './daemon/approvals.js'
 import { answerLabel, formatApprovals } from './approvalsCommand.js'
@@ -116,6 +118,113 @@ describe('QuietMonitor (fake clock)', () => {
     expect(starts).toHaveLength(1)
     run(2 * 60_000)
     expect(starts).toHaveLength(2)
+  })
+
+  /** A pty that records what went in; every write moves the screen, as the agent would echo. */
+  const fakePty = (): InputPty & { written: string[]; running: boolean } => {
+    const pty = {
+      written: [] as string[],
+      running: true,
+      isRunning: () => pty.running,
+      write: (_id: string, data: string) => void pty.written.push(data),
+      paste: (_id: string, text: string) => (pty.written.push(`paste:${text}`), true),
+      submit: (_id: string, text: string) => (pty.written.push(`submit:${text}`), true),
+      interrupt: (_id: string, keys: string | readonly string[]) =>
+        void pty.written.push(`interrupt:${[keys].flat().join('')}`)
+    }
+    return pty
+  }
+
+  it('an answer (y/a/n from the dashboard, nsq answer, the phone) ends the episode at once', async () => {
+    const pty = fakePty()
+    const noted: string[] = []
+    const input = new AgentInput(pty, monitor, {
+      noteKeys: (_id, data) => void noted.push(data),
+      wait: async () => {}
+    })
+    monitor.status('a', 'working')
+    screen.print(PROMPT)
+    run(6 * 60_000)
+    expect(monitor.current('a')).toMatchObject({ asking: PROMPT })
+    const by = { via: 'cli' as const, from: 'local' as const }
+    // OpenCode's "always": three presses.
+    await input.answer('a', ['\x1b[C', '\r', '\r'], by, 400)
+    expect(monitor.current('a')).toBeUndefined()
+    expect(ends).toEqual([['a', 'input', by]])
+    expect(pty.written).toEqual(['\x1b[C', '\r', '\r'])
+    // As the person's own keys, for the status machine.
+    expect(noted).toEqual(['\x1b[C', '\r', '\r'])
+    // The clock starts again from the answer.
+    run(4 * 60_000)
+    expect(starts).toHaveLength(1)
+    run(2 * 60_000)
+    expect(starts).toHaveLength(2)
+  })
+
+  it('an answer to an agent that stopped between presses throws, after what went in', async () => {
+    const pty = fakePty()
+    const input = new AgentInput(pty, monitor, {
+      noteKeys: () => {},
+      wait: async () => void (pty.running = false)
+    })
+    await expect(
+      input.answer('a', ['1', '2'], { via: 'phone', from: 'lan' }, 400, 'fq')
+    ).rejects.toThrow('fq is not running')
+    expect(pty.written).toEqual(['1'])
+  })
+
+  it('every other way in ends the episode too: keys, a paste, a prompt, an interrupt', () => {
+    const pty = fakePty()
+    const input = new AgentInput(pty, monitor, { noteKeys: () => {} })
+    const by = { via: 'dashboard' as const, from: 'local' as const }
+    const quietNow = (): void => {
+      monitor.status('a', 'working')
+      run(6 * 60_000)
+      expect(monitor.current('a')).toBeDefined()
+    }
+    const ways: [string, () => void][] = [
+      ['keys', () => input.keys('a', 'x', by)],
+      ['paste', () => void input.paste('a', 'text', by)],
+      ['submit', () => void input.submit('a', 'do it', by)],
+      ['queued prompt', () => void input.submit('a', 'next')],
+      ['interrupt', () => input.interrupt('a', ['\x1b'], by)]
+    ]
+    for (const [way, send] of ways) {
+      quietNow()
+      ends.length = 0
+      send()
+      expect(monitor.current('a'), way).toBeUndefined()
+      expect(
+        ends.map(([, how]) => how),
+        way
+      ).toEqual(['input'])
+    }
+    // A focus report is the terminal, not a person: the episode stays.
+    quietNow()
+    ends.length = 0
+    input.keys('a', '\x1b[I', by)
+    expect(monitor.current('a')).toBeDefined()
+    expect(ends).toEqual([])
+    // Nothing goes to a stopped agent, and nothing is credited.
+    pty.running = false
+    expect(input.paste('a', 'late', by)).toBe(false)
+    expect(input.submit('a', 'late', by)).toBe(false)
+    input.interrupt('a', '\x1b', by)
+    expect(pty.written.some((data) => data.includes('late'))).toBe(false)
+    expect(monitor.current('a')).toBeDefined()
+  })
+
+  it('the daemon reaches the pty for input only through AgentInput', () => {
+    const daemon = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), 'daemon', 'daemon.ts'),
+      'utf8'
+    )
+    // AgentInput owns the one pty host; the daemon keeps only its control view (PtyControl has
+    // no write/paste/submit/interrupt, so a direct input call does not compile).
+    expect(daemon.match(/\bnew PtyHost\(/g)).toHaveLength(1)
+    expect(daemon).toMatch(/new AgentInput\(new PtyHost\(\)/)
+    expect(daemon).toMatch(/private readonly ptys: PtyControl = this\.input\.control/)
+    expect(daemon).not.toMatch(/\bnoteUserInput\b/)
   })
 
   it('a hook (progress the harness reported) restarts the clock too', () => {
