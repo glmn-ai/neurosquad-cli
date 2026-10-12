@@ -89,6 +89,13 @@ async function until(
   }
   return check()
 }
+const tail = (file: string): string => {
+  try {
+    return readFileSync(file, 'utf8').slice(-2500)
+  } catch {
+    return '(none)'
+  }
+}
 const pidAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
@@ -163,10 +170,35 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       }
     }
 
-    // `keep` is a plain command: a restart would start it over, so the daemon waits.
+    // `keep` is a plain command: a restart would start it over, so the daemon waits. Its status
+    // comes from its output alone (working on output, finished after 2.5 s of quiet), and on a
+    // loaded Windows runner its "ready" can land seconds late, so the daemon may still (rightly)
+    // see it working when the install is done: wait until it has gone quiet, as the blocker
+    // below is about a command at rest.
+    let agents = ''
+    expect(
+      await until(
+        () => {
+          try {
+            const list = JSON.parse(agents) as { name: string; status?: string }[]
+            return list.some((agent) => agent.name === 'keep' && agent.status === 'finished')
+          } catch {
+            return false
+          }
+        },
+        30_000,
+        async () => {
+          agents = (await nsq('ls', '--json')).stdout
+        }
+      ),
+      agents
+    ).toBe(true)
     const check = await nsq('update', '--check')
-    expect(check.stdout).toMatch(/0\.1\.1 is installed; the daemon runs 0\.1\.0/)
-    expect(check.stdout).toMatch(/keep would start over/)
+    const why = `${check.stdout}\n--- ls ---\n${agents}\n--- daemon.log ---\n${tail(join(home, 'daemon.log'))}`
+    expect(check.stdout, why).toMatch(/0\.1\.1 is installed; the daemon runs 0\.1\.0/)
+    expect(check.stdout, why).toMatch(/keep would start over/)
+    // The `nsq update` asking is not an open window that holds the restart.
+    expect(check.stdout, why).not.toMatch(/nsq window/)
     await new Promise((resolveWait) => setTimeout(resolveWait, 2000))
     expect(daemonState()?.pid).toBe(first?.pid)
 
@@ -241,13 +273,6 @@ describe.skipIf(!built)('auto-update (fake registry, fake npm)', () => {
       return screen().includes(text)
     }
     const debug = (): string => `${screen()}\n--- raw tail ---\n${JSON.stringify(raw.slice(-4000))}`
-    const tail = (file: string): string => {
-      try {
-        return readFileSync(file, 'utf8').slice(-2500)
-      } catch {
-        return '(none)'
-      }
-    }
     try {
       expect(await shows('keep', 20_000), debug()).toBe(true)
 
