@@ -24,6 +24,7 @@ export type QuietEnd =
   | 'needs-input' // the harness asked a question of its own
   | 'idle' // interrupted / back at its prompt
   | 'exited' // the process ended (stopped, restarted, crashed, removed)
+  | 'setting' // quietAfter was set to 0 (off) or raised past how long it had been quiet
   | 'unanswered' // nsq itself stopped
 
 /** What clients see of a quiet episode (`AgentView.quiet`): secrets in the line masked. */
@@ -162,7 +163,11 @@ export class QuietMonitor {
           const { ended } = this.watch.observe(id, screen.lines, now)
           if (ended) this.host.onEnd(id, quietView(ended), 'output')
         }
-        const flag = this.watch.due(id, now, this.host.afterMs(id), screen.lines)
+        const afterMs = this.host.afterMs(id)
+        // Turned off (0) or raised past it while quiet: the episode ends.
+        const unset = this.watch.recheck(id, now, afterMs)
+        if (unset) this.host.onEnd(id, quietView(unset), 'setting')
+        const flag = this.watch.due(id, now, afterMs, screen.lines)
         if (flag) this.host.onStart(id, quietView(flag))
       } catch {
         // one agent's screen never stops the others

@@ -161,6 +161,25 @@ describe('QuietMonitor (fake clock)', () => {
     expect(ends).toEqual([['a', 'unanswered', undefined]])
   })
 
+  it('turning it off (or raising it) while quiet ends the episode at once', () => {
+    monitor.status('a', 'working')
+    run(6 * 60_000)
+    expect(starts).toHaveLength(1)
+    afterMs = 0
+    run(2000)
+    expect(ends).toEqual([['a', 'setting', undefined]])
+    expect(monitor.current('a')).toBeUndefined()
+    afterMs = 30 * 60_000
+    run(10 * 60_000)
+    expect(starts).toHaveLength(1)
+    afterMs = 5 * 60_000
+    run(2000)
+    expect(starts).toHaveLength(2)
+    afterMs = 60 * 60_000
+    run(2000)
+    expect(ends.at(-1)).toEqual(['a', 'setting', undefined])
+  })
+
   it('masks secret-looking parts of the screen line', () => {
     screen.print('export GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123')
     monitor.status('a', 'working')

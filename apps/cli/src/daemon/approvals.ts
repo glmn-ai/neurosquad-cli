@@ -63,7 +63,8 @@ export interface ApprovalBy {
  *
  * A quiet episode (`kind: 'quiet'`) ends with a `QuietEnd`: `output` (the screen changed),
  * `input` (someone typed or sent something — `by`), `hook` (the harness reported progress),
- * `finished` / `needs-input` / `idle` (its status changed), `exited`, `unanswered`.
+ * `finished` / `needs-input` / `idle` (its status changed), `setting` (quietAfter off or raised), `exited`,
+ * `unanswered`.
  */
 export type ApprovalOutcome =
   'answered' | 'terminal' | 'cli' | 'ended' | 'interrupted' | 'exited' | 'unanswered' | QuietEnd

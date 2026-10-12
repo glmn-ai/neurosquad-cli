@@ -247,6 +247,18 @@ export class QuietWatch {
     return watched.flag
   }
 
+  /**
+   * The threshold changed under an open episode (`0` = off, or raised past how long it has been
+   * quiet): the flag goes, the clock keeps running. Returns the ended episode, if any.
+   */
+  recheck(agentId: string, now: number, afterMs: number): QuietFlag | undefined {
+    const watched = this.agents.get(agentId)
+    const flag = watched?.flag
+    if (!watched || !flag || (afterMs > 0 && now - watched.since >= afterMs)) return undefined
+    delete watched.flag
+    return flag
+  }
+
   flag(agentId: string): QuietFlag | undefined {
     return this.agents.get(agentId)?.flag
   }

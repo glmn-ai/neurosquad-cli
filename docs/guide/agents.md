@@ -176,7 +176,7 @@ when nsq flagged it, `quietSince` when its screen last changed, `question.text` 
 showed (`quiet; looks like it's asking: Password for …` or `quiet; last line: …`), and the outcome
 says what ended it: `output` (new output), `input` (someone typed, pasted or sent something — `by`
 says who), `hook` (the CLI reported progress), `finished`, `needs-input` or `idle` (its status
-changed), `exited` or `unanswered`.
+changed), `setting` (`quietAfter` turned off or raised), `exited` or `unanswered`.
 
 Never in it: the environment, keys or tokens, your prompts — only the question. Secret-looking parts
 of a command (`--token …`, `API_KEY=…`, `Authorization: …`, `user:password@`, known key formats)
