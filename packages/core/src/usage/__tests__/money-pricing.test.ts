@@ -3,7 +3,13 @@
 import { describe, expect, it } from 'vitest'
 import type { UsageRecord } from '../types.js'
 import { dollarsToPico, formatUsd, picoShare, picoToDecimal, picoToExactDollars } from '../money.js'
-import { MODEL_PRICES, canonicalModel, listCost, priceFor } from '../pricing.js'
+import {
+  MODEL_PRICES,
+  PRICE_TABLE_VERSION,
+  canonicalModel,
+  listCost,
+  priceFor
+} from '../pricing.js'
 
 const record = (fields: Partial<UsageRecord>): UsageRecord => ({
   id: 't:1',
@@ -148,6 +154,42 @@ describe('listCost', () => {
     expect(listCost(record({ model: 'claude-opus-5', input: 10, webSearches: 3 })).pico).toBe(
       30_050_000_000n
     )
+  })
+  it('prices Claude Sonnet 5.5 ($2 / $2.50 / $4 / $0.10 / $10, 1.1x for US geo)', () => {
+    expect(PRICE_TABLE_VERSION).toBe('2026-10-12')
+    const tokens = {
+      model: 'claude-sonnet-5-5',
+      input: 1000,
+      output: 1000,
+      cacheRead: 10_000,
+      cacheWrite: 2000,
+      cacheWrite1h: 500
+    }
+    // 1000×$2 + 1000×$10 + 10000×$0.10 + 1500×$2.50 (5m) + 500×$4 (1h), per million = $0.01875
+    expect(listCost(record(tokens)).pico).toBe(18_750_000_000n)
+    expect(listCost(record({ ...tokens, model: 'claude-sonnet-5-5-20261001' })).pico).toBe(
+      18_750_000_000n
+    )
+    expect(listCost(record({ ...tokens, geo: 'us' })).pico).toBe(20_625_000_000n)
+  })
+  it('switches Claude Haiku 5.5 to its higher tier only ABOVE 100,000 prompt tokens', () => {
+    // Exactly 100,000 prompt tokens (cache reads count): base tier.
+    // 100000×$0.01 + 1000×$0.50 = $0.0015
+    const at = record({ model: 'claude-haiku-5-5', cacheRead: 100_000, output: 1000 })
+    expect(listCost(at).pico).toBe(1_500_000_000n)
+    // 100,001: the whole request re-priced. 1×$0.50 + 100000×$0.05 + 1000×$2.50 = $0.0075005
+    const over = record({ model: 'claude-haiku-5-5', input: 1, cacheRead: 100_000, output: 1000 })
+    expect(listCost(over).pico).toBe(7_500_500_000n)
+    // Cache writes count toward the prompt and use the tier's write rates.
+    // 100000×$0.625 (5m) + 20000×$1 (1h) = $0.0825
+    const writes = record({ model: 'claude-haiku-5-5', cacheWrite: 120_000, cacheWrite1h: 20_000 })
+    expect(listCost(writes).pico).toBe(82_500_000_000n)
+    // Base-tier write rates below the threshold. 1000×$0.125 + 1000×$0.20 = $0.000325
+    const smallWrites = record({ model: 'claude-haiku-5-5', cacheWrite: 2000, cacheWrite1h: 1000 })
+    expect(listCost(smallWrites).pico).toBe(325_000_000n)
+    // The US multiplier applies on both tiers.
+    expect(listCost({ ...at, geo: 'us' }).pico).toBe(1_650_000_000n)
+    expect(listCost({ ...over, geo: 'us' }).pico).toBe(8_250_550_000n)
   })
   it('switches GPT-5.6 to long-context rates only ABOVE 272K prompt tokens', () => {
     const base = { source: 'codex-cli', provider: 'openai', model: 'gpt-5.6-terra', output: 1000 }
