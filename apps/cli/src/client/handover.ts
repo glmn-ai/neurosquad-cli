@@ -8,6 +8,7 @@ import { compareVersions, isDevVersion } from '../update/semver.js'
 import type { UpdateView } from '../update/updater.js'
 import { VERSION } from '../version.js'
 import { DaemonClient, binScript, readState, spawnDaemon } from './client.js'
+import { isUnknownRequest } from './outdated.js'
 
 export type Handover =
   /** Nothing to do: the daemon runs this version (or a newer one, or a dev build). */
@@ -67,7 +68,7 @@ export async function handOver(
     })
   } catch (error) {
     // Daemons before 0.2.1 do not know the request: the client does it (below).
-    if (!(error instanceof Error && error.message === 'unknown request')) throw error
+    if (!isUnknownRequest(error)) throw error
     byDaemon = null
   }
   if (byDaemon) {

@@ -8,6 +8,47 @@ export type { UpdateView }
 
 export const PROTOCOL_VERSION = 1
 
+/**
+ * What a daemon can do, by name, and the first nsq release that could. A daemon lists the names it
+ * knows in its hello (`capabilities`, since 0.4.1); for older daemons, which list none, a client
+ * goes by their version. A client checks before it asks, so a feature newer than the running
+ * daemon says why it is missing instead of failing with "unknown request". A new request type (or
+ * a new form of one an older daemon would misread) gets a name here, with the release it ships in.
+ */
+export const CAPABILITY_SINCE = {
+  phone: '0.1.0',
+  /** `phone on` through a Cloudflare tunnel (`online` / `named`). */
+  'phone.online': '0.2.0',
+  update: '0.2.0',
+  handover: '0.2.1',
+  /** ntfy push from the dashboard's phone panel (`push`). */
+  push: '0.4.0'
+} as const
+
+export type Capability = keyof typeof CAPABILITY_SINCE
+
+/** Everything this copy's daemon knows (sent in its hello). */
+export const CAPABILITIES = Object.keys(CAPABILITY_SINCE) as Capability[]
+
+/** The capability a request needs, when it is one that not every daemon knows. */
+export function requestCapability(request: Request): Capability | undefined {
+  switch (request.t) {
+    case 'phone':
+      return request.action === 'on' && (request.online === true || request.named === true)
+        ? 'phone.online'
+        : 'phone'
+    case 'update':
+    case 'handover':
+    case 'push':
+      return request.t
+    default:
+      return undefined
+  }
+}
+
+/** The error text a daemon answers a request type it does not know with (every release). */
+export const UNKNOWN_REQUEST = 'unknown request'
+
 /** What clients see of an agent (never a secret). */
 export interface AgentView {
   id: string
@@ -133,7 +174,18 @@ export type RequestWithId = Request & { rid: number }
 
 export type DaemonEvent =
   | { t: 'reply'; rid: number; ok: true; data?: unknown }
-  | { t: 'reply'; rid: number; ok: false; error: string }
+  | {
+      t: 'reply'
+      rid: number
+      ok: false
+      error: string
+      /**
+       * `unknown-request` (0.4.1+; the `error` stays "unknown request" for older clients): the
+       * daemon does not know the request — it is older than the client. `daemonVersion` says which.
+       */
+      code?: 'unknown-request'
+      daemonVersion?: string
+    }
   | { t: 'agents'; agents: AgentView[] }
   | { t: 'agent'; agent: AgentView }
   | { t: 'removed'; id: string }

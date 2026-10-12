@@ -66,6 +66,8 @@ import { readConfig, writeConfig } from '../config.js'
 import {
   LineDecoder,
   PROTOCOL_VERSION,
+  CAPABILITIES,
+  UNKNOWN_REQUEST,
   encode,
   type AgentView,
   type PhoneView,
@@ -115,6 +117,13 @@ import { getSecret } from './secrets.js'
 import { lanAddresses } from '@neurosquad/remote'
 
 const execFileAsync = promisify(execFile)
+
+/** A request this daemon does not know (a newer client): answered with this daemon's version. */
+class UnknownRequestError extends Error {
+  constructor() {
+    super(UNKNOWN_REQUEST)
+  }
+}
 
 export interface DaemonState {
   pid: number
@@ -1572,7 +1581,9 @@ export class Daemon {
   private reply(
     client: Client,
     rid: number,
-    result: { ok: true; data?: unknown } | { ok: false; error: string }
+    result:
+      | { ok: true; data?: unknown }
+      | { ok: false; error: string; code?: 'unknown-request'; daemonVersion?: string }
   ): void {
     this.send(client, { t: 'reply', rid, ...result } as DaemonEvent)
   }
@@ -1589,7 +1600,12 @@ export class Daemon {
       client.name = String(message.client ?? '?')
       this.reply(client, rid, {
         ok: true,
-        data: { version: VERSION, protocol: PROTOCOL_VERSION, pid: process.pid }
+        data: {
+          version: VERSION,
+          protocol: PROTOCOL_VERSION,
+          pid: process.pid,
+          capabilities: CAPABILITIES
+        }
       })
       return
     }
@@ -1597,6 +1613,17 @@ export class Daemon {
       const data = await this.dispatch(client, message)
       this.reply(client, rid, { ok: true, ...(data === undefined ? {} : { data }) })
     } catch (error) {
+      if (error instanceof UnknownRequestError) {
+        // The client is newer than this daemon: the same error text as ever (older clients match
+        // it), plus this daemon's version, so the client can say which one runs.
+        this.reply(client, rid, {
+          ok: false,
+          error: UNKNOWN_REQUEST,
+          code: 'unknown-request',
+          daemonVersion: VERSION
+        })
+        return
+      }
       this.reply(client, rid, {
         ok: false,
         error: error instanceof Error ? error.message : String(error)
@@ -1805,7 +1832,7 @@ export class Daemon {
       case 'handover':
         return this.handoverRequest(message)
       default:
-        throw new Error('unknown request')
+        throw new UnknownRequestError()
     }
   }
 

@@ -3,11 +3,13 @@
 // restart, shut down. Needs the built CLI (`npm run build`) and node-pty.
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { connect } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import pty from 'node-pty'
+import { LineDecoder, encode } from './protocol.js'
 
 const BIN = resolve(fileURLToPath(new URL('.', import.meta.url)), '..', 'bin', 'nsq.js')
 const built = existsSync(resolve(BIN, '..', '..', 'dist', 'bin.js'))
@@ -147,4 +149,32 @@ describe.skipIf(!built)('daemon smoke', () => {
     expect(nsq('rm', 'echo').status).toBe(0)
     expect(list()).toEqual([])
   }, 120_000)
+
+  it('says what it can do in its hello, and its version with "unknown request"', async () => {
+    const state = JSON.parse(readFileSync(join(home, 'daemon.json'), 'utf8')) as {
+      ipc: string
+      token: string
+      version: string
+    }
+    const socket = connect(state.ipc)
+    socket.setEncoding('utf8')
+    const replies: Record<string, unknown>[] = []
+    const decoder = new LineDecoder<Record<string, unknown>>((reply) => replies.push(reply))
+    socket.on('data', (chunk: string) => decoder.push(chunk))
+    await new Promise((resolveConnect) => socket.once('connect', resolveConnect))
+    socket.write(encode({ t: 'hello', token: state.token, version: 1, client: 'test', rid: 1 }))
+    socket.write(encode({ t: 'from-the-future', rid: 2 }))
+    expect(await until(() => replies.length >= 2, 10_000)).toBe(true)
+    socket.destroy()
+    const hello = replies.find((r) => r['rid'] === 1) as { data: { capabilities: string[] } }
+    expect(hello.data.capabilities).toEqual(expect.arrayContaining(['push', 'handover', 'phone']))
+    expect(replies.find((r) => r['rid'] === 2)).toEqual({
+      t: 'reply',
+      rid: 2,
+      ok: false,
+      error: 'unknown request',
+      code: 'unknown-request',
+      daemonVersion: state.version
+    })
+  }, 30_000)
 })
