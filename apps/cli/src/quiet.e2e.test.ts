@@ -5,7 +5,10 @@
 // turn quiet with the prompt as its hint in `nsq ls` (table and --json) and on the phone API,
 // ntfy (a local stand-in server) must get one push with the name, how long and the prompt line,
 // and typing into the agent must clear it at once — logged in the approvals log as a quiet
-// episode ended by input. Needs the built CLI (`npm run build`).
+// episode ended by input. Then the stand-in asks permission (QUIET_AGENT_ASK): a question is not
+// quiet however long it waits, and `nsq answer` moves the agent on with no quiet flag left — its
+// keys go in through the same input path as typing, which ends a quiet episode. Needs the built
+// CLI (`npm run build`).
 import { spawnSync } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -49,6 +52,7 @@ async function until(check: () => boolean, ms = 30_000): Promise<boolean> {
 interface Listed {
   name: string
   status?: string
+  detail?: string
   quiet?: { since: number; at: number; line?: string; asking?: string }
 }
 
@@ -63,6 +67,7 @@ const listed = (): Listed | undefined => {
 const logged = (): {
   kind?: string
   outcome: string
+  answer?: string
   question: { text: string }
   by?: unknown
 }[] => {
@@ -136,7 +141,9 @@ describe.skipIf(!built)('quiet while working', () => {
       NSQ_NO_UPDATE: '1',
       NSQ_KEYRING: 'memory',
       NSQ_NTFY_URL: `http://127.0.0.1:${port}/nsq-quiet-test`,
-      NSQ_TEST_PIDS: pids
+      NSQ_TEST_PIDS: pids,
+      // The stand-in asks permission before its turn ends (scripts/e2e/quiet-agent.mjs).
+      QUIET_AGENT_ASK: '1'
     }
   })
 
@@ -218,10 +225,31 @@ describe.skipIf(!built)('quiet while working', () => {
       question: { text: expect.stringContaining("looks like it's asking: Password for") },
       by: { via: 'terminal', from: 'local' }
     })
-    // git got its line, the turn ends: finished, and no second push.
+    // git got its line; before its turn ends the agent asks permission (a hook reports it).
+    expect(await until(() => listed()?.status === 'needs-input')).toBe(true)
+    // A question waits for you, it is not quiet — however long it waits (threshold: 3 s).
+    await new Promise((resolveWait) => setTimeout(resolveWait, 4500))
+    expect(listed()).toMatchObject({ status: 'needs-input' })
+    expect(listed()?.quiet).toBeUndefined()
+
+    // `nsq answer`: the keys go in as input, the agent moves on, and no quiet flag is left.
+    const answer = nsq('answer', 'fq', 'yes')
+    expect(answer.status, answer.stderr).toBe(0)
+    expect(listed()?.quiet).toBeUndefined()
     expect(await until(() => listed()?.status === 'finished')).toBe(true)
     expect(listed()?.quiet).toBeUndefined()
-    expect(pushes).toHaveLength(1)
+    expect(
+      await until(() => logged().some((entry) => entry.kind !== 'quiet' && entry.answer === 'yes'))
+    ).toBe(true)
+    expect(logged().find((entry) => entry.kind !== 'quiet')).toMatchObject({
+      outcome: 'answered',
+      answer: 'yes',
+      question: { text: expect.stringContaining('gh pr create') },
+      by: { via: 'cli', from: 'local' }
+    })
+    // One quiet episode in all (ended by typing), and one quiet push.
+    expect(logged().filter((entry) => entry.kind === 'quiet')).toHaveLength(1)
+    expect(pushes.filter((push) => JSON.stringify(push.tags) === '["hourglass"]')).toHaveLength(1)
     const log = nsq('log', 'approvals')
     expect(log.stdout).toMatch(/fq\s+Claude Code\s+input\s+terminal \(attach\)\s+quiet; looks like/)
   }, 90_000)

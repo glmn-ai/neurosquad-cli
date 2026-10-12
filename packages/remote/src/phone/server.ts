@@ -766,7 +766,7 @@ export class PhoneServer {
       }
       if (text.length > MAX_PHONE_PROMPT_CHARS) throw new HttpError(413, 'Prompt too long')
       if (!agent.running) throw new HttpError(409, 'This agent is not running', 'not-running')
-      await this.options.host.submit(agent.id, text)
+      await this.options.host.submit(agent.id, text, caller)
     } else if (action === 'answer') {
       const answer = body.key
       if (typeof answer !== 'string' || !(ANSWERS as readonly string[]).includes(answer)) {

@@ -213,8 +213,11 @@ export interface PhoneHost {
     | { version: number; screen?: PhoneStyledScreen }
     | null
     | Promise<{ version: number; screen?: PhoneStyledScreen } | null>
-  /** Paste the text and press Enter — the same path a programmatic prompt takes in the daemon. */
-  submit(agentId: string, text: string): void | Promise<void>
+  /**
+   * Paste the text and press Enter — the same path a programmatic prompt takes in the daemon.
+   * `caller`: who sent it (the host may credit it, e.g. for ending a quiet episode).
+   */
+  submit(agentId: string, text: string, caller?: PhoneCaller): void | Promise<void>
   /** Answer the agent's pending permission prompt. `caller`: who answered (the host may log it). */
   answer(agentId: string, answer: PhoneAnswer, caller?: PhoneCaller): void | Promise<void>
   /** The harness's own interrupt key(s) — Escape for most, never a Ctrl+C that quits the CLI. */
