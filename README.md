@@ -109,7 +109,8 @@ Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/
 | U                      | update: install it now, or restart onto an installed one                              |
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)                           |
 
-The mouse works too: click selects, double-click opens, the wheel moves the selection.
+The mouse works too: click selects, double-click opens, the wheel scrolls an agent's output back
+(over a tile or full screen; Shift+PgUp too) and, over the sidebar, moves the selection.
 
 ## Commands
 

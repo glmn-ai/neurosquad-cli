@@ -67,3 +67,11 @@ export {
 export { NO_INPUT_MODES, encodeFocus, encodePaste, hostModeChanges } from './input.js'
 export { attachReplay, detachReset } from './attach.js'
 export { formatCast, parseCast, type Cast, type CastEvent, type CastHeader } from './cast.js'
+export {
+  createScrollback,
+  wheelKeys,
+  wheelTarget,
+  WHEEL_LINES,
+  type Scrollback,
+  type WheelTarget
+} from './scrollback.js'
