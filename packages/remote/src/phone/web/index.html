@@ -69,6 +69,14 @@
           <button type="button" class="btn danger" data-answer="no">No</button>
         </div>
       </section>
+      <section id="quiet" class="ask quiet-note" hidden>
+        <p class="ask-label">Quiet · check it</p>
+        <p id="quiet-text" class="ask-text"></p>
+        <p class="ask-hint">
+          No new output for a while. nsq does not know what it waits for: look at the screen, then
+          type or send what it needs.
+        </p>
+      </section>
       <div id="screen" class="screen" role="log" aria-label="Agent terminal (read only)">
         <div id="term" class="term"></div>
       </div>

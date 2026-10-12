@@ -3,7 +3,7 @@
 nsq works without any configuration. Settings live in **`~/.neurosquad-cli/config.json`**; every
 field is optional, and a missing or malformed file means the defaults. `nsq config` prints it;
 `nsq config set <key> <value>` / `unset <key>` change `autoUpdate`, `notifications`, `sound`,
-`approvalsLog`, `logos`, `color`, `layout` and `detachKey`. The dashboard reads it when
+`approvalsLog`, `quietAfter`, `logos`, `color`, `layout` and `detachKey`. The dashboard reads it when
 it opens; the daemon (notifications, sound, phone) when it starts — after changing those,
 `nsq down` and `nsq up` (the agents resume).
 
@@ -27,7 +27,12 @@ it opens; the daemon (notifications, sound, phone) when it starts — after chan
 | `dictation`     | on, `CommandOrControl+Shift+Space` | `enabled`, `hotkey`, `mode` (default: a tap toggles, a hold records; or `toggle` / `hold`), `model` ([dictation](dictation.md))            |
 | `phone`         | off                                | written by `nsq phone on` / `nsq phone off` ([phone](phone.md))                                                                            |
 | `approvalsLog`  | `true`                             | the [approvals log](agents.md#the-approvals-log) of every "needs you" question; `false` stops writing it (takes effect at once)            |
+| `quietAfter`    | `5`                                | minutes a working agent may show no new output before it is flagged [quiet](../status.md#quiet-while-working); `0` = off                   |
 | `autoUpdate`    | `true`                             | `true`: check and install new releases by itself; `"notify"`: only show them; `false`: never check ([updates](updates.md))                 |
+
+`quietAfter` takes fractions (`0.5` = 30 s) and applies within seconds, without a restart. One agent
+can have its own: `nsq set <agent> --quiet-after 15` (`--quiet-after default` goes back to this
+value).
 
 ## Environment variables
 

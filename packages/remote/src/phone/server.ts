@@ -223,7 +223,16 @@ function summarize(agent: PhoneHostAgent): PhoneAgentSummary {
     ...(agent.status ? { status: agent.status } : {}),
     running: agent.running,
     hasTerminal: true,
-    ...(detail && agent.status === 'needs-input' ? { detail } : {})
+    ...(detail && agent.status === 'needs-input' ? { detail } : {}),
+    ...(agent.quiet && agent.status === 'working'
+      ? {
+          quiet: {
+            since: agent.quiet.since,
+            ...(agent.quiet.line ? { line: clip(agent.quiet.line, MAX_DETAIL_CHARS) } : {}),
+            ...(agent.quiet.asking ? { asking: clip(agent.quiet.asking, MAX_DETAIL_CHARS) } : {})
+          }
+        }
+      : {})
   }
 }
 
@@ -270,7 +279,10 @@ function cameOverHttps(req: IncomingMessage): boolean {
 /** What a phone would notice in the list: which agents exist, their names and projects. */
 function stateSignature(state: PhoneState): string {
   return state.agents
-    .map((agent) => `${agent.id}:${agent.workspaceId}:${agent.name ?? ''}:${agent.running}`)
+    .map(
+      (agent) =>
+        `${agent.id}:${agent.workspaceId}:${agent.name ?? ''}:${agent.running}:${agent.quiet?.since ?? ''}`
+    )
     .join('|')
 }
 

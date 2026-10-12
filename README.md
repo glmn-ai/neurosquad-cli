@@ -57,6 +57,10 @@ In the dashboard, select an agent with the arrows, press **Enter** to work in it
 - **Exact status, with the question.** Working / **needs you** / finished comes from each CLI's own
   hooks, not from guessing at the screen. "Needs you" carries the harness's own text, e.g.
   _Claude wants to run: npm test_.
+- **Quiet while working.** Some prompts come from tools that never fire a hook — git asking for a
+  password, an installer's `[y/N]`, `sudo`, ssh's host key — or a command just hangs. When a working
+  agent's screen has not changed for 5 minutes (`quietAfter`; a turning spinner does not count),
+  it shows as **quiet — check it**, with the prompt it seems to show, and calls you like "needs you".
 - **Answer inline.** `y` / `a` / `n` (yes / always / no) on a permission prompt, `i` to interrupt,
   `s` to send a prompt — or `S` to send it when the current turn ends.
 - **An approvals log.** Every "needs you" question and how it ended, for all agents, in one file:
@@ -127,7 +131,7 @@ nsq answer <agent> yes|always|no      answer a permission prompt
 nsq interrupt|stop|start|restart <agent>
 nsq rm <agent> [--worktree]           remove (and delete its worktree)
 nsq set <agent> [--dangerous on|off] [--model id|none]
-        [--provider name|openrouter|none]
+        [--provider name|openrouter|none] [--quiet-after min|default]
 nsq diff <agent>                      uncommitted changes (git diff HEAD) in its folder
 nsq peek <agent> [-n 20]              the last lines of its screen
 nsq cost [--since 7d] [--json]        what each agent spent

@@ -170,6 +170,14 @@ shows) and, where the CLI says, the tool and its command, path or url; and the o
 | `exited`      | the agent stopped, restarted or was removed while it waited                                                                                       |
 | `unanswered`  | nsq itself stopped while it waited                                                                                                                |
 
+**Quiet episodes** go into the same file, with `"kind": "quiet"`: a working agent with no new
+output for `quietAfter` minutes ([agent status](../status.md#quiet-while-working)). `askedAt` is
+when nsq flagged it, `quietSince` when its screen last changed, `question.text` what the screen
+showed (`quiet; looks like it's asking: Password for …` or `quiet; last line: …`), and the outcome
+says what ended it: `output` (new output), `input` (someone typed, pasted or sent something — `by`
+says who), `hook` (the CLI reported progress), `finished`, `needs-input` or `idle` (its status
+changed), `exited` or `unanswered`.
+
 Never in it: the environment, keys or tokens, your prompts — only the question. Secret-looking parts
 of a command (`--token …`, `API_KEY=…`, `Authorization: …`, `user:password@`, known key formats)
 are masked and long text is cut. The file is readable only by you on macOS/Linux; at 10 MB it moves

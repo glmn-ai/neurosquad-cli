@@ -24,7 +24,8 @@ const VALUED = new Set([
   'port',
   'expire',
   'hostname',
-  'tunnel-port'
+  'tunnel-port',
+  'quiet-after'
 ])
 
 export function parseArgs(argv: readonly string[]): ParsedArgs {

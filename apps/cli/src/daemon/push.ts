@@ -1,5 +1,7 @@
 // Push to the phone through ntfy (https://ntfy.sh, or a self-hosted server): when an agent needs
-// you, one notification with the agent's name and its question — nothing else from the terminal.
+// you, one notification with the agent's name and its question — nothing else from the terminal;
+// when a working agent goes quiet (./quiet.ts), its name, how long, and the last line of its
+// screen (secret-looking parts masked, 300 characters at most).
 // Opt-in (`nsq phone push ntfy`). The topic URL works like a password (anyone who knows it can
 // read the topic), so it is kept in the OS keyring with the optional access token, never in
 // config.json or the log.
@@ -101,7 +103,7 @@ export function ntfySubscribeLinks(target: NtfyTarget): { android: string; web: 
 export interface PushResult {
   at: number
   ok: boolean
-  kind: 'test' | 'needs-you'
+  kind: 'test' | 'needs-you' | 'quiet'
   error?: string
 }
 
@@ -115,7 +117,48 @@ export interface NeedsYou {
 
 /** The JSON message ntfy publishes (https://docs.ntfy.sh/publish/#publish-as-json). */
 export function ntfyMessage(target: NtfyTarget, event: NeedsYou): Record<string, unknown> {
-  const question = (event.question ?? 'is waiting for you')
+  return {
+    topic: target.topic,
+    title: `${event.agentName} needs you`,
+    message: pushText(event.question ?? 'is waiting for you'),
+    priority: 4,
+    tags: ['bell'],
+    ...(event.click ? { click: event.click } : {})
+  }
+}
+
+export interface QuietPush {
+  agentId: string
+  agentName: string
+  /** How long the screen has been still ("7 min"). */
+  duration: string
+  /** The last non-empty screen line (secrets already masked by the caller). */
+  line?: string
+  /** The line looks like a tool asking something: that line. */
+  asking?: string
+  click?: string
+}
+
+/** The message for a quiet agent: no answer keys (nsq does not know what it waits for). */
+export function ntfyQuietMessage(target: NtfyTarget, event: QuietPush): Record<string, unknown> {
+  const context = event.asking
+    ? `Looks like it's asking: ${event.asking}`
+    : event.line
+      ? `Last line: ${event.line}`
+      : 'No new output. Check it.'
+  return {
+    topic: target.topic,
+    title: pushText(`${event.agentName} has been quiet for ${event.duration}`),
+    message: pushText(context),
+    priority: 4,
+    tags: ['hourglass'],
+    ...(event.click ? { click: event.click } : {})
+  }
+}
+
+/** Plain words only, cut to the message limit. */
+function pushText(text: string): string {
+  const plain = text
     // Plain words only: escape sequences out, other control characters to spaces.
     // eslint-disable-next-line no-control-regex -- terminal escape sequences
     .replace(/\u001b\[[0-9;?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(\u0007|\u001b\\)?/g, '')
@@ -123,14 +166,7 @@ export function ntfyMessage(target: NtfyTarget, event: NeedsYou): Record<string,
     .replace(/[\u0000-\u001f\u007f-\u009f]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
-  return {
-    topic: target.topic,
-    title: `${event.agentName} needs you`,
-    message: question.length > MAX_MESSAGE ? `${question.slice(0, MAX_MESSAGE - 1)}…` : question,
-    priority: 4,
-    tags: ['bell'],
-    ...(event.click ? { click: event.click } : {})
-  }
+  return plain.length > MAX_MESSAGE ? `${plain.slice(0, MAX_MESSAGE - 1)}…` : plain
 }
 
 export class NtfyPush {
@@ -196,6 +232,18 @@ export class NtfyPush {
     } finally {
       this.inFlight.delete(key)
     }
+  }
+
+  /** Sends a quiet notification (the daemon sends one per quiet episode). */
+  async quiet(event: QuietPush): Promise<boolean> {
+    const configured = await this.target()
+    if (!configured) return false
+    return this.send(
+      configured.target,
+      configured.token,
+      ntfyQuietMessage(configured.target, event),
+      'quiet'
+    )
   }
 
   /** Clears the per-agent memory (the agent was answered: the next question pushes again). */

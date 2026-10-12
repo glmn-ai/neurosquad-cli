@@ -164,13 +164,20 @@ export function formatTable(agents: AgentView[], now = Date.now()): string[] {
   const rows = agents.map((agent) => [
     agent.name,
     HARNESS_LABEL[agent.harness],
-    statusLabel(agent),
+    statusLabel(agent, now),
     elapsed(agent.statusAt ?? agent.createdAt, now),
     costLabel(agent),
     agent.worktree ? agent.worktree.branch : '',
     agent.status === 'needs-input'
       ? truncate(agent.detail ?? '', 60)
-      : truncate(tildePath(agent.cwd), 60)
+      : agent.status === 'working' && agent.quiet
+        ? truncate(
+            agent.quiet.asking
+              ? `check it — asking: ${agent.quiet.asking}`
+              : `check it — ${agent.quiet.line ?? 'no new output'}`,
+            60
+          )
+        : truncate(tildePath(agent.cwd), 60)
   ])
   const head = ['NAME', 'HARNESS', 'STATUS', 'SINCE', 'COST', 'BRANCH', 'DETAIL']
   // Display width, not UTF-16 length: CJK and emoji take two columns.
@@ -309,9 +316,21 @@ export async function cmdSet(args: ParsedArgs): Promise<void> {
         : undefined
   const model = flagString(args, 'model')
   const provider = flagString(args, 'provider')
-  if (dangerous === undefined && model === undefined && provider === undefined) {
+  const quietText = flagString(args, 'quiet-after')
+  let quietAfter: number | null | undefined
+  if (quietText !== undefined) {
+    quietAfter = quietText === 'default' ? null : parseQuietMinutes(quietText)
+    if (quietAfter === undefined)
+      throw new UsageError('--quiet-after: minutes (0 = off) or default')
+  }
+  if (
+    dangerous === undefined &&
+    model === undefined &&
+    provider === undefined &&
+    quietAfter === undefined
+  ) {
     throw new UsageError(
-      'nsq set <agent> [--dangerous on|off] [--model <id>|none] [--provider <name>|openrouter|none]'
+      'nsq set <agent> [--dangerous on|off] [--model <id>|none] [--provider <name>|openrouter|none] [--quiet-after <min>|default]'
     )
   }
   await withClient(async (client) => {
@@ -327,7 +346,8 @@ export async function cmdSet(args: ParsedArgs): Promise<void> {
         ? { dangerousMode: dangerous === 'on' || dangerous === 'true' }
         : {}),
       ...(model !== undefined ? { model: model === 'none' ? null : model } : {}),
-      ...(provider !== undefined ? providerFlag(provider) : {})
+      ...(provider !== undefined ? providerFlag(provider) : {}),
+      ...(quietAfter !== undefined ? { quietAfter } : {})
     })
     for (const warning of result.warnings ?? [])
       process.stderr.write(`nsq: ${warning}
@@ -633,6 +653,7 @@ const CONFIG_KEYS: Record<string, { values: string; parse: (text: string) => unk
   notifications: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
   sound: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
   approvalsLog: { values: 'true | false', parse: (text) => BOOLEAN.get(text) },
+  quietAfter: { values: 'minutes (0 = off)', parse: parseQuietMinutes },
   logos: {
     values: 'auto | images | glyphs | neutral',
     parse: (text) => (['auto', 'images', 'glyphs', 'neutral'].includes(text) ? text : undefined)
@@ -649,6 +670,13 @@ const CONFIG_KEYS: Record<string, { values: string; parse: (text: string) => unk
     values: 'Ctrl+<key>',
     parse: (text) => (/^ctrl\+.$/i.test(text) ? text : undefined)
   }
+}
+
+/** Minutes for `quietAfter` / `--quiet-after`: 0 (off) to 1440, fractions allowed. */
+export function parseQuietMinutes(text: string): number | undefined {
+  if (!/^\d+(?:\.\d+)?$/.test(text.trim())) return undefined
+  const minutes = Number(text)
+  return minutes >= 0 && minutes <= 1440 ? minutes : undefined
 }
 
 /** `nsq config` · `get <key>` · `set <key> <value>` · `unset <key>` */

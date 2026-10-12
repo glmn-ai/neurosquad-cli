@@ -190,6 +190,23 @@ function statusOf(agent: AgentView): AgentStatus {
   return (agent.status ?? 'idle') as AgentStatus
 }
 
+/** Working, but nsq flagged it quiet (no new output for its threshold): its episode. */
+function quietOf(agent: AgentView): AgentView['quiet'] {
+  return statusOf(agent) === 'working' ? agent.quiet : undefined
+}
+
+/** "quiet 7m — check it" (what the tile, the sidebar and help say). */
+export function quietLabel(quiet: NonNullable<AgentView['quiet']>, now = Date.now()): string {
+  return `quiet ${elapsed(quiet.since, now)} — check it`
+}
+
+/** What a quiet agent's screen showed: the prompt it seems to ask, else its last line. */
+export function quietContext(quiet: NonNullable<AgentView['quiet']>): string {
+  if (quiet.asking) return `looks like it's asking: ${quiet.asking}`
+  if (quiet.line) return `last line: ${quiet.line}`
+  return 'no new output'
+}
+
 export class Dashboard {
   private readonly theme: Theme
   private readonly compositor: Compositor
@@ -697,6 +714,7 @@ export class Dashboard {
     const status = statusOf(agent)
     const screen = this.screens.get(agent.id)
     const g = glyphSet(this.theme.unicode)
+    if (quietOf(agent)) return seg(this.theme.unicode ? '◌' : '?', { fg: 'quiet', bg, bold: true })
     if (status === 'working') return animations.spinner(this.theme, now, { bg })
     if (status === 'needs-input')
       return animations.attentionDot(this.theme, now, screen?.statusSince ?? 0, bg)
@@ -712,7 +730,8 @@ export class Dashboard {
     canvas.fill(0, 0, width, 1, { bg: 'headerBg' })
     const agents = [...this.agents.values()]
     const needs = agents.filter((a) => statusOf(a) === 'needs-input').length
-    const working = agents.filter((a) => statusOf(a) === 'working').length
+    const quiet = agents.filter((a) => quietOf(a)).length
+    const working = agents.filter((a) => statusOf(a) === 'working' && !quietOf(a)).length
     let total = 0n
     let unpriced = false
     for (const agent of agents) {
@@ -732,6 +751,15 @@ export class Dashboard {
         ? [
             seg(`${g.status['needs-input']} ${needs} need${needs === 1 ? 's' : ''} you  `, {
               fg: 'needsYou',
+              bg: 'headerBg',
+              bold: true
+            })
+          ]
+        : []),
+      ...(quiet
+        ? [
+            seg(`${needs ? '· ' : ''}${this.theme.unicode ? '◌' : '?'} ${quiet} quiet  `, {
+              fg: 'quiet',
               bg: 'headerBg',
               bold: true
             })
@@ -1086,6 +1114,7 @@ export class Dashboard {
       if (y >= rect.y + rect.height - 2) break
       const active = ws.path === current?.path
       const needs = ws.agents.some((a) => statusOf(a) === 'needs-input')
+      const quietHere = !needs && ws.agents.some((a) => quietOf(a))
       const name = basename(ws.path) || ws.path
       canvas.put(rect.x, y, [
         seg(` ${active ? g.chevronDown : g.chevronRight} `, {
@@ -1099,7 +1128,9 @@ export class Dashboard {
         }),
         needs
           ? animations.attentionDot(this.theme, now, 0, 'sidebarBg')
-          : seg(' ', { bg: 'sidebarBg' }),
+          : quietHere
+            ? seg(this.theme.unicode ? '◌' : '?', { fg: 'quiet', bg: 'sidebarBg', bold: true })
+            : seg(' ', { bg: 'sidebarBg' }),
         seg(' ', { bg: 'sidebarBg' })
       ])
       this.sidebarRows.push({ y, workspace: ws.path })
@@ -1116,8 +1147,10 @@ export class Dashboard {
             : agent.costPico !== undefined
               ? formatUsd(BigInt(agent.costPico))
               : ''
-        const right: Seg =
-          status === 'needs-input'
+        const quiet = quietOf(agent)
+        const right: Seg = quiet
+          ? seg(`quiet ${elapsed(quiet.since, now ?? Date.now())}`, { fg: 'quiet', bg, bold: true })
+          : status === 'needs-input'
             ? animations.attentionBadge(
                 this.theme,
                 now,
@@ -1198,6 +1231,7 @@ export class Dashboard {
       const screen = this.screens.get(id)
       const pulse = attention ? animations.attentionPulse(now, screen?.statusSince ?? 0) : undefined
       const style = STATUS_STYLE[status]
+      const quiet = quietOf(agent)
       const badge = logoBadge(this.theme, agent.harness)
       const title: Line = [
         ...badge,
@@ -1205,7 +1239,13 @@ export class Dashboard {
         seg(agent.name, { fg: 'text', bg: 'tileBg', bold: true }),
         seg('  ', { bg: 'tileBg' }),
         this.statusSeg(agent, now, 'tileBg'),
-        seg(` ${style.label}`, { fg: style.role, bg: 'tileBg', bold: style.bold }),
+        quiet
+          ? seg(` ${quietLabel(quiet, now ?? Date.now())}`, {
+              fg: 'quiet',
+              bg: 'tileBg',
+              bold: true
+            })
+          : seg(` ${style.label}`, { fg: style.role, bg: 'tileBg', bold: style.bold }),
         ...(agent.dangerousMode ? [seg('  dangerous', { fg: 'danger', bg: 'tileBg' })] : []),
         ...(agent.queued
           ? [seg(`  +${agent.queued} queued`, { fg: 'mutedText', bg: 'tileBg' })]
@@ -1231,20 +1271,29 @@ export class Dashboard {
             seg(agent.detail ?? 'waiting for your answer', { fg: 'needsYou', bg: 'tileBg' }),
             seg('   y yes · a always · n no', { fg: 'mutedText', bg: 'tileBg' })
           ]
-        : scrolledBack > 0
+        : quiet && scrolledBack === 0
           ? [
-              seg(scrolledLabel(scrolledBack, id === this.expanded), {
-                fg: 'accentText',
+              // No answer keys: nsq does not know what it waits for. Open it and look.
+              seg(quietContext(quiet), { fg: 'quiet', bg: 'tileBg' }),
+              seg(id === this.expanded ? '' : '   ⏎ open', {
+                fg: 'mutedText',
                 bg: 'tileBg'
               })
             ]
-          : id === this.expanded
-            ? [seg(`Ctrl+] back to the grid`, { fg: 'faintText', bg: 'tileBg' })]
-            : agent.worktree
-              ? [seg(`⎇ ${agent.worktree.branch}`, { fg: 'faintText', bg: 'tileBg' })]
-              : focused
-                ? [seg('⏎ open', { fg: 'faintText', bg: 'tileBg' })]
-                : []
+          : scrolledBack > 0
+            ? [
+                seg(scrolledLabel(scrolledBack, id === this.expanded), {
+                  fg: 'accentText',
+                  bg: 'tileBg'
+                })
+              ]
+            : id === this.expanded
+              ? [seg(`Ctrl+] back to the grid`, { fg: 'faintText', bg: 'tileBg' })]
+              : agent.worktree
+                ? [seg(`⎇ ${agent.worktree.branch}`, { fg: 'faintText', bg: 'tileBg' })]
+                : focused
+                  ? [seg('⏎ open', { fg: 'faintText', bg: 'tileBg' })]
+                  : []
       const lines = frame(this.theme, {
         width: rect.width,
         height: rect.height,

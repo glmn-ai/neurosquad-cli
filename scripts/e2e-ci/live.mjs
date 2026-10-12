@@ -19,6 +19,9 @@
 //       online, a new token, the ntfy subscribe link — and a test push to a local ntfy)
 //       phone-screen.mjs (the phone page's terminal view in headless Chrome: colours,
 //       attributes, cursor, wide characters, fit and pinch; agent markup stays text)
+//       quiet.mjs (a working agent whose tool waits for a password with no hook: quiet in the
+//       header, tile and sidebar with the prompt as its hint, ls, the phone API, one ntfy push,
+//       the ring; typing clears it)
 //       scrollback.mjs (scrolling an agent back: the wheel and Shift+PgUp in the grid and full
 //       screen, new output never moves the view, End / any key returns; agents that asked for
 //       the mouse or sit on the alternate screen get the wheel themselves)
@@ -182,6 +185,21 @@ if (plan.herdr) {
       join(HERE, 'phone-screen.mjs'),
       ['--root', root, '--work', screenWork],
       screenWork
+    )
+  }
+  if (existsSync(join(root, 'scripts', 'e2e', 'quiet-agent.mjs'))) {
+    const quietWork = join(out, 'quiet')
+    part(
+      'quiet.mjs',
+      join(HERE, 'quiet.mjs'),
+      [
+        '--root',
+        root,
+        '--work',
+        quietWork,
+        ...(process.platform === 'linux' ? ['--native-notify'] : [])
+      ],
+      quietWork
     )
   }
   if (existsSync(join(root, 'scripts', 'e2e', 'scroll-agent.mjs'))) {

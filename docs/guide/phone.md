@@ -195,6 +195,15 @@ for "needs you", not for "finished". A push is skipped only when it repeats the 
 last pushed successfully for the same agent, within 30 seconds and with no answer in between; a
 different question is pushed right away. Push works whether or not `nsq phone on` is set.
 
+A **quiet** agent (working, but no new output for `quietAfter` minutes — a tool may be waiting for
+a password or a yes/no that no hook reports; see [agent status](../status.md#quiet-while-working))
+gets one push per quiet episode: the title `<agent> has been quiet for 7 min` and, as context, the
+last non-empty line of its screen — `Looks like it's asking: Password for 'https://github.com':`
+when that line looks like a prompt, else `Last line: …` — with secret-looking parts (tokens, keys,
+`NAME=secret`) masked, control characters removed and cut to 300 characters. That one line is the
+only screen content a push ever carries; set `quietAfter` to `0` to never send it. No answer
+actions: open the agent (the page shows it as **Quiet · check it**) and look.
+
 ## Security
 
 - **Off by default**, and loopback-only unless you pass `--lan` (or `--online`, below).

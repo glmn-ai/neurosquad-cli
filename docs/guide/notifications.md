@@ -15,6 +15,19 @@ The rules:
 
 The daemon sends notifications even when the dashboard is closed.
 
+## Quiet agents
+
+Some questions never reach a hook: a tool inside a command the agent runs — git asking for a
+password, an installer's `Continue? [y/N]`, `sudo`, ssh's host-key question — or a command that
+hangs. When a **working** agent's screen has not changed for `quietAfter` minutes (default 5, see
+[configuration](configuration.md); a turning spinner or a counting timer does not count as a
+change), nsq flags it **quiet** and calls you the same way as for "needs you": the desktop
+notification (_api is quiet — No new output for 5 min. Looks like it's asking: Password for
+'https://github.com':_), the terminal bell, the phone and the ntfy push — but without answer keys,
+since nsq does not know what it waits for. Open the agent to look at its screen. Any new output, a
+key you type into it, or the harness reporting progress clears it. Details:
+[agent status](../status.md#quiet-while-working).
+
 ## Per platform
 
 | Platform      | How                                                                                                                                                                                                                                                                                                             |

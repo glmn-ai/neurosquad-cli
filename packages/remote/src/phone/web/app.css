@@ -13,6 +13,7 @@
   --success: oklch(0.7329 0.1935 150.81);
   --warning: oklch(0.8203 0.1388 76.34);
   --warning-fg: oklch(0.2103 0.0059 285.89);
+  --quiet: oklch(0.74 0.12 58);
   --danger: oklch(0.594 0.1967 24.63);
   --term-bg: oklch(0.155 0.005 285.8);
   --term-fg: oklch(0.93 0.004 286);
@@ -813,4 +814,34 @@ code {
     max-width: 880px;
     margin: 0 auto;
   }
+}
+
+/* Quiet (nsq): working, but no new output for the quiet threshold — amber, but not "needs you". */
+.card.quiet {
+  border-style: dashed;
+  border-color: color-mix(in oklch, var(--quiet) 70%, transparent);
+}
+
+[data-status='quiet'] .dot,
+.dot[data-status='quiet'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--quiet);
+}
+
+[data-status='quiet'] .status {
+  color: var(--quiet);
+}
+
+.quiet-note {
+  background: color-mix(in oklch, var(--quiet) 10%, var(--surface));
+  border: 1px dashed color-mix(in oklch, var(--quiet) 60%, transparent);
+}
+
+.quiet-note .ask-label {
+  color: var(--quiet);
+}
+
+.ask-hint {
+  font-size: 12px;
+  color: var(--muted);
 }

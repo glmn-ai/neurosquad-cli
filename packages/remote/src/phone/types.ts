@@ -21,6 +21,21 @@ export interface PhoneAgentSummary {
   hasTerminal: boolean
   /** The pending question while `needs-input` ("Allow Bash: npm test?"), when the harness gave one. */
   detail?: string
+  /**
+   * nsq: working, but its screen has not changed for the quiet threshold — a tool may be waiting
+   * for something no hook reports (a password, `[y/N]`), or it hangs. No answer keys for it.
+   */
+  quiet?: PhoneQuiet
+}
+
+/** A quiet episode as the phone shows it. */
+export interface PhoneQuiet {
+  /** When the screen last changed (epoch ms). */
+  since: number
+  /** The last non-empty screen line (secret-looking parts masked by the host). */
+  line?: string
+  /** The line looks like a tool asking something (a password, a yes/no): that line. */
+  asking?: string
 }
 
 export interface PhoneWorkspaceSummary {
@@ -115,7 +130,8 @@ export type PhoneEvent =
       agentName: string
       workspaceId: string
       workspaceName: string
-      kind: 'finished' | 'needs-input'
+      /** `quiet` (nsq): a working agent with no new output for the quiet threshold. */
+      kind: 'finished' | 'needs-input' | 'quiet'
       /** The harness's own wording, when it gave one. */
       detail?: string
       at: number
@@ -147,6 +163,7 @@ export interface PhoneHostAgent {
   running: boolean
   detail?: string
   queued?: number
+  quiet?: PhoneQuiet
 }
 
 /** Host events; the server turns them into `status` / `attention` phone events. */
@@ -155,7 +172,7 @@ export type PhoneHostEvent =
   | {
       type: 'attention'
       agentId: string
-      kind: 'finished' | 'needs-input'
+      kind: 'finished' | 'needs-input' | 'quiet'
       detail?: string
       at?: number
     }

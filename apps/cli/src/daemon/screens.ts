@@ -283,6 +283,17 @@ export class Screens {
     }
   }
 
+  /** The visible rows as plain text (no scrollback) and the screen's version — the quiet check. */
+  visible(agentId: string): { version: number; lines: string[] } | null {
+    const screen = this.screens.get(agentId)
+    if (!screen) return null
+    const buffer = screen.term.buffer.active
+    const lines: string[] = []
+    for (let y = 0; y < screen.term.rows; y++)
+      lines.push(buffer.getLine(buffer.baseY + y)?.translateToString(true) ?? '')
+    return { version: screen.version, lines }
+  }
+
   /** The last `lines` non-empty lines of plain text (the dashboard's preview, `nsq peek`). */
   tail(agentId: string, lines: number): string[] {
     const screen = this.screens.get(agentId)

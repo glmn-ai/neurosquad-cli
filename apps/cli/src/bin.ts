@@ -35,7 +35,7 @@ const HELP = `nsq ${VERSION} — run several AI coding agents and get called whe
   nsq interrupt|stop|start|restart <agent>
   nsq rm <agent> [--worktree]           remove (and delete its worktree)
   nsq set <agent> [--dangerous on|off] [--model id|none]
-        [--provider name|openrouter|none]
+        [--provider name|openrouter|none] [--quiet-after min|default]
   nsq diff <agent>                      git diff of the agent's folder
   nsq peek <agent> [-n 20]              the last lines of its screen
   nsq cost [--since 7d] [--json]        what each agent spent
