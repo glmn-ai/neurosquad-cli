@@ -10,7 +10,13 @@
 // Sonnet 5.5 and Claude Haiku 5.5 — Haiku 5.5 is priced by prompt length,
 // "prompts over 100,000 tokens" pay higher prices, the length counting input
 // + cache reads + cache writes; the 1.1x US-geo multiplier "also applies to
-// the higher prices for prompts over 100,000 tokens" on Haiku 5.5):
+// the higher prices for prompts over 100,000 tokens" on Haiku 5.5; OpenAI
+// re-fetched 2026-10-13 for gpt-6-astra, gpt-6-sol, gpt-6.1-sol and
+// gpt-6-luna — the pricing page lists gpt-6-sol below the fold of the
+// Standard table, and each model's page (…/docs/models/<id>) says "Prompts
+// with more than 272K input tokens are priced at 2x input and cache rates and
+// 1.5x output for the full request". Codex's `codex-auto-review` and
+// `gpt-5.3-codex-spark` have no published price and stay "no price"):
 // - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
 //   (model table incl. 5m / 1h cache writes and cache hits; fast mode; the
 //   1.1x `inference_geo: "us"` multiplier for 4.6+; web search $10 / 1,000;
@@ -29,7 +35,7 @@
 // `tokens × price` is an exact integer of picodollars (see usageMoney.ts).
 import type { UsageRecord } from './types.js'
 
-export const PRICE_TABLE_VERSION = '2026-10-12'
+export const PRICE_TABLE_VERSION = '2026-10-13'
 
 export const PRICE_SOURCES = [
   'https://platform.claude.com/docs/en/about-claude/pricing',
@@ -165,6 +171,26 @@ export const MODEL_PRICES: readonly ModelPrice[] = [
   claude('claude-haiku-4-5', 1, 1.25, 2, 0.1, 5),
   claude('claude-haiku-3-5', 0.8, 1, 1.6, 0.08, 4),
   // ---- OpenAI (standard tier) ---------------------------------------------
+  openai(
+    'gpt-6-astra',
+    { input: 10, cached: 1, write: 12.5, output: 50 },
+    { input: 20, cached: 2, write: 25, output: 75 }
+  ),
+  openai(
+    'gpt-6.1-sol',
+    { input: 2, cached: 0.1, write: 2.5, output: 10 },
+    { input: 4, cached: 0.2, write: 5, output: 15 }
+  ),
+  openai(
+    'gpt-6-sol',
+    { input: 2, cached: 0.2, write: 2.5, output: 10 },
+    { input: 4, cached: 0.4, write: 5, output: 15 }
+  ),
+  openai(
+    'gpt-6-luna',
+    { input: 0.1, cached: 0.01, write: 0.125, output: 0.5 },
+    { input: 0.2, cached: 0.02, write: 0.25, output: 0.75 }
+  ),
   openai(
     'gpt-5.6-sol',
     { input: 4, cached: 0.4, write: 5, output: 20 },

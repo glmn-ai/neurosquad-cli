@@ -156,7 +156,6 @@ describe('listCost', () => {
     )
   })
   it('prices Claude Sonnet 5.5 ($2 / $2.50 / $4 / $0.10 / $10, 1.1x for US geo)', () => {
-    expect(PRICE_TABLE_VERSION).toBe('2026-10-12')
     const tokens = {
       model: 'claude-sonnet-5-5',
       input: 1000,
@@ -201,6 +200,30 @@ describe('listCost', () => {
     expect(listCost(record({ ...base, input: 72_001, cacheRead: 200_000 })).pico).toBe(
       386_004_000_000n
     )
+  })
+  it('prices GPT-6 Astra, Sol, 6.1 Sol and Luna; Codex-only models stay unpriced', () => {
+    expect(PRICE_TABLE_VERSION).toBe('2026-10-13')
+    const base = {
+      source: 'codex-cli',
+      provider: 'openai',
+      input: 100_000,
+      cacheRead: 100_000,
+      output: 10_000
+    }
+    // 100000×$10 + 100000×$1 + 10000×$50 = $1.60
+    expect(listCost(record({ ...base, model: 'gpt-6-astra' })).pico).toBe(1_600_000_000_000n)
+    // 100000×$2 + 100000×$0.20 + 10000×$10 = $0.32; 6.1 Sol halves only the cached input: $0.31
+    expect(listCost(record({ ...base, model: 'gpt-6-sol' })).pico).toBe(320_000_000_000n)
+    expect(listCost(record({ ...base, model: 'gpt-6.1-sol' })).pico).toBe(310_000_000_000n)
+    // 100000×$0.10 + 100000×$0.01 + 10000×$0.50 = $0.016
+    expect(listCost(record({ ...base, model: 'gpt-6-luna' })).pico).toBe(16_000_000_000n)
+    // Above 272K prompt tokens: 300000×$20 + 10000×$75 = $6.75
+    expect(
+      listCost(record({ ...base, model: 'gpt-6-astra', input: 300_000, cacheRead: 0 })).pico
+    ).toBe(6_750_000_000_000n)
+    for (const model of ['codex-auto-review', 'gpt-5.3-codex-spark']) {
+      expect(listCost(record({ ...base, model })).reason).toBe('unknown-model')
+    }
   })
   it('never prices an unknown model or a rate the vendor does not publish', () => {
     expect(listCost(record({ model: 'mystery', input: 5 })).reason).toBe('unknown-model')
