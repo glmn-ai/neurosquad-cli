@@ -1,8 +1,12 @@
 // Handing things to the person's desktop: a link to the browser, text to the clipboard.
 import { spawn } from 'node:child_process'
 
-/** Opens an http(s) link in the default browser. Anything else is refused. */
-export function openInBrowser(url: string): boolean {
+/**
+ * Opens an http(s) link in the default browser; anything else is refused. Returns false when it
+ * could not even start; `onError` hears of an opener that turned out to be missing (ENOENT
+ * arrives after the spawn).
+ */
+export function openInBrowser(url: string, onError?: () => void): boolean {
   if (!/^https?:\/\//i.test(url)) return false
   if (process.env['NSQ_NO_BROWSER'] === '1') return false
   try {
@@ -13,7 +17,7 @@ export function openInBrowser(url: string): boolean {
           ? ['open', [url]]
           : ['xdg-open', [url]]
     const child = spawn(command, args, { stdio: 'ignore', detached: true, windowsHide: true })
-    child.on('error', () => {})
+    child.on('error', () => onError?.())
     child.unref()
     return true
   } catch {

@@ -1955,8 +1955,8 @@ export class Dashboard {
 
   private setSelection(id: string, range: Selection | null): void {
     this.selection = range ? { id, range } : null
-    const screen = this.screens.get(id)
-    screen?.tile?.setOptions({ selection: range })
+    // The next frame hands it to the tile; a change of the selection alone repaints by diff.
+    this.schedule()
   }
 
   private clearSelection(): void {
@@ -1972,12 +1972,16 @@ export class Dashboard {
 
   /** Over SSH the browser would open on the wrong machine: the link is copied instead. */
   private openLink(url: string): void {
-    if (!isRemoteSession(process.env) && openInBrowser(url)) {
+    const copyInstead = (): void => {
+      this.copy(url)
+      this.toastMessage(`link copied: ${url}`, 3000)
+    }
+    // No opener on this machine (no xdg-open) fails after the fact: copied then.
+    if (!isRemoteSession(process.env) && openInBrowser(url, copyInstead)) {
       this.toastMessage(`opening ${url}`, 3000)
       return
     }
-    this.copy(url)
-    this.toastMessage(`link copied: ${url}`, 3000)
+    copyInstead()
   }
 
   /** The scroll position changed: repaint the tile and its footer. */

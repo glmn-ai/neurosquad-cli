@@ -256,7 +256,9 @@ export function createCompositor(options: CompositorOptions): Compositor {
           const previous = state.options
           state.options = { ...state.options, ...next }
           if (next.fit) renderer.setFit(next.fit)
-          // Only the selection moved: the renderer's diff repaints just those cells.
+          // Only the selection moved: the renderer's diff repaints just those cells. Any other
+          // call repaints the tile fully, as it always has (the dashboard re-sends its options
+          // every frame and relies on that).
           const keys = Object.keys(next) as (keyof TileOptions)[]
           const changed = keys.filter((k) => next[k] !== previous[k])
           if (changed.length === 0 || changed.some((k) => k !== 'selection')) renderer.invalidate()
