@@ -35,12 +35,17 @@ import {
 import {
   createCompositor,
   createScrollback,
+  bufferTop,
   createTermView,
   encodePaste,
   gridRowText,
+  linkAt,
+  selectionText,
   wheelKeys,
   wheelTarget,
+  type CellPos,
   type Compositor,
+  type Selection,
   type Scrollback,
   type Tile,
   type TermView
@@ -62,6 +67,7 @@ import { HARNESS_LABEL, costLabel, elapsed } from '../format.js'
 import type { AgentView, DaemonEvent, PhoneView, UpdateView } from '../protocol.js'
 import { updateBadge } from '../update/describe.js'
 import { expandTilde, paths, tildePath } from '../paths.js'
+import { copyToSystemClipboard, openInBrowser, osc52 } from '../desktop.js'
 import { Canvas } from './canvas.js'
 import {
   InputParser,
@@ -228,6 +234,10 @@ export class Dashboard {
   private scheduled: ReturnType<typeof setTimeout> | null = null
   private lastFrameAt = 0
   private lastClick = { at: 0, id: '' }
+  /** A left button held down over an agent's text: a drag selects, a click opens a link. */
+  private drag: { id: string; anchor: CellPos; moved: boolean } | null = null
+  /** Text selected in an agent's tile (shown inverted until the next click or key). */
+  private selection: { id: string; range: Selection } | null = null
   private resizeTimer: ReturnType<typeof setTimeout> | null = null
   private wantedSizes = new Map<string, { cols: number; rows: number }>()
   private unsubscribeTicker: (() => void) | null = null
@@ -631,10 +641,11 @@ export class Dashboard {
         if (!screen) continue
         const scrollOffset = screen.scroll.offset
         // Scrolled back, the agent's cursor is somewhere below the view: not shown.
+        const selection = this.selection?.id === id ? this.selection.range : null
         const options =
           id === this.expanded
-            ? { showCursor: scrollOffset === 0, fit: 'follow' as const, scrollOffset }
-            : { fit: 'follow' as const, scrollOffset }
+            ? { showCursor: scrollOffset === 0, fit: 'follow' as const, scrollOffset, selection }
+            : { fit: 'follow' as const, scrollOffset, selection }
         if (!screen.tile) screen.tile = this.compositor.addTile(screen.view, rect, options)
         else {
           screen.tile.setRect(rect)
@@ -1446,6 +1457,7 @@ export class Dashboard {
         const rows: [string, string][] = [
           ['↑↓←→ hjkl, Tab', 'select an agent'],
           ['Enter / double-click', 'open full screen (Ctrl+] back)'],
+          ['drag / click a link', 'copy the text / open the link in the browser'],
           ['wheel, Shift+PgUp/PgDn', 'scroll an agent back (Shift+Home/End: oldest / live)'],
           ['y  a  n', 'answer a permission prompt: yes / always / no'],
           ['s / S', 'send a prompt / send when the turn is done'],
@@ -1768,8 +1780,13 @@ export class Dashboard {
       else animations.sharedTicker.pause('background')
       return
     }
+    if (event.type === 'key' || event.type === 'paste' || this.modal) this.clearSelection()
     if (this.modal) {
       this.handleModal(event)
+      this.schedule()
+      return
+    }
+    if (event.type === 'mouse' && this.selectWithMouse(event)) {
       this.schedule()
       return
     }
@@ -1867,6 +1884,100 @@ export class Dashboard {
       return
     }
     if (applyWheel(screen.scroll, event)) this.scrolled(screen)
+  }
+
+  /** The agent's text cell under the mouse, clamped to its tile; null off every tile. */
+  private cellAt(id: string, event: MouseEvent, clamp: boolean): CellPos | null {
+    const rect = this.tileAreas.get(id)
+    const screen = this.screens.get(id)
+    if (!rect || !screen) return null
+    const body = inner(rect)
+    if (!clamp && !contains(body, event.x, event.y)) return null
+    const viewport = screen.tile?.renderer.viewport ?? { left: 0, top: 0 }
+    const x = Math.max(0, Math.min(body.width - 1, event.x - body.x)) + viewport.left
+    const y = Math.max(0, Math.min(body.height - 1, event.y - body.y)) + viewport.top
+    return {
+      line: bufferTop(screen.view, screen.scroll.offset) + y,
+      col: Math.min(x, screen.view.cols - 1)
+    }
+  }
+
+  /**
+   * The dashboard has the mouse, so the host terminal can no longer select text or open links;
+   * we do it: drag over an agent's text to copy it, click a link to open it. An open agent that
+   * asked for the mouse itself (a full-screen TUI) still gets it. Returns whether it was ours.
+   */
+  private selectWithMouse(event: MouseEvent): boolean {
+    if (event.button !== 0) return false
+    if (event.action === 'down') {
+      this.clearSelection()
+      const id =
+        this.expanded ?? [...this.tileAreas].find(([, r]) => contains(r, event.x, event.y))?.[0]
+      const screen = id ? this.screens.get(id) : undefined
+      if (!id || !screen) return false
+      if (this.expanded && wheelTarget(screen.view.modes()) === 'mouse') return false
+      const anchor = this.cellAt(id, event, false)
+      if (!anchor) return false
+      this.drag = { id, anchor, moved: false }
+      // In the grid a press still selects the tile; a double click opens it (and no link).
+      if (!this.expanded) {
+        this.click(id)
+        if (this.expanded) this.drag = null
+      }
+      return true
+    }
+    const drag = this.drag
+    if (!drag) return false
+    const at = this.cellAt(drag.id, event, true)
+    if (event.action === 'move') {
+      if (at && (drag.moved || at.line !== drag.anchor.line || at.col !== drag.anchor.col)) {
+        drag.moved = true
+        this.setSelection(drag.id, { start: drag.anchor, end: at })
+      }
+      return true
+    }
+    // Released.
+    this.drag = null
+    const screen = this.screens.get(drag.id)
+    if (!screen) return true
+    if (drag.moved && this.selection) {
+      const text = selectionText(screen.view, this.selection.range)
+      if (text.trim()) {
+        this.copy(text)
+        this.toastMessage(`copied ${text.length} characters`, 2000)
+      } else this.clearSelection()
+      return true
+    }
+    const link = linkAt(screen.view, drag.anchor)
+    if (link) this.openLink(link)
+    return true
+  }
+
+  private setSelection(id: string, range: Selection | null): void {
+    this.selection = range ? { id, range } : null
+    const screen = this.screens.get(id)
+    screen?.tile?.setOptions({ selection: range })
+  }
+
+  private clearSelection(): void {
+    if (this.selection) this.setSelection(this.selection.id, null)
+    this.drag = null
+  }
+
+  /** To the host terminal's clipboard (OSC 52, reaches it over SSH too) and, locally, the system's. */
+  private copy(text: string): void {
+    this.stdout.write(osc52(text))
+    if (!isRemoteSession(process.env)) copyToSystemClipboard(text)
+  }
+
+  /** Over SSH the browser would open on the wrong machine: the link is copied instead. */
+  private openLink(url: string): void {
+    if (!isRemoteSession(process.env) && openInBrowser(url)) {
+      this.toastMessage(`opening ${url}`, 3000)
+      return
+    }
+    this.copy(url)
+    this.toastMessage(`link copied: ${url}`, 3000)
   }
 
   /** The scroll position changed: repaint the tile and its footer. */

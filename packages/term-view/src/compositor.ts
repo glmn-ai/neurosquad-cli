@@ -26,6 +26,7 @@ import {
 import type { TermModes, TermView } from './termView.js'
 import { NO_INPUT_MODES, hostModeChanges } from './input.js'
 import type { FitMode } from './viewport.js'
+import { highlightSelection, type Selection } from './selection.js'
 
 export interface TileOptions {
   fit?: FitMode
@@ -42,6 +43,8 @@ export interface TileOptions {
    * expanded tile whose keys go to the agent. At most one tile.
    */
   syncInputModes?: boolean
+  /** Text the person selected, shown inverted (buffer lines; `null` clears it). */
+  selection?: Selection | null
 }
 
 export interface Tile {
@@ -180,6 +183,7 @@ export function createCompositor(options: CompositorOptions): Compositor {
       state.syncSince = 0
       state.dirty = false
       state.grid = state.view.snapshot(state.grid, { scrollOffset: state.options.scrollOffset })
+      if (state.options.selection) highlightSelection(state.grid, state.options.selection)
       body += state.renderer.render(state.grid, paint)
       if (state.options.showCursor) cursorAt = state.renderer.cursorPosition(state.grid)
     }
@@ -249,9 +253,13 @@ export function createCompositor(options: CompositorOptions): Compositor {
           markDirty(state)
         },
         setOptions(next) {
+          const previous = state.options
           state.options = { ...state.options, ...next }
           if (next.fit) renderer.setFit(next.fit)
-          renderer.invalidate()
+          // Only the selection moved: the renderer's diff repaints just those cells.
+          const keys = Object.keys(next) as (keyof TileOptions)[]
+          const changed = keys.filter((k) => next[k] !== previous[k])
+          if (changed.length === 0 || changed.some((k) => k !== 'selection')) renderer.invalidate()
           markDirty(state)
         },
         invalidate() {

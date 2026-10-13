@@ -25,6 +25,8 @@
 //       scrollback.mjs (scrolling an agent back: the wheel and Shift+PgUp in the grid and full
 //       screen, new output never moves the view, End / any key returns; agents that asked for
 //       the mouse or sit on the alternate screen get the wheel themselves)
+//       selection.mjs (the dashboard has the mouse, so it selects and opens links itself: a drag
+//       copies the text under it (OSC 52) and shows it inverted, a click on a link hands it over)
 //
 // Writes <out>/results.json: { os, arch, suite, versions, parts: [{ part, exit, checks }] }.
 //
@@ -209,6 +211,15 @@ if (plan.herdr) {
       join(HERE, 'scrollback.mjs'),
       ['--root', root, '--work', scrollWork],
       scrollWork
+    )
+  }
+  if (existsSync(join(root, 'scripts', 'e2e-ci', 'selection.mjs'))) {
+    const selectionWork = join(out, 'selection')
+    part(
+      'selection.mjs',
+      join(HERE, 'selection.mjs'),
+      ['--root', root, '--work', selectionWork],
+      selectionWork
     )
   }
 }

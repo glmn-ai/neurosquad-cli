@@ -3,7 +3,6 @@
 // features. Tokens live in the OS keyring only.
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import { spawn } from 'node:child_process'
 import {
   CloudHttp,
   CloudSession,
@@ -12,6 +11,7 @@ import {
   LoginError,
   resolveCloudOrigins
 } from '@neurosquad/remote'
+import { openInBrowser } from './desktop.js'
 import { paths } from './paths.js'
 import { VERSION } from './version.js'
 
@@ -23,23 +23,6 @@ export function cloudSession(): CloudSession {
     store: new FileSessionStore(join(paths.home(), 'cloud.json')),
     device: { deviceName: hostname(), platform: process.platform, appVersion: VERSION }
   })
-}
-
-function openInBrowser(url: string): void {
-  if (process.env['NSQ_NO_BROWSER'] === '1') return
-  try {
-    const [command, args] =
-      process.platform === 'win32'
-        ? ['explorer.exe', [url]]
-        : process.platform === 'darwin'
-          ? ['open', [url]]
-          : ['xdg-open', [url]]
-    const child = spawn(command, args, { stdio: 'ignore', detached: true, windowsHide: true })
-    child.on('error', () => {})
-    child.unref()
-  } catch {
-    // Printed anyway.
-  }
 }
 
 export async function cmdCloud(verb: 'login' | 'logout' | 'whoami'): Promise<void> {
