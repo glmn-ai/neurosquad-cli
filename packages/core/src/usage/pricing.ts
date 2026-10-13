@@ -12,8 +12,11 @@
 // + cache reads + cache writes; the 1.1x US-geo multiplier "also applies to
 // the higher prices for prompts over 100,000 tokens" on Haiku 5.5; OpenAI
 // re-fetched 2026-10-13 for gpt-6-astra, gpt-6-sol, gpt-6.1-sol and
-// gpt-6-luna. Codex's `codex-auto-review` and `gpt-5.3-codex-spark` have no
-// published price and stay "no price"):
+// gpt-6-luna — the pricing page lists gpt-6-sol below the fold of the
+// Standard table, and each model's page (…/docs/models/<id>) says "Prompts
+// with more than 272K input tokens are priced at 2x input and cache rates and
+// 1.5x output for the full request". Codex's `codex-auto-review` and
+// `gpt-5.3-codex-spark` have no published price and stay "no price"):
 // - Anthropic: https://platform.claude.com/docs/en/about-claude/pricing
 //   (model table incl. 5m / 1h cache writes and cache hits; fast mode; the
 //   1.1x `inference_geo: "us"` multiplier for 4.6+; web search $10 / 1,000;
