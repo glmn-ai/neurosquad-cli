@@ -23,6 +23,15 @@ agent scrolls its output back (Shift+PgUp / PgDn too; new output doesn't move th
 for the agent returns to the live screen) and over the sidebar moves the selection; an agent that
 asked for the mouse gets the wheel — and in full screen the clicks — itself.
 
+Because the dashboard holds the mouse, the host terminal can no longer select text or open links,
+so nsq does both. Drag over an agent's text: the selection shows inverted and is copied, to the
+host terminal's clipboard (OSC 52, which reaches your own machine over SSH too) and, locally, the
+system clipboard (`clip.exe`, `pbcopy`, `wl-copy` / `xclip`). A click on an http(s) link opens it
+in the browser, following a link the terminal wrapped or the agent broke at the edge of its
+screen; over SSH the browser would open on the wrong machine, so the link is copied instead. A
+click or a key clears the selection. An agent in full screen that asked for the mouse still gets
+the clicks.
+
 ## How it draws
 
 - **Tiles** are `@neurosquad/term-view`: one headless terminal per agent, fed with the daemon's

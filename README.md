@@ -114,7 +114,9 @@ Want another CLI? [Request it](https://github.com/glmn-ai/neurosquad-cli/issues/
 | [ ] · b · ? · q        | page of tiles · sidebar · help · quit (agents keep running)                           |
 
 The mouse works too: click selects, double-click opens, the wheel scrolls an agent's output back
-(over a tile or full screen; Shift+PgUp too) and, over the sidebar, moves the selection.
+(over a tile or full screen; Shift+PgUp too) and, over the sidebar, moves the selection. Drag over
+an agent's text to copy it, click a link to open it in your browser: the dashboard holds the mouse,
+so it does what your terminal would.
 
 ## Commands
 

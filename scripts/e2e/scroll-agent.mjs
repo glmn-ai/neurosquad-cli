@@ -7,12 +7,18 @@
 //       a few lines, and appends everything it reads on stdin to <log>
 //   node scripts/e2e/scroll-agent.mjs alt <log>       full screen on the alternate screen, no
 //       mouse; appends its stdin to <log> (a wheel notch arrives as cursor keys)
+//   node scripts/e2e/scroll-agent.mjs text            a line to select and a link to click
+//       (scripts/e2e-ci/selection.mjs)
 import { appendFileSync, writeFileSync } from 'node:fs'
 
 const [mode = 'lines', log] = process.argv.slice(2)
 const out = (text) => process.stdout.write(text)
 
-if (mode === 'lines') {
+if (mode === 'text') {
+  out('pick me: alpha beta gamma\r\n')
+  out('docs at https://example.com/nsq/docs?x=1. thanks\r\n')
+  setInterval(() => {}, 60_000)
+} else if (mode === 'lines') {
   let text = ''
   for (let i = 1; i <= 300; i++) text += `line ${i}\r\n`
   out(text)

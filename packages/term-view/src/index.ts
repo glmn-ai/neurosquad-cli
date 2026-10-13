@@ -75,3 +75,12 @@ export {
   type Scrollback,
   type WheelTarget
 } from './scrollback.js'
+export {
+  bufferTop,
+  highlightSelection,
+  linkAt,
+  orderSelection,
+  selectionText,
+  type CellPos,
+  type Selection
+} from './selection.js'
