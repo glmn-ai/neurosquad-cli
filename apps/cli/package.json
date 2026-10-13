@@ -1,6 +1,6 @@
 {
   "name": "neurosquad",
-  "version": "0.5.3",
+  "version": "0.6.0",
   "description": "nsq — run several AI coding agents in your terminal and get called when one needs you.",
   "license": "MIT",
   "author": "NeuroSquad",
@@ -33,7 +33,7 @@
     "@neurosquad/core": "0.4.2",
     "@neurosquad/notify": "0.1.0",
     "@neurosquad/remote": "0.5.1",
-    "@neurosquad/term-view": "0.1.1",
+    "@neurosquad/term-view": "0.2.0",
     "@neurosquad/tui-theme": "0.2.0",
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/addon-unicode-graphemes": "^0.4.0",
