@@ -1,5 +1,11 @@
 # @neurosquad/term-view
 
+## 0.2.0
+
+### Minor Changes
+
+- [#76](https://github.com/glmn-ai/neurosquad-cli/pull/76) [`7383db9`](https://github.com/glmn-ai/neurosquad-cli/commit/7383db901e93ed65c604295157adf9560d8d6b40) Thanks [@neurosquad-dev-bot](https://github.com/apps/neurosquad-dev-bot)! - The dashboard selects text and opens links itself. It holds the mouse, so the terminal couldn't do either: now a drag over an agent's text copies it (OSC 52, plus the system clipboard when local) and shows it inverted, and a click on an http(s) link opens it in the browser (copied instead over SSH). term-view gains `linkAt`, `selectionText`, `bufferTop` and a tile `selection` option.
+
 ## 0.1.1
 
 ### Patch Changes
