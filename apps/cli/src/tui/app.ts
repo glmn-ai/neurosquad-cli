@@ -1973,6 +1973,7 @@ export class Dashboard {
   /** Over SSH the browser would open on the wrong machine: the link is copied instead. */
   private openLink(url: string): void {
     const copyInstead = (): void => {
+      if (this.closed) return
       this.copy(url)
       this.toastMessage(`link copied: ${url}`, 3000)
     }
