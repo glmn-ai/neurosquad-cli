@@ -29,7 +29,7 @@
     "build": "tsc -b"
   },
   "dependencies": {
-    "@napi-rs/keyring": "^2.1.0",
+    "@napi-rs/keyring": "^2.1.2",
     "@neurosquad/core": "0.4.2",
     "@neurosquad/notify": "0.1.0",
     "@neurosquad/remote": "0.5.1",
